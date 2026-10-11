@@ -200,14 +200,23 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
         .map_err(|e| AppError::Other(format!("打开浏览器失败: {}", e)))
 }
 
-/// 检查源列表：GitHub raw 为主，jsDelivr 各入口为国内网络 fallback（缓存延迟
-/// 数小时，对更新检查可接受）。依次尝试，第一个成功者生效。
+/// 检查源列表：GitHub raw 为主，jsDelivr 各入口为国内网络 fallback。依次尝试，
+/// 第一个成功者生效。
 ///
-/// **为什么列了三个 jsDelivr 域名**：jsDelivr 是一组指向不同边缘节点的入口
-/// 域名 —— `cdn` 走 Cloudflare、`fastly` 走 Fastly、`gcore` 走 GCore。它们
-/// 返回同一份缓存内容，但**在部分国内网络上只有个别入口通**。实测（2026-10-11，
-/// 国内线路）：`cdn` 与 `raw.githubusercontent` 双双超时，`fastly` 1.4s、
-/// `gcore` 0.6s 正常。只挂一个 jsDelivr 入口等于「有兜底但兜底本身也会挂」。
+/// **为什么列多个 jsDelivr 域名**：jsDelivr 是一组指向不同边缘节点的入口域名
+/// —— `cdn` 走 Cloudflare、`fastly` 走 Fastly、`gcore` 走 GCore。它们返回同一份
+/// 缓存内容，但**在部分国内网络上只有个别入口通**。实测（2026-10-11，国内线路）：
+/// `cdn` 与 `raw.githubusercontent` 双双超时，`fastly` 1.4s、`gcore` 0.6s 正常。
+/// 只挂一个 jsDelivr 入口等于「有兜底但兜底本身也会挂」。
+/// （jsDelivr 官方文档声明根端点是 `cdn.jsdelivr.net`，另几个域名未列入文档，
+/// 但实测可用；作为 extra 层放在主端点之后，主端点恢复时不会受影响。）
+///
+/// **为什么用 `@main` 而不是 tag**：jsDelivr 对**分支引用缓存 12 小时且 purge
+/// 无效**（官方 purge API 只对 semver 版本标签生效）。发版后 latest.json 的
+/// 改动要等最多 12 小时才被用户看到 —— 实测发 v1.7.1 时 `@main` 仍返回 12
+/// 小时前的旧内容（无镜像字段），而 `@v1.7.1` 立刻是新内容。raw 主源不走
+/// CDN、无缓存，所以覆盖快的是它；jsDelivr 作为兜底，晚几个小时拿到新版本
+/// 可以接受（拿不到就继续等下一个检查周期，不影响正确性）。
 pub const CHECK_URLS: &[&str] = &[
     "https://raw.githubusercontent.com/q541810/Marcel_ssh/main/latest.json",
     "https://cdn.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
@@ -709,6 +718,28 @@ mod tests {
             assert!(
                 url.contains("q541810/Marcel_ssh"),
                 "检查源指向了别的仓库: {}",
+                url
+            );
+        }
+    }
+
+    /// jsDelivr 源必须用 `@main` 分支引用，不要改成 tag。
+    ///
+    /// 选 `@main` 是刻意的：jsDelivr 对分支引用缓存 12 小时且 purge API 无效
+    /// （只对 semver tag 生效），对 tag 引用则能立即 purge。看起来 tag 更"新鲜"，
+    /// 但 tag 名要人工维护、且必须先 push tag 再让 latest.json 生效，顺序错了
+    /// 客户端就会拿到一个还不存在的 tag → 404 → 检查更新失败。分支引用没有这个
+    /// 顺序陷阱：latest.json 提交到 main 即生效，最多是内容晚 12 小时被 CDN
+    /// 更新到，而 raw 主源无缓存、几乎总是最新。
+    #[test]
+    fn check_urls_prefer_main_branch_over_tag() {
+        for url in CHECK_URLS {
+            if !url.contains("jsdelivr.net") {
+                continue;
+            }
+            assert!(
+                url.contains("/gh/q541810/Marcel_ssh@main/"),
+                "jsDelivr 源必须引用 main 分支而不是 tag（tag 需人工维护且有发布顺序陷阱）: {}",
                 url
             );
         }
