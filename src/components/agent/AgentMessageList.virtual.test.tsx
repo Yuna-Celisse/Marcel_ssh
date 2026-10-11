@@ -404,6 +404,33 @@ describe('real virtualizer integration', () => {
     expect(viewport.textContent).not.toContain('archive unavailable');
   });
 
+  it('repairs the size book on visibility restore (minimized-window measurement loss)', async () => {
+    data[6] = { ...data[6], role: 'tool', toolResult: {
+      toolName: 'render_html', result: '', summary: 'chart', success: true, blocked: false,
+    } };
+    await render();
+    heights.set('m3', 224);
+    await settle();
+    const withContent = viewport.scrollHeight;
+    // 模拟最小化期间 RO 停发：行被清空过滤（槽位转零高）但账面欠下修正，不跑 settle
+    data = data.map((m) => m.id === 'm3' ? { ...m, role: 'assistant' as const, content: '' } : m);
+    await act(async () => root.render(
+      <AgentMessageList messages={data} conversationId="test" listRef={handle} />,
+    ));
+    expect(viewport.scrollHeight).toBe(withContent);
+    const staleSlot = viewport.querySelector('[data-virtual-row-key="message:m3"]')!;
+    const healthyIframe = viewport.querySelector('iframe')!;
+    const healthyRow = viewport.querySelector('[data-virtual-row-key="message:m5"]')!;
+    // 恢复可见：只重挂账实不符的槽位
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(viewport.querySelector('[data-virtual-row-key="message:m3"]')).not.toBe(staleSlot);
+    expect(viewport.querySelector('iframe')).toBe(healthyIframe);
+    expect(viewport.querySelector('[data-virtual-row-key="message:m5"]')).toBe(healthyRow);
+    await settle();
+    expect(viewport.scrollHeight).toBeLessThan(withContent);
+  });
+
   it('follows streamed/async height growth in the real transcript, but respects a reader above the bottom', async () => {
     useConversationStore.setState({ messages: { test: data }, activeConversationId: 'test' });
     await act(async () => root.render(<AgentTranscript

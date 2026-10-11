@@ -1,5 +1,5 @@
 import {
-  memo, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState,
+  Fragment, memo, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState,
   type ReactNode, type RefObject,
 } from 'react';
 import { Virtualizer, type VirtualizerHandle } from 'virtua';
@@ -347,6 +347,36 @@ function MessageList({
     const frame = requestAnimationFrame(() => measuredEmptySlots((n) => n + 1));
     return () => cancelAnimationFrame(frame);
   });
+  // While minimized/occluded the browser pauses ResizeObserver delivery, but streaming
+  // keeps collapsing rows; the owed size correction can be lost on restore, leaving
+  // phantom heights on the book (a blank band) and invisible rows. On becoming visible,
+  // audit every mounted slot: book size vs actual DOM — remount only the mismatched
+  // ones (fresh initial measurement), leaving healthy views like retained iframes alone.
+  const [repair, setRepair] = useState<{ epoch: number; keys: ReadonlySet<string> }>(() => ({ epoch: 0, keys: new Set<string>() }));
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
+  useEffect(() => {
+    if (!virtual) return;
+    const onVisibility = () => {
+      if (!visible || document.visibilityState !== 'visible') return;
+      const container = virtualizer.current;
+      const listNode = listStart.current?.firstElementChild;
+      if (!container || !listNode || !root.current) return;
+      const keys: string[] = [];
+      slotsRef.current.forEach((slot, index) => {
+        const inner = root.current?.querySelector<HTMLElement>(`[data-virtual-row-key="${CSS.escape(slot.key)}"]`);
+        if (!inner?.isConnected) return;
+        let wrapper: HTMLElement = inner;
+        while (wrapper.parentElement && wrapper.parentElement !== listNode) wrapper = wrapper.parentElement;
+        const cached = container.getItemSize(index);
+        if (!Number.isFinite(cached)) return;
+        if (Math.abs(cached - wrapper.getBoundingClientRect().height) > 1) keys.push(slot.key);
+      });
+      if (keys.length) setRepair((old) => ({ epoch: old.epoch + 1, keys: new Set(keys) }));
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [virtual, visible]);
   const keepMounted = [...pendingHidden, ...slots.flatMap((slot, index) => {
     if (!slot.rows) return [];
     return slot.rows.some((row) => {
@@ -419,9 +449,11 @@ function MessageList({
       {renderRow(row)}
     </ToolFoldRow>;
   };
-  const slotElement = ({ key, rows: members }: MessageSlot) => members?.length ? (members[0].kind === 'message' ? rowElement(members[0])
-    : <div key={key} data-virtual-row-collection className="min-w-0 flow-root">{members.map(rowElement)}</div>)
-    : <div key={key} data-virtual-row-key={key} data-virtual-row-hidden="true" aria-hidden="true" style={{ height: 0, overflow: 'hidden' }} />;
+  const slotElement = ({ key, rows: members }: MessageSlot) => <Fragment key={repair.keys.has(key) ? `${key}#${repair.epoch}` : key}>
+    {members?.length ? (members[0].kind === 'message' ? rowElement(members[0])
+      : <div data-virtual-row-collection className="min-w-0 flow-root">{members.map(rowElement)}</div>)
+      : <div data-virtual-row-key={key} data-virtual-row-hidden="true" aria-hidden="true" style={{ height: 0, overflow: 'hidden' }} />}
+  </Fragment>;
 
   return <MessageViewCacheContext.Provider value={viewCache.current}>
     <div ref={root} className="min-w-0 w-full" data-agent-message-list data-virtualized={virtual}
