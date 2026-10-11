@@ -128,7 +128,6 @@ export function ReasoningEffortPicker({
       interactingRef.current = false;
       draftRef.current = null;
       setIsInteracting(false);
-      setModelListOpen(false);
       if (!savingRef.current) setPreviewIndex(null);
       setOpen(false);
       return;
@@ -226,7 +225,9 @@ export function ReasoningEffortPicker({
             const next = !previous;
             // A model without declared reasoning efforts uses this same entry
             // point for model selection, so opening goes straight to the list.
-            setModelListOpen(next && efforts.length === 0 && hasModelSettings);
+            // Only reset on open: clearing it on close would swap the popover's
+            // content mid-exit-animation to a panel the user never saw.
+            if (next) setModelListOpen(efforts.length === 0 && hasModelSettings);
             return next;
           });
         }}
@@ -308,7 +309,6 @@ export function ReasoningEffortPicker({
                             // The model update is persisted asynchronously. Close the
                             // whole popover immediately so the old model's slider does
                             // not remain visible while that update is in flight.
-                            setModelListOpen(false);
                             setOpen(false);
                           }}
                         >
