@@ -59,6 +59,11 @@ const INJECTIONS = [
 
 const originalText = readFileSync(FILE, 'utf8');
 const originalMd5 = createHash('md5').update(originalText).digest('hex');
+// 工作区可能是 CRLF（Windows 下 git autocrlf），而 INJECTIONS 的正则按 \n 写：
+// 匹配在 LF 归一化副本上做，写回时按原始行尾还原，保证注入/还原都字节级无痕。
+const usesCrlf = originalText.includes('\r\n');
+const lfText = usesCrlf ? originalText.replace(/\r\n/g, '\n') : originalText;
+const toDisk = (lf) => (usesCrlf ? lf.replace(/\n/g, '\r\n') : lf);
 const recovery = path.join(os.tmpdir(), `marcel-update-gate-backup-${Date.now()}.rs`);
 writeFileSync(recovery, originalText);
 console.log(`目标文件 : ${path.relative(REPO_ROOT, FILE)}（md5 ${originalMd5}）`);
@@ -97,14 +102,14 @@ const short = (t) => t.split('::').pop();
 let allCaught = true;
 
 for (const inj of INJECTIONS) {
-  const hits = [...originalText.matchAll(new RegExp(inj.re.source, 'g'))].length;
+  const hits = [...lfText.matchAll(new RegExp(inj.re.source, 'g'))].length;
   console.log(`● ${inj.name}`);
   if (hits !== 1) {
     console.log(`    !! 注入点命中 ${hits} 次（期望 1）—— 锚点过期，无法判断门控是否还有效\n`);
     allCaught = false;
     continue;
   }
-  writeFileSync(FILE, originalText.replace(inj.re, inj.to));
+  writeFileSync(FILE, toDisk(lfText.replace(inj.re, inj.to)));
   const r = runTests();
   writeFileSync(FILE, originalText);
 
