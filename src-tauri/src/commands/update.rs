@@ -200,11 +200,20 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
         .map_err(|e| AppError::Other(format!("打开浏览器失败: {}", e)))
 }
 
-/// 检查源列表：GitHub raw 为主，jsDelivr 为国内网络 fallback（缓存延迟数
-/// 小时，对更新检查可接受）。依次尝试，第一个成功者生效。
+/// 检查源列表：GitHub raw 为主，jsDelivr 各入口为国内网络 fallback（缓存延迟
+/// 数小时，对更新检查可接受）。依次尝试，第一个成功者生效。
+///
+/// **为什么列了三个 jsDelivr 域名**：jsDelivr 是一组指向不同边缘节点的入口
+/// 域名 —— `cdn` 走 Cloudflare、`fastly` 走 Fastly、`gcore` 走 GCore。它们
+/// 返回同一份缓存内容，但**在部分国内网络上只有个别入口通**。实测（2026-10-11，
+/// 国内线路）：`cdn` 与 `raw.githubusercontent` 双双超时，`fastly` 1.4s、
+/// `gcore` 0.6s 正常。只挂一个 jsDelivr 入口等于「有兜底但兜底本身也会挂」。
 pub const CHECK_URLS: &[&str] = &[
     "https://raw.githubusercontent.com/q541810/Marcel_ssh/main/latest.json",
     "https://cdn.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
+    "https://fastly.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
+    "https://gcore.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
+    "https://testingcf.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
 ];
 
 /// 拉取并解析 latest.json（command 与后台调度器共用入口）。
@@ -233,28 +242,30 @@ pub async fn check_for_update() -> Result<LatestRelease, AppError> {
     let check_urls: Vec<String> = CHECK_URLS.iter().map(|s| s.to_string()).collect();
 
     let mut last_err: Option<AppError> = None;
+    // 逐源尝试，只记住**最后一个**失败原因对用户报（见 all_failed 分支）。
+    // 用户看到「无法检查更新: xxx」时无从判断是哪个源挂了、还是全挂了 —— 一条
+    // jsDelivr 的超时信息会让人以为「jsDelivr 没了」，实际可能是所有源都不通
+    // （国内网络常见）。所以全部失败时改为报「已试 N 个源均不可达」，并把
+    // 逐源原因留在日志里。
     for url in &check_urls {
         let resp = match client.get(url).send().await {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("更新检查源不可达 {}: {}", url, e);
-                last_err = Some(AppError::Update(format!("无法检查更新: {}", e)));
+                last_err = Some(AppError::Update(e.to_string()));
                 continue;
             }
         };
         if !resp.status().is_success() {
             log::warn!("更新检查源返回 {} {}", url, resp.status());
-            last_err = Some(AppError::Update(format!(
-                "更新检查源返回 {}",
-                resp.status()
-            )));
+            last_err = Some(AppError::Update(format!("返回 {}", resp.status())));
             continue;
         }
         let latest: serde_json::Value = match resp.json().await {
             Ok(v) => v,
             Err(e) => {
                 log::warn!("更新检查源响应解析失败 {}: {}", url, e);
-                last_err = Some(AppError::Update(format!("解析更新信息失败: {}", e)));
+                last_err = Some(AppError::Update(format!("解析失败: {}", e)));
                 continue;
             }
         };
@@ -272,7 +283,19 @@ pub async fn check_for_update() -> Result<LatestRelease, AppError> {
         });
     }
 
-    Err(last_err.unwrap_or_else(|| AppError::Update("无法检查更新：所有更新源均不可达".into())))
+    // 全部源都失败：报「试了几个 + 最后一个原因」，让用户知道这不是单源故障，
+    // 也别把某个域名当成唯一依赖（它随时可能被网络掐掉）。
+    let detail = last_err
+        .map(|e| match e {
+            AppError::Update(m) => m,
+            other => format!("{}", other),
+        })
+        .unwrap_or_else(|| "原因不明".into());
+    Err(AppError::Update(format!(
+        "无法检查更新：已尝试 {} 个更新源均不可达（最后错误：{}）。请检查网络连接后重试",
+        check_urls.len(),
+        detail
+    )))
 }
 
 fn has_update(current_version: &str, latest_version: &str) -> bool {
@@ -649,5 +672,45 @@ mod tests {
         // 非标准版本号一律视为无更新（与旧客户端行为一致）。
         assert!(!has_update("1.4.0", ""));
         assert!(!has_update("dev", "1.5.0"));
+    }
+
+    /// 检查源不能退回「一个 jsDelivr 入口」。
+    ///
+    /// 真实故障（2026-10-11，v1.7.0 发版当天撞上）：国内线路上
+    /// `raw.githubusercontent` 与 `cdn.jsdelivr.net` 双双超时，用户点「检查更新」
+    /// 直接报错——兜底源自己也在那台被掐的线路上，等于没有兜底。同一网络下
+    /// `fastly` / `gcore` 入口却正常。只留单入口的回归没人会在 CI 里发现，
+    /// 只能等真实用户再撞一次，所以在这里钉死。
+    #[test]
+    fn check_urls_cover_multiple_jsdelivr_edges() {
+        assert!(
+            CHECK_URLS.len() >= 4,
+            "检查源过少（{} 个），国内网络很容易全挂",
+            CHECK_URLS.len()
+        );
+        for edge in ["cdn.jsdelivr.net", "fastly.jsdelivr.net", "gcore.jsdelivr.net"] {
+            assert!(
+                CHECK_URLS.iter().any(|u| u.contains(edge)),
+                "缺少 jsDelivr 入口 {}：它和别的入口走不同边缘节点，缺一个国内就可能全线报错",
+                edge
+            );
+        }
+        assert!(
+            CHECK_URLS
+                .iter()
+                .any(|u| u.contains("raw.githubusercontent.com")),
+            "GitHub raw 主源必须保留"
+        );
+        // 全部必须是 https，且指向本项目的 latest.json（raw 用 `/main/`，
+        // jsDelivr 用 `@main` 两种合法写法）。
+        for url in CHECK_URLS {
+            assert!(url.starts_with("https://"), "检查源必须 https: {}", url);
+            assert!(url.ends_with("/latest.json"), "检查源指向了别的文件: {}", url);
+            assert!(
+                url.contains("q541810/Marcel_ssh"),
+                "检查源指向了别的仓库: {}",
+                url
+            );
+        }
     }
 }
