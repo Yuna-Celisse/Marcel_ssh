@@ -174,7 +174,7 @@ pub fn format_reqwest_error(err: &reqwest::Error) -> String {
     } else if err.is_connect() {
         Some("连接失败（服务器拒绝/不存在/端口不通）")
     } else if err.is_request() {
-        Some("请求构造失败")
+        Some("请求发送/等待响应失败（已连上，对端中途断开或提前关闭连接）")
     } else {
         None
     };
@@ -245,5 +245,75 @@ mod tests {
         assert!(validate_retry_conditions("99").is_err());
         assert!(validate_retry_conditions("600").is_err());
         assert!(validate_retry_conditions("500-400").is_err());
+    }
+
+    /// is_request 档的真实含义是「已连上、发送/等待响应期间出错」，
+    /// 不是构造失败。本地端点收完请求头与请求体后立刻断开、不做任何应答，
+    /// 复现 hyper 的「connection closed before message completed」，
+    /// 钉住该档文案不许再回退成「请求构造失败」。
+    #[tokio::test]
+    async fn request_stage_close_is_not_labeled_construction_failure() {
+        use tokio::io::AsyncReadExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("测试端点绑定失败");
+        let addr = listener.local_addr().expect("读取测试端口失败");
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            // 读掉完整请求（头 + Content-Length 声明的体）再 drop，
+            // 保证对端是发完请求等响应时才被掐，与真实场景同形。
+            let mut buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let mut declared: Option<usize> = None;
+            loop {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        if declared.is_none() {
+                            let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
+                                continue;
+                            };
+                            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                            declared = Some(
+                                head.lines()
+                                    .find_map(|l| {
+                                        l.strip_prefix("content-length:")
+                                            .and_then(|v| v.trim().parse().ok())
+                                    })
+                                    .unwrap_or(0)
+                                    + pos
+                                    + 4,
+                            );
+                        }
+                        if buf.len() >= declared.unwrap_or(usize::MAX) {
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
+        let client = reqwest::Client::new();
+        let err = client
+            .post(format!("http://{addr}/v1/chat/completions"))
+            .body("{\"model\":\"t\"}")
+            .send()
+            .await
+            .expect_err("对端收完请求即断，请求必然失败");
+
+        let text = format_reqwest_error(&err);
+        assert!(!text.contains("请求构造失败"), "旧文案残留: {text}");
+        assert!(
+            text.contains("请求发送/等待响应失败"),
+            "新文案缺失: {text}"
+        );
+        assert!(
+            text.contains("connection closed before message completed"),
+            "底层原因链缺失: {text}"
+        );
     }
 }
