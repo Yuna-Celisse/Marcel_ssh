@@ -154,6 +154,21 @@ function renderedIds() {
 }
 
 describe('real virtualizer integration', () => {
+  // 回归：曾给 Virtualizer 传 ssrCount，virtua 的 store 会停在「SSR 模式」直到第一次
+  // 有效滚动事件；内容不足一屏的会话永远滚不动，于是第 12 个槽位之后的行（新会话第一轮
+  // 的后续工具卡、回复）只有正在执行时靠 keepMounted 露面，一完成就从列表消失。
+  it('renders every row of a short, non-scrollable conversation without any scroll', async () => {
+    // 逐条到达（与流式对话一致）：每行都已测量，总高度始终小于视口，列表从未可滚动。
+    itemHeight = 20;
+    const all = fixture(20);
+    for (let n = 1; n <= all.length; n++) {
+      data = all.slice(0, n);
+      await render();
+    }
+    expect(viewport.scrollTop).toBe(0);
+    expect(renderedIds()).toEqual(all.map((m) => m.id));
+  });
+
   it('bounds DOM for 10,000 rows and navigates to offscreen search matches and the bottom', async () => {
     await render();
     expect(renderedIds()).toContain('m9999');

@@ -377,7 +377,15 @@ function MessageList({
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [virtual, visible]);
-  const keepMounted = [...pendingHidden, ...slots.flatMap((slot, index) => {
+  // ssrCount 让首帧在测量前就有内容，但 virtua 的 store 会一直停在「SSR 窗口」
+  // （只渲染前 ssrCount 个槽位），直到第一次有效滚动才退出。内容不足一屏的会话滚不动，
+  // 第 12 个槽位之后的行（新会话第一轮的后续工具卡、回复）就只剩 active 时露一下面。
+  // 装得下就说明所有槽位本来都在视口里：全部保持挂载，正是正常虚拟化应有的结果；
+  // 一旦超出视口，跟随到底会产生真实滚动，virtua 自然退出 SSR 窗口。
+  const handleNow = virtualizer.current;
+  const fitsViewport = virtual && !!handleNow && handleNow.viewportSize > 0
+    && handleNow.scrollSize <= handleNow.viewportSize;
+  const keepMounted = [...pendingHidden, ...(fitsViewport ? slots.map((_, index) => index) : []), ...slots.flatMap((slot, index) => {
     if (!slot.rows) return [];
     return slot.rows.some((row) => {
     const active = row.kind === 'message' && (
