@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FileUp, Plus } from 'lucide-react';
-import type { Skill } from '@/lib/types';
+import { CloudDownload, FileUp, Plus } from 'lucide-react';
+import type { DiscoveredSkill, ParsedSkill, Skill, SkillResource } from '@/lib/types';
 import { useSkillStore } from '@/stores/skillStore';
 import * as tauri from '@/lib/tauri';
 import { getErrorMessage } from '@/lib/errors';
@@ -8,12 +8,20 @@ import { isBuiltinSkill, sortSkillsForDisplay } from '@/lib/builtinSkills';
 import { useLongPressDrag } from '../useLongPressDrag';
 import Toggle from '@/components/ui/Toggle';
 import MobileSheet from '../ui/MobileSheet';
+import { isCancelledError, useSkillImportProgress } from '@/hooks/useSkillImportProgress';
+import SkillImportProgressBar from '@/components/skill/SkillImportProgressBar';
+import GithubImportGuide, {
+  GithubImportGuideButton,
+} from '@/components/skill/GithubImportGuide';
+import SkillResourcesEditor from '@/components/skill/SkillResourcesEditor';
 
 interface FormState {
   id?: string;
   name: string;
   description: string;
   prompt: string;
+  /** 附属资源文件 */
+  resources?: SkillResource[];
   /** 内置 skill：只读查看，不可编辑/删除 */
   readonly?: boolean;
 }
@@ -34,12 +42,25 @@ export function MobileSkillSection() {
   const toggleSkill = useSkillStore((s) => s.toggleSkill);
   const deleteSkill = useSkillStore((s) => s.deleteSkill);
   const reorderSkills = useSkillStore((s) => s.reorderSkills);
+  const discoverFromUrl = useSkillStore((s) => s.discoverFromUrl);
+  const importFromUrl = useSkillStore((s) => s.importFromUrl);
 
   const [form, setForm] = useState<FormState | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // GitHub 导入
+  const [ghOpen, setGhOpen] = useState(false);
+  const [ghUrl, setGhUrl] = useState('');
+  const [ghBusy, setGhBusy] = useState(false);
+  const imp = useSkillImportProgress();
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [ghStatus, setGhStatus] = useState<string | null>(null);
+  const [ghError, setGhError] = useState<string | null>(null);
+  const [found, setFound] = useState<{ repo: string; skills: DiscoveredSkill[] } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   // 展示顺序：内置置顶，用户按手动排序
   const sorted = useMemo(() => sortSkillsForDisplay(skills), [skills]);
@@ -75,9 +96,117 @@ export function MobileSkillSection() {
         name: parsed.name,
         description: parsed.description,
         prompt: parsed.prompt,
+        resources: parsed.resources,
       });
     } catch (err) {
       setMessage(`导入失败：${getErrorMessage(err)}`);
+    }
+  };
+
+  /** 把解析结果填进表单（预览后由用户确认保存）。 */
+  const fillForm = (parsed: ParsedSkill) => {
+    setForm({
+      name: parsed.name,
+      description: parsed.description,
+      prompt: parsed.prompt,
+      resources: parsed.resources,
+    });
+  };
+
+  const closeGh = () => {
+    if (imp.active) imp.cancel();
+    setGhOpen(false);
+    setGhUrl('');
+    setGhStatus(null);
+    setGhError(null);
+    setFound(null);
+    setSelected(new Set());
+    setGuideOpen(false);
+  };
+
+  /** 地址里带 tree/blob 段 = 已指向具体目录/文件，直接拉取，不必先发现。 */
+  const ghHasExplicitPath = (url: string) => /\/(tree|blob)\//.test(url);
+
+  const handleGhFetch = async () => {
+    const url = ghUrl.trim();
+    if (!url) return;
+    setGhError(null);
+    setFound(null);
+    setSelected(new Set());
+    setGhBusy(true);
+    setGhStatus('正在从 GitHub 拉取…');
+    const importId = imp.begin();
+    try {
+      if (ghHasExplicitPath(url)) {
+        const parsed = await importFromUrl(url, undefined, importId);
+        closeGh();
+        fillForm(parsed);
+        return;
+      }
+      const discovery = await discoverFromUrl(url, importId);
+      if (discovery.skills.length === 1) {
+        const parsed = await importFromUrl(url, discovery.skills[0].subpath, importId);
+        closeGh();
+        fillForm(parsed);
+        return;
+      }
+      setFound(discovery);
+      setSelected(new Set(discovery.skills.map((s) => s.subpath)));
+      setGhStatus(`在 ${discovery.repo} 发现 ${discovery.skills.length} 个 skill`);
+    } catch (err) {
+      if (isCancelledError(err)) {
+        setGhStatus('已取消');
+      } else {
+        setGhError(getErrorMessage(err));
+        setGhStatus(null);
+      }
+    } finally {
+      imp.end();
+      setGhBusy(false);
+    }
+  };
+
+  const toggleSelected = (subpath: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(subpath)) next.delete(subpath);
+      else next.add(subpath);
+      return next;
+    });
+  };
+
+  const handleGhImportSelected = async () => {
+    if (!found || selected.size === 0) return;
+    const targets = found.skills.filter((s) => selected.has(s.subpath));
+    setGhError(null);
+    setGhBusy(true);
+    let ok = 0;
+    const failed: string[] = [];
+    const importId = imp.begin();
+    for (let i = 0; i < targets.length; i++) {
+      if (imp.isCancelled()) break;
+      const t = targets[i];
+      setGhStatus(`正在导入 ${i + 1}/${targets.length}：${t.name}…`);
+      try {
+        const parsed = await importFromUrl(ghUrl.trim(), t.subpath, importId);
+        await addSkill(parsed.name, parsed.description, parsed.prompt, parsed.resources ?? []);
+        ok++;
+      } catch (err) {
+        if (isCancelledError(err)) break;
+        failed.push(`${t.name}（${getErrorMessage(err)}）`);
+      }
+    }
+    const cancelled = imp.isCancelled();
+    imp.end();
+    setGhBusy(false);
+    if (cancelled) {
+      setGhStatus(`已取消（已导入 ${ok} 个）`);
+      if (failed.length > 0) setGhError(`失败 ${failed.length} 个：\n${failed.join('\n')}`);
+    } else if (failed.length > 0) {
+      setGhError(`成功 ${ok} 个，失败 ${failed.length} 个：\n${failed.join('\n')}`);
+      setGhStatus(null);
+    } else {
+      closeGh();
     }
   };
 
@@ -96,9 +225,10 @@ export function MobileSkillSection() {
           form.name.trim(),
           form.description.trim(),
           form.prompt,
+          form.resources ?? [],
         );
       } else {
-        await addSkill(form.name.trim(), form.description.trim(), form.prompt);
+        await addSkill(form.name.trim(), form.description.trim(), form.prompt, form.resources);
       }
       setForm(null);
     } catch (err) {
@@ -118,11 +248,11 @@ export function MobileSkillSection() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 px-3 py-3 text-sm text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
         >
           <FileUp className="h-4 w-4" />
           导入文件
@@ -133,16 +263,28 @@ export function MobileSkillSection() {
             setMessage(null);
             setForm(EMPTY_FORM);
           }}
-          className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 px-3 py-3 text-sm text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
         >
           <Plus className="h-4 w-4" />
           手动创建
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMessage(null);
+            closeGh();
+            setGhOpen(true);
+          }}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+        >
+          <CloudDownload className="h-4 w-4" />
+          GitHub
         </button>
       </div>
       <input
         ref={fileInputRef}
         type="file"
-        accept=".md,.txt,.markdown"
+        accept=".md,.txt,.markdown,.zip,.skill"
         onChange={(e) => void handleFileSelected(e)}
         className="hidden"
       />
@@ -194,6 +336,7 @@ export function MobileSkillSection() {
                 name: skill.name,
                 description: skill.description,
                 prompt: skill.prompt,
+                resources: skill.resources,
                 readonly: builtin,
               });
             }}
@@ -206,6 +349,11 @@ export function MobileSkillSection() {
               {builtin && (
                 <span className="flex-shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
                   内置
+                </span>
+              )}
+              {skill.resources && skill.resources.length > 0 && (
+                <span className="flex-shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
+                  {skill.resources.length} 资源
                 </span>
               )}
             </div>
@@ -332,8 +480,115 @@ export function MobileSkillSection() {
                 className={`${inputClass} resize-none font-mono text-xs leading-relaxed`}
               />
             </div>
+            <SkillResourcesEditor
+              resources={form.resources ?? []}
+              onChange={(resources) => setForm({ ...form, resources })}
+              readOnly={form.readonly}
+              touch
+            />
           </div>
         )}
+      </MobileSheet>
+
+      {/* GitHub import sheet */}
+      <MobileSheet
+        open={ghOpen}
+        onClose={closeGh}
+        title="从 GitHub 导入"
+        footer={
+          found ? (
+            <button
+              type="button"
+              onClick={() => void handleGhImportSelected()}
+              disabled={ghBusy || selected.size === 0}
+              className="w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-medium text-white active:bg-indigo-500 disabled:opacity-40"
+            >
+              {ghBusy ? '导入中…' : `导入选中（${selected.size}）`}
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={closeGh}
+                className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleGhFetch()}
+                disabled={ghBusy || !ghUrl.trim()}
+                className="flex-1 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-medium text-white active:bg-indigo-500 disabled:opacity-40"
+              >
+                {ghBusy ? '拉取中…' : '拉取'}
+              </button>
+            </div>
+          )
+        }
+      >
+        <div className="space-y-3 px-4 pb-3">
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-xs text-zinc-400">仓库 / 目录 / 文件地址</label>
+              <GithubImportGuideButton
+                open={guideOpen}
+                onToggle={() => setGuideOpen((v) => !v)}
+                touch
+              />
+            </div>
+            <input
+              type="text"
+              value={ghUrl}
+              onChange={(e) => setGhUrl(e.target.value)}
+              placeholder="https://github.com/owner/repo[/tree/main/skills]"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              disabled={ghBusy}
+              className={inputClass}
+            />
+            <p className="mt-1 text-[11px] text-zinc-500">
+              仓库根地址会列出其中所有 skill 供勾选；指向具体目录/文件的地址直接导入。
+            </p>
+          </div>
+          {guideOpen && <GithubImportGuide touch />}
+
+          {ghStatus && <div className="text-xs text-zinc-500">{ghStatus}</div>}
+          {imp.active && (
+            <SkillImportProgressBar progress={imp.progress} onCancel={imp.cancel} touch />
+          )}
+
+          {ghError && (
+            <div className="whitespace-pre-wrap break-words rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+              {ghError}
+            </div>
+          )}
+
+          {found && (
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {found.skills.map((s) => (
+                <label
+                  key={s.subpath}
+                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 active:bg-zinc-900"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.subpath)}
+                    onChange={() => toggleSelected(s.subpath)}
+                    className="mt-0.5 accent-indigo-500"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-zinc-200">{s.name}</span>
+                    <span className="block truncate text-[11px] text-zinc-500">
+                      {s.subpath}
+                      {s.resourceCount > 0 ? ` · ${s.resourceCount} 个资源文件` : ''}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       </MobileSheet>
 
       {/* Delete confirm sheet */}

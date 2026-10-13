@@ -1,4 +1,6 @@
 import type React from 'react';
+import type { SkillResource } from '@/lib/types';
+import SkillResourcesEditor from './SkillResourcesEditor';
 
 interface Props {
   name: string;
@@ -7,6 +9,9 @@ interface Props {
   onNameChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
   onPromptChange: (v: string) => void;
+  /** 附属资源文件；传 onResourcesChange 即可编辑 */
+  resources?: SkillResource[];
+  onResourcesChange?: (v: SkillResource[]) => void;
   disabled?: boolean;
 }
 
@@ -26,6 +31,8 @@ export default function SkillFormFields({
   onNameChange,
   onDescriptionChange,
   onPromptChange,
+  resources,
+  onResourcesChange,
   disabled = false,
 }: Props) {
   return (
@@ -69,6 +76,19 @@ export default function SkillFormFields({
           disabled={disabled}
         />
       </div>
+
+      {onResourcesChange ? (
+        <SkillResourcesEditor
+          resources={resources ?? []}
+          onChange={onResourcesChange}
+          readOnly={disabled}
+        />
+      ) : (
+        resources &&
+        resources.length > 0 && (
+          <SkillResourcesEditor resources={resources} onChange={() => {}} readOnly />
+        )
+      )}
     </div>
   );
 }

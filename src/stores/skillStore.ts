@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { Skill } from '@/lib/types';
+import type { ParsedSkill, Skill, SkillDiscovery, SkillResource } from '@/lib/types';
 import * as tauri from '@/lib/tauri';
 import { getErrorMessage } from '@/lib/errors';
+import { useMarketStore } from './marketStore';
 
 interface SkillState {
   skills: Skill[];
@@ -9,11 +10,27 @@ interface SkillState {
   error: string | null;
 
   fetchSkills: () => Promise<void>;
-  addSkill: (name: string, description: string, prompt: string) => Promise<void>;
-  updateSkill: (id: string, name?: string, description?: string, prompt?: string) => Promise<void>;
+  addSkill: (
+    name: string,
+    description: string,
+    prompt: string,
+    resources?: SkillResource[],
+  ) => Promise<void>;
+  /** resources 省略 = 保持原样；传数组 = 整体替换（空数组清空）。 */
+  updateSkill: (
+    id: string,
+    name?: string,
+    description?: string,
+    prompt?: string,
+    resources?: SkillResource[],
+  ) => Promise<void>;
   toggleSkill: (id: string) => Promise<void>;
   deleteSkill: (id: string) => Promise<void>;
   reorderSkills: (orderedIds: string[]) => Promise<void>;
+  /** 列出 GitHub 仓库里的 skill（走市场配置的镜像）。失败时抛错，由调用方展示。 */
+  discoverFromUrl: (url: string, importId?: string) => Promise<SkillDiscovery>;
+  /** 从 GitHub 拉取并解析指定 skill（不入库）。失败时抛错，由调用方展示。 */
+  importFromUrl: (url: string, subpath?: string, importId?: string) => Promise<ParsedSkill>;
 }
 
 export const useSkillStore = create<SkillState>((set, get) => ({
@@ -33,20 +50,20 @@ export const useSkillStore = create<SkillState>((set, get) => ({
     }
   },
 
-  addSkill: async (name, description, prompt) => {
+  addSkill: async (name, description, prompt, resources) => {
     set({ loading: true, error: null });
     try {
-      await tauri.skillAdd(name, description, prompt);
+      await tauri.skillAdd(name, description, prompt, resources);
       await get().fetchSkills();
     } catch (err) {
       set({ error: getErrorMessage(err), loading: false });
     }
   },
 
-  updateSkill: async (id, name, description, prompt) => {
+  updateSkill: async (id, name, description, prompt, resources) => {
     set({ loading: true, error: null });
     try {
-      await tauri.skillUpdate(id, name, description, prompt);
+      await tauri.skillUpdate(id, name, description, prompt, resources);
       await get().fetchSkills();
     } catch (err) {
       set({ error: getErrorMessage(err), loading: false });
@@ -98,4 +115,15 @@ export const useSkillStore = create<SkillState>((set, get) => ({
       set({ skills: prevSkills, error: getErrorMessage(err) });
     }
   },
+
+  discoverFromUrl: (url, importId) =>
+    tauri.skillDiscoverFromUrl(url, useMarketStore.getState().sourceUrl || undefined, importId),
+
+  importFromUrl: (url, subpath, importId) =>
+    tauri.skillImportFromUrl(
+      url,
+      subpath,
+      useMarketStore.getState().sourceUrl || undefined,
+      importId,
+    ),
 }));

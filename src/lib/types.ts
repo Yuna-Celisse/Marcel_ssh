@@ -1370,10 +1370,18 @@ export interface SftpFileEntry {
 
 // Skill types
 
+/** 附属资源文件（目前只收 .md，相对 skill 根的路径）。 */
+export interface SkillResource {
+  path: string;
+  content: string;
+}
+
 export interface ParsedSkill {
   name: string;
   description: string;
   prompt: string;
+  /** 附属 .md 资源；无资源时后端不返回该字段 */
+  resources?: SkillResource[];
 }
 
 export interface Skill {
@@ -1381,11 +1389,28 @@ export interface Skill {
   name: string;
   description: string;
   prompt: string;
+  /** 附属 .md 资源；旧数据/无资源时为 undefined */
+  resources?: SkillResource[];
   enabled: boolean;
   /** 手动排序位置（仅用户 skill；内置 skill 置顶展示，不参与排序） */
   position: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 从 GitHub 仓库里发现的一个 skill（多选列表项）。 */
+export interface DiscoveredSkill {
+  /** 相对仓库根的目录（如 `skills`） */
+  subpath: string;
+  name: string;
+  description: string;
+  resourceCount: number;
+}
+
+export interface SkillDiscovery {
+  /** `owner/repo` */
+  repo: string;
+  skills: DiscoveredSkill[];
 }
 
 // ──────────── Background Jobs (Job 体系) ────────────

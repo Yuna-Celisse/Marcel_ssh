@@ -82,6 +82,8 @@ pub fn ensure_builtin_skills(store: &mut SkillStore) -> Vec<Skill> {
                     name: parsed.name,
                     description: parsed.description,
                     prompt: parsed.prompt,
+                    // 内置 skill 由单个 md 内嵌，不带附属资源
+                    resources: Vec::new(),
                     enabled: true,
                     // 内置 skill 置顶由前端展示层保证，position 不参与排序
                     position: 0.0,

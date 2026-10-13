@@ -8,6 +8,18 @@ fn default_true() -> bool {
     true
 }
 
+/// 附属资源文件（目前只收 `.md`）。
+///
+/// `path` 是相对 skill 根目录的路径（如 `references/triggers.md`），`content`
+/// 是文件正文。交付给 agent 时经 skill 工具的 `path` 参数按需返回 —— agent
+/// 跑在远端服务器，读不到本机配置目录里的这些文件，只能靠工具回传。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillResource {
+    pub path: String,
+    pub content: String,
+}
+
 /// A user-defined AI behavior instruction.
 ///
 /// Delivery is progressive disclosure: an enabled skill becomes a `skill_<name>`
@@ -22,6 +34,13 @@ pub struct Skill {
     #[serde(default)]
     pub description: String,
     pub prompt: String,
+    /// 附属资源文件（`SKILL.md` 之外的 `.md`，按需被 agent 读取）。
+    ///
+    /// 旧数据（`skills.json` 里没有这个字段）反序列化成空 vec —— 兼容 =
+    /// 保持原样，不因缺字段而清空或报错。空时序列化会跳过，避免每次保存
+    /// 都给所有旧 skill 白写一个空数组。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<SkillResource>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// 手动排序位置（用户拖拽排序）。仅对用户 skill 有意义；内置 skill
@@ -45,11 +64,20 @@ impl Skill {
             name: name.into(),
             description: description.into(),
             prompt: prompt.into(),
+            resources: Vec::new(),
             enabled: true,
             position: 0.0,
             created_at: now.clone(),
             updated_at: now,
         }
+    }
+
+    /// 按相对路径精确查找附属资源。
+    ///
+    /// 只做等值匹配、不做路径归一化 —— 资源路径在导入时已校验为合法的
+    /// 相对路径，这里找不到就是找不到，天然不存在路径穿越。
+    pub fn resource(&self, path: &str) -> Option<&SkillResource> {
+        self.resources.iter().find(|r| r.path == path)
     }
 }
 
@@ -84,9 +112,14 @@ impl SkillStore {
         name: Option<String>,
         description: Option<String>,
         prompt: Option<String>,
+        resources: Option<Vec<SkillResource>>,
     ) -> bool {
         let now = Utc::now().to_rfc3339();
         if let Some(skill) = self.skills.iter_mut().find(|s| s.id == id) {
+            // None = 不动；Some(空) = 清空全部资源
+            if let Some(r) = resources {
+                skill.resources = r;
+            }
             if let Some(n) = name {
                 skill.name = n;
             }
@@ -164,6 +197,63 @@ mod tests {
         }"#;
         let skill: Skill = serde_json::from_str(json).unwrap();
         assert_eq!(skill.position, 0.0);
+    }
+
+    #[test]
+    fn old_data_without_resources_defaults_to_empty() {
+        // 兼容红线：旧 skills.json 没有 resources 字段 → 空 vec，保持原样
+        let json = r#"{
+            "id": "a", "name": "n", "prompt": "p",
+            "enabled": true, "createdAt": "t", "updatedAt": "t"
+        }"#;
+        let skill: Skill = serde_json::from_str(json).unwrap();
+        assert!(skill.resources.is_empty());
+        assert!(skill.resource("references/a.md").is_none());
+    }
+
+    #[test]
+    fn empty_resources_are_skipped_on_serialize() {
+        // 不给没有资源的旧 skill 白写一个空数组
+        let skill = Skill::new("a", "", "p");
+        let json = serde_json::to_string(&skill).unwrap();
+        assert!(!json.contains("resources"));
+    }
+
+    #[test]
+    fn resource_lookup_is_exact_match() {
+        let mut skill = Skill::new("a", "", "p");
+        skill.resources = vec![SkillResource {
+            path: "references/a.md".into(),
+            content: "x".into(),
+        }];
+        assert!(skill.resource("references/a.md").is_some());
+        assert!(skill.resource("./references/a.md").is_none());
+        assert!(skill.resource("../references/a.md").is_none());
+    }
+
+    #[test]
+    fn update_resources_none_keeps_some_replaces() {
+        let mut store = SkillStore::new();
+        let mut s = Skill::new("a", "", "p");
+        s.resources = vec![SkillResource {
+            path: "a.md".into(),
+            content: "x".into(),
+        }];
+        let id = s.id.clone();
+        store.add(s);
+        // None：保持原样
+        assert!(store.update(&id, Some("b".into()), None, None, None));
+        assert_eq!(store.get(&id).unwrap().resources.len(), 1);
+        // Some：整体替换
+        let new = vec![SkillResource {
+            path: "c.md".into(),
+            content: "y".into(),
+        }];
+        assert!(store.update(&id, None, None, None, Some(new)));
+        assert_eq!(store.get(&id).unwrap().resources[0].path, "c.md");
+        // Some(空)：清空
+        assert!(store.update(&id, None, None, None, Some(vec![])));
+        assert!(store.get(&id).unwrap().resources.is_empty());
     }
 
     #[test]

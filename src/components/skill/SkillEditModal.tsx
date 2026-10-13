@@ -3,7 +3,7 @@ import Modal from '@/components/ui/Modal';
 import SkillFormFields from './SkillFormFields';
 import { useSkillStore } from '@/stores/skillStore';
 import { getErrorMessage } from '@/lib/errors';
-import type { Skill } from '@/lib/types';
+import type { Skill, SkillResource } from '@/lib/types';
 
 interface Props {
   skill: Skill;
@@ -17,6 +17,7 @@ export default function SkillEditModal({ skill, open, onClose }: Props) {
   const [name, setName] = useState(skill.name);
   const [description, setDescription] = useState(skill.description);
   const [prompt, setPrompt] = useState(skill.prompt);
+  const [resources, setResources] = useState<SkillResource[]>(skill.resources ?? []);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -26,6 +27,7 @@ export default function SkillEditModal({ skill, open, onClose }: Props) {
     setName(skill.name);
     setDescription(skill.description);
     setPrompt(skill.prompt);
+    setResources(skill.resources ?? []);
     setSaveError(null);
     onClose();
   };
@@ -35,7 +37,7 @@ export default function SkillEditModal({ skill, open, onClose }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateSkill(skill.id, name.trim(), description.trim(), prompt.trim());
+      await updateSkill(skill.id, name.trim(), description.trim(), prompt.trim(), resources);
       handleClose();
     } catch (err) {
       setSaveError(getErrorMessage(err));
@@ -57,6 +59,8 @@ export default function SkillEditModal({ skill, open, onClose }: Props) {
           name={name}
           description={description}
           prompt={prompt}
+          resources={resources}
+          onResourcesChange={setResources}
           onNameChange={setName}
           onDescriptionChange={setDescription}
           onPromptChange={setPrompt}

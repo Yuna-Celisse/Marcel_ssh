@@ -30,6 +30,8 @@ import type {
   UpdateState,
   UpdateCapabilities,
   ParsedSkill,
+  SkillResource,
+  SkillDiscovery,
   CommandCheckResult,
   SftpFileEntry,
   ModelInfo,
@@ -868,8 +870,9 @@ export async function skillAdd(
   name: string,
   description: string,
   prompt: string,
+  resources?: SkillResource[],
 ): Promise<Skill> {
-  return invoke<Skill>("skill_add", { name, description, prompt });
+  return invoke<Skill>("skill_add", { name, description, prompt, resources });
 }
 
 export async function skillUpdate(
@@ -877,8 +880,9 @@ export async function skillUpdate(
   name?: string,
   description?: string,
   prompt?: string,
+  resources?: SkillResource[],
 ): Promise<void> {
-  return invoke("skill_update", { id, name, description, prompt });
+  return invoke("skill_update", { id, name, description, prompt, resources });
 }
 
 export async function skillToggle(id: string): Promise<void> {
@@ -899,6 +903,41 @@ export async function importSkillFile(
   fileName: string,
 ): Promise<ParsedSkill> {
   return invoke<ParsedSkill>("import_skill_file", { fileData, fileName });
+}
+
+/** 列出 GitHub 仓库（或其中某个子目录）里的所有 skill，供多选导入。
+ *  `mirror` 为空时后端使用内置镜像。 */
+export async function skillDiscoverFromUrl(
+  url: string,
+  mirror?: string,
+  importId?: string,
+): Promise<SkillDiscovery> {
+  return invoke<SkillDiscovery>("skill_discover_from_url", {
+    url,
+    mirror: mirror ?? null,
+    importId: importId ?? null,
+  });
+}
+
+/** 从 GitHub 地址拉取指定 skill 并解析（不入库，前端预览确认后再保存）。
+ *  `subpath` 省略时用地址里的子路径。 */
+export async function skillImportFromUrl(
+  url: string,
+  subpath?: string,
+  mirror?: string,
+  importId?: string,
+): Promise<ParsedSkill> {
+  return invoke<ParsedSkill>("skill_import_from_url", {
+    url,
+    subpath: subpath ?? null,
+    mirror: mirror ?? null,
+    importId: importId ?? null,
+  });
+}
+
+/** 中断 `importId` 对应的 GitHub 下载（进度经 `skill-import-progress` 事件推送）。 */
+export async function skillImportCancel(importId: string): Promise<void> {
+  return invoke("skill_import_cancel", { importId });
 }
 
 // App lifecycle

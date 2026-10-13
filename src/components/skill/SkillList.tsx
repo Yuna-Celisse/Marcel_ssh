@@ -73,6 +73,14 @@ function SkillCard({
                   内置
                 </span>
               )}
+              {skill.resources && skill.resources.length > 0 && (
+                <span
+                  title={`含 ${skill.resources.length} 个资源文件`}
+                  className='flex-shrink-0 rounded px-1 py-px text-[10px] leading-4 bg-zinc-800 text-zinc-400 border border-zinc-700'
+                >
+                  {skill.resources.length} 资源
+                </span>
+              )}
             </div>
             {skill.description && (
               <div className='text-xs text-zinc-500 truncate'>{skill.description}</div>
@@ -104,9 +112,16 @@ function SkillCard({
           )}
         </div>
         {expanded && (
-          <pre className='mt-2 text-xs text-zinc-400 whitespace-pre-wrap break-words font-sans px-1'>
+          <>
+            <pre className='mt-2 text-xs text-zinc-400 whitespace-pre-wrap break-words font-sans px-1'>
 {skill.prompt}
-          </pre>
+            </pre>
+            {skill.resources && skill.resources.length > 0 && (
+              <div className='mt-2 px-1 text-[11px] text-zinc-500 break-words'>
+                附属资源：{skill.resources.map((r) => r.path).join('、')}
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

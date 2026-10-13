@@ -280,11 +280,32 @@ pub fn raw_file_urls(owner: &str, repo: &str, file: &str, mirror: Option<&str>) 
 /// 插件源码 zip 候选 URL（main/master 依次）。jsDelivr 与旧版 index.json
 /// 配置不支持整仓 zip，直接跳过（回退内置镜像列表与 GitHub 直连）。
 pub fn zip_urls(owner: &str, repo: &str, mirror: Option<&str>) -> Vec<String> {
+    zip_urls_for_branch(owner, repo, None, mirror)
+}
+
+/// 同上，但可指定显式分支（放在候选首位）。用于用户贴了带分支的 GitHub
+/// 地址时优先命中该分支；指定分支失败仍回退 main/master。去重避免重复请求。
+pub fn zip_urls_for_branch(
+    owner: &str,
+    repo: &str,
+    branch: Option<&str>,
+    mirror: Option<&str>,
+) -> Vec<String> {
+    let mut branches: Vec<&str> = Vec::new();
+    if let Some(b) = branch.filter(|b| !b.is_empty()) {
+        branches.push(b);
+    }
+    for b in ["main", "master"] {
+        if !branches.contains(&b) {
+            branches.push(b);
+        }
+    }
+
     let mut urls = Vec::new();
     match classify_mirror(mirror.unwrap_or("")) {
         MirrorKind::IndexUrl(_) | MirrorKind::JsDelivr(_) => {}
         MirrorKind::Prefix(p) => {
-            for branch in ["main", "master"] {
+            for branch in &branches {
                 urls.push(format!(
                     "{}/https://github.com/{}/{}/archive/refs/heads/{}.zip",
                     p, owner, repo, branch
@@ -293,7 +314,7 @@ pub fn zip_urls(owner: &str, repo: &str, mirror: Option<&str>) -> Vec<String> {
         }
         MirrorKind::None => {
             for m in DEFAULT_MIRRORS {
-                for branch in ["main", "master"] {
+                for branch in &branches {
                     urls.push(format!(
                         "{}/https://github.com/{}/{}/archive/refs/heads/{}.zip",
                         m, owner, repo, branch
@@ -303,7 +324,7 @@ pub fn zip_urls(owner: &str, repo: &str, mirror: Option<&str>) -> Vec<String> {
         }
     }
     // GitHub 直连兜底（走系统代理）
-    for branch in ["main", "master"] {
+    for branch in &branches {
         urls.push(format!(
             "https://github.com/{}/{}/archive/refs/heads/{}.zip",
             owner, repo, branch

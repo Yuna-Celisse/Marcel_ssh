@@ -103,6 +103,8 @@ pub struct AppState {
     pub download_cancel: crate::cancel::CancellationRegistry,
     /// 插件安装的取消信号（install_id → 取消通道）。
     pub plugin_install_cancel: crate::cancel::CancellationRegistry,
+    /// GitHub 导入 skill 的下载取消信号（import_id → 取消通道）。
+    pub skill_import_cancel: crate::cancel::CancellationRegistry,
     /// **手动**上下文压缩的占位与取消信号（conversation_id → 取消通道）。
     ///
     /// 与上面四张表的区别：这里用 `try_register`（同一 id 只允许一个在册目标），
@@ -566,6 +568,7 @@ impl AppState {
             upload_cancel: crate::cancel::CancellationRegistry::new(),
             download_cancel: crate::cancel::CancellationRegistry::new(),
             plugin_install_cancel: crate::cancel::CancellationRegistry::new(),
+            skill_import_cancel: crate::cancel::CancellationRegistry::new(),
             compactions: crate::cancel::CancellationRegistry::new(),
             command_exec,
             local_command_exec,
@@ -982,6 +985,9 @@ pub fn run() {
             commands::skill::skill_delete,
             commands::skill::skill_reorder,
             commands::skill::import_skill_file,
+            commands::skill::skill_discover_from_url,
+            commands::skill::skill_import_from_url,
+            commands::skill::skill_import_cancel,
             commands::mcp::mcp_list_servers,
             commands::mcp::mcp_add_server,
             commands::mcp::mcp_update_server,

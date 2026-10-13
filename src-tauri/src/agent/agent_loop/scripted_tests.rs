@@ -358,6 +358,7 @@ fn isolated_state_with(
         upload_cancel: Default::default(),
         download_cancel: Default::default(),
         plugin_install_cancel: Default::default(),
+        skill_import_cancel: Default::default(),
         compactions: Default::default(),
         command_exec,
         local_command_exec,
