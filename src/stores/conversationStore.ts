@@ -113,6 +113,7 @@ export interface ConversationState {
     parentConversationId: string,
   ) => string | null;
   clearAllAssistantFlags: (conversationId?: string) => void;
+  clearRetryingFlags: (conversationId?: string) => void;
   clearExecutingToolFlags: () => void;
   markAbortedToolFlags: (conversationId?: string) => void;
   /** 把回合收尾状态写到该对话尾回合的锚点（最后一条 user 消息）上。
@@ -1429,6 +1430,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
                   ? { ...m, isThinking: false, isLoading: false }
                   : m,
               )
+            : msgs,
+        ]),
+      ),
+    }));
+  },
+
+  clearRetryingFlags: (conversationId?: string) => {
+    // 本地收尾专用（finalizeTaskLocally）：删掉「正在重试请求」系统行。
+    // 点停止/断连时事件通道先拆、后端的 Cancelled 事件收不到，
+    // handleCancelled 里的同款清理不会执行，必须在这里补上。
+    set((state) => ({
+      messages: Object.fromEntries(
+        Object.entries(state.messages).map(([convId, msgs]) => [
+          convId,
+          !conversationId || convId === conversationId
+            ? msgs.filter((m) => !(m.role === 'system' && m.isRetrying))
             : msgs,
         ]),
       ),

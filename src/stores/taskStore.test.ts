@@ -365,6 +365,58 @@ describe('taskStore', () => {
       expect(msgs[1].turnState).toBeUndefined();
     });
 
+    it('removes the retrying system pill on stop —— 重试等待中点停止不残留「正在重试请求」', async () => {
+      // 回归：点停止走本地收尾（先拆通道再发命令），后端的 Cancelled 事件
+      // 收不到，handleCancelled 里过滤 isRetrying 行的清理不会执行。残留的
+      // 倒计时胶囊会在本地倒计时归零后翻成「正在重试请求 (n/m)…」永挂。
+      agentStopTask.mockResolvedValue(undefined);
+      const retryPill: AgentMessage = {
+        id: 'retry-1',
+        role: 'system',
+        content: '',
+        timestamp: new Date().toISOString(),
+        isRetrying: true,
+        retryAttempt: 2,
+        retryMaxAttempts: 4,
+        retryTotalDelaySecs: 8,
+        retryLastError: 'timeout',
+      };
+      useConversationStore.setState({
+        activeConversationId: 'conv-1',
+        messages: {
+          'conv-1': [
+            { id: 'u1', role: 'user', content: '跑一下', timestamp: '' },
+            retryPill,
+          ],
+          // 别的对话的重试胶囊不受牵连
+          'conv-2': [{ ...retryPill, id: 'retry-2' }],
+        },
+      });
+      useTaskStore.setState({
+        tasks: {
+          'task-1': {
+            id: 'task-1',
+            sessionId: 's1',
+            conversationId: 'conv-1',
+            prompt: 'p',
+            mode: 'agent',
+            status: 'executing',
+            createdAt: new Date().toISOString(),
+          },
+        },
+        activeTaskId: 'task-1',
+      });
+
+      await useTaskStore.getState().stopTask('task-1');
+
+      const conv1 = useConversationStore.getState().messages['conv-1'];
+      expect(conv1.some((m) => m.role === 'system' && m.isRetrying)).toBe(false);
+      // 用户消息原样保留，不误删
+      expect(conv1.map((m) => m.id)).toEqual(['u1']);
+      const conv2 = useConversationStore.getState().messages['conv-2'];
+      expect(conv2.some((m) => m.role === 'system' && m.isRetrying)).toBe(true);
+    });
+
     it('marks tool messages even when agentStopTask throws', async () => {
       agentStopTask.mockRejectedValue(new Error('backend gone'));
       useConversationStore.setState({

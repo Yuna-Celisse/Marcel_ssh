@@ -256,6 +256,9 @@ export function finalizeTaskLocally(
     convStore.markAbortedToolFlags(task.conversationId);
     cleanupTaskListeners(id);
     convStore.clearAllAssistantFlags(task.conversationId);
+    // 重试提示系统行：handleCancelled 的同款清理，但通道已拆、
+    // Cancelled 事件收不到（stopTask 先收尾后发命令是刻意的），这里补上。
+    convStore.clearRetryingFlags(task.conversationId);
     convStore.markTailTurnState(task.conversationId, status);
   }
 
