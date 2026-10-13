@@ -75,24 +75,19 @@ export default memo(function AgentTranscript({
   // Async Markdown, images, IME and composer growth all feed the same follow owner.
   useEffect(() => {
     if (!visible || typeof ResizeObserver === 'undefined') return;
-    let frame: number | null = null;
+    // 回调内同步贴底：ResizeObserver 在布局之后、绘制之前触发，此刻写 scrollTop 用户看不到
+    // 中间帧；若再套一层 rAF，每次内容变高/变矮（折叠动画、流式、拖宽）都会先画出一帧
+    // 偏离底部的画面，下一帧再拉回，表现为上下抖动。
     const observer = new ResizeObserver(() => {
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        if (nearBottomRef.current) scrollToBottom();
-        else if (containerRef.current) {
-          const node = containerRef.current;
-          setNearBottom(isNearBottom(node.scrollTop, node.clientHeight, node.scrollHeight));
-        }
-      });
+      if (nearBottomRef.current) scrollToBottom();
+      else if (containerRef.current) {
+        const node = containerRef.current;
+        setNearBottom(isNearBottom(node.scrollTop, node.clientHeight, node.scrollHeight));
+      }
     });
     if (containerRef.current) observer.observe(containerRef.current);
     if (contentRef.current) observer.observe(contentRef.current);
-    return () => {
-      observer.disconnect();
-      if (frame !== null) cancelAnimationFrame(frame);
-    };
+    return () => observer.disconnect();
   }, [visible, scrollToBottom]);
 
   return (
