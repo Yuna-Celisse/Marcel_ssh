@@ -102,6 +102,9 @@ ndk-context = "0.1"
 [dev-dependencies]
 tempfile = "^3"
 tauri = { version = "^2", features = ["test"] }
+# 测试用 tokio 暂停时钟（#[tokio::test(start_paused = true)]），
+# 让「首字超时」这类按秒计的兜底路径可以即时触发而不用真实等待。
+tokio = { version = "^1", features = ["test-util"] }
 
 [features]
 default = ["custom-protocol"]

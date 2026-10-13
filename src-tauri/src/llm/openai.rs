@@ -29,7 +29,10 @@ pub struct TextSink<'a> {
 impl OpenAiProvider {
     pub fn new(config: LlmConfig) -> Result<Self, LlmError> {
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
+            // 客户端与请求上都不设 reqwest 总超时——它从建连覆盖到 body 读完，
+            // 会把超过时限的流式生成中途掐死（表现为「读取流式响应失败: …
+            // operation timed out」）。等待响应头由 send_llm_request 用首字超时兜底，
+            // 流式数据由 execute_stream 的逐块看门狗兜底。
             .pool_idle_timeout(Duration::from_secs(60))
             .build()
             .map_err(|e| LlmError::Config(format!("HTTP 客户端初始化失败: {}", e)))?;
@@ -72,7 +75,13 @@ impl OpenAiProvider {
         let req_body =
             build_request_body_with_max_tokens(&self.config, messages, tools, true, max_tokens);
 
-        let response = match self.send_llm_request(&url, &req_body, messages.len()).await {
+        let first_byte_timeout =
+            Duration::from_secs(self.config.first_byte_timeout_secs.clamp(20, 250));
+
+        let response = match self
+            .send_llm_request(&url, &req_body, messages.len(), first_byte_timeout)
+            .await
+        {
             Ok(resp) => resp,
             Err(err) => return (Err(err), RequestPhase::Probing),
         };
@@ -84,8 +93,6 @@ impl OpenAiProvider {
         let mut buffer = Vec::<u8>::new();
         let mut consecutive_parse_errors: u32 = 0;
         let mut stream = response.bytes_stream();
-        let first_byte_timeout =
-            Duration::from_secs(self.config.first_byte_timeout_secs.clamp(20, 250));
         let mut phase = RequestPhase::Probing;
         let mut saw_done = false;
 
@@ -203,6 +210,7 @@ impl OpenAiProvider {
         url: &str,
         req_body: &serde_json::Value,
         messages_len: usize,
+        first_byte_timeout: Duration,
     ) -> Result<reqwest::Response, LlmError> {
         log::info!(
             "LLM 请求: {} model={} messages={}",
@@ -211,18 +219,33 @@ impl OpenAiProvider {
             messages_len
         );
 
-        let response = self
-            .client
-            .post(url)
-            .headers(self.build_headers()?)
-            .json(req_body)
-            .send()
-            .await
-            .map_err(|e| {
+        // 只包「等响应头」这一段——reqwest 的逐请求 .timeout() 会连 body 一起覆盖，
+        // 这里必须用 tokio timeout 把 .send() 单独圈住，流式 body 不受限。
+        let sent = tokio::time::timeout(
+            first_byte_timeout,
+            self.client
+                .post(url)
+                .headers(self.build_headers()?)
+                .json(req_body)
+                .send(),
+        )
+        .await;
+
+        let response = match sent {
+            Ok(r) => r.map_err(|e| {
                 let detail = format_reqwest_error(&e);
                 log::error!("LLM 请求发送失败: {}", detail);
                 LlmError::Network(detail)
-            })?;
+            })?,
+            Err(_) => {
+                return Err(LlmError::Timeout {
+                    detail: format!(
+                        "首字超时（{}s 内未收到模型响应）",
+                        self.config.first_byte_timeout_secs
+                    ),
+                });
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
@@ -244,6 +267,10 @@ impl OpenAiProvider {
         let response = self
             .client
             .get(&url)
+            // 非流式短请求：逐请求设总超时（覆盖 body 读取），口径同 JEV。
+            .timeout(Duration::from_secs(
+                self.config.first_byte_timeout_secs.clamp(20, 250),
+            ))
             .headers(self.build_headers()?)
             .send()
             .await
@@ -1539,5 +1566,99 @@ mod partial_tool_call_tests {
             call.arguments,
             serde_json::json!({ "path": "x", "content": "hi" })
         );
+    }
+}
+
+#[cfg(test)]
+mod header_wait_timeout_tests {
+    use super::*;
+    use crate::llm::provider::{LlmConfig, ProviderType};
+    use std::time::Duration;
+    use tokio::io::AsyncReadExt;
+
+    fn config_with_base_url(base_url: String) -> LlmConfig {
+        LlmConfig {
+            provider_type: ProviderType::OpenAI,
+            api_key: "test-key".to_string(),
+            model: "test-model".to_string(),
+            base_url: Some(base_url),
+            temperature: 0.1,
+            max_retries: 0,
+            retry_delay_secs: 0.0,
+            retry_http_statuses: String::new(),
+            first_byte_timeout_secs: 20,
+            retry_on_timeout: false,
+            vision: false,
+            extra_body: None,
+            demote_non_leading_system: false,
+        }
+    }
+
+    /// 服务端收完请求后永不应答：等待响应头必须由首字超时兜底返回
+    /// `LlmError::Timeout`。旧实现里这段没有自己的超时，靠客户端 180s
+    /// 总超时兜底；总超时删除后若有人把这段兜底弄丢，此测试会悬挂失败。
+    /// `start_paused` 让 20s 超时即时触发，不用真实等待。
+    #[tokio::test(start_paused = true)]
+    async fn header_wait_never_responding_times_out_at_first_byte_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("测试端点绑定失败");
+        let addr = listener.local_addr().expect("读取测试端口失败");
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            // 读掉完整请求（头 + Content-Length 声明的体）后保持连接、
+            // 永不应答——模拟中转收下请求后无响应。
+            let mut buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let mut declared: Option<usize> = None;
+            loop {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        if declared.is_none() {
+                            let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
+                                continue;
+                            };
+                            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                            declared = Some(
+                                head.lines()
+                                    .find_map(|l| {
+                                        l.strip_prefix("content-length:")
+                                            .and_then(|v| v.trim().parse().ok())
+                                    })
+                                    .unwrap_or(0)
+                                    + pos
+                                    + 4,
+                            );
+                        }
+                        if buf.len() >= declared.unwrap_or(usize::MAX) {
+                            // 收完即挂起；睡得比首字超时长，tokio 的时钟
+                            // 自动推进只会先命中客户端的 20s 超时。
+                            tokio::time::sleep(Duration::from_secs(3600)).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        let provider =
+            OpenAiProvider::new(config_with_base_url(format!("http://{addr}/v1"))).expect("构造");
+        let (event_tx, _rx) = mpsc::unbounded_channel();
+        let messages = [LlmMessage::user("hi")];
+
+        let (result, phase) = provider
+            .execute_stream(&messages, &[], &event_tx, None, None)
+            .await;
+
+        assert_eq!(phase, RequestPhase::Probing);
+        match result {
+            Err(LlmError::Timeout { detail }) => {
+                assert!(detail.contains("首字超时"), "超时文案不符: {detail}");
+            }
+            other => panic!("应为首字超时，实际: {other:?}"),
+        }
     }
 }
