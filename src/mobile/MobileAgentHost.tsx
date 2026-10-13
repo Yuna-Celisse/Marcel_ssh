@@ -404,12 +404,12 @@ export default function MobileAgentHost({
         className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
       >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-zinc-100">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="truncate whitespace-nowrap text-sm font-semibold text-zinc-100">
             {hostLabel}
           </div>
           <div
-            className={`text-[11px] ${
+            className={`truncate whitespace-nowrap text-[11px] ${
               activeSession?.status === "connected"
                 ? "text-emerald-400"
                 : activeSession?.status === "connecting"
@@ -431,7 +431,7 @@ export default function MobileAgentHost({
               setAgentsSheetTab(taskCenter.initialTab);
               setActiveAgentsSheetOpen(true);
             }}
-            className={`flex items-center gap-1 px-2 py-1 active:scale-95 border rounded-full text-xs font-medium transition-all ${
+            className={`flex flex-shrink-0 items-center gap-1 whitespace-nowrap px-2 py-1 active:scale-95 border rounded-full text-xs font-medium transition-all ${
               taskCenter.runningTasks.length === 0 && taskCenter.runningJobs.length === 0
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
                 : taskCenter.runningJobs.length > 0
@@ -462,11 +462,11 @@ export default function MobileAgentHost({
               <AgentStatusIndicator status="running" size="xs" />
             )}
             <span>
-              {taskCenter.runningTasks.length > 0 && `${taskCenter.runningTasks.length} 个任务`}
+              {taskCenter.runningTasks.length > 0 && `${taskCenter.runningTasks.length} 任务`}
               {taskCenter.runningTasks.length > 0 && taskCenter.runningJobs.length > 0 && " · "}
-              {taskCenter.runningJobs.length > 0 && `${taskCenter.runningJobs.length} 个作业`}
+              {taskCenter.runningJobs.length > 0 && `${taskCenter.runningJobs.length} 作业`}
               {taskCenter.runningTasks.length === 0 && taskCenter.runningJobs.length === 0 &&
-                `${taskCenter.attentionJobs.length} 个作业已中断`}
+                `${taskCenter.attentionJobs.length} 作业中断`}
             </span>
           </button>
         )}
