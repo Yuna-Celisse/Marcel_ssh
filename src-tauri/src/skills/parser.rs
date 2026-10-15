@@ -53,6 +53,10 @@ pub fn validate_resources(resources: &[SkillResource]) -> Result<(), String> {
         if !p.to_lowercase().ends_with(".md") {
             return Err(format!("只支持 .md 资源文件: {}", r.path));
         }
+        // 根目录的 SKILL.md 是入口（正文存在 prompt 里），资源再叫这个名字会和入口混淆
+        if p.eq_ignore_ascii_case("SKILL.md") {
+            return Err("资源不能命名为 SKILL.md（它是 skill 的入口文件）".to_string());
+        }
         if r.content.len() > MAX_RESOURCE_BYTES {
             return Err(format!(
                 "资源文件 {} 超过单文件上限（{} KB）",
@@ -614,6 +618,10 @@ mod tests {
         assert!(validate_resources(&ok("/abs.md")).is_err());
         assert!(validate_resources(&ok("a//b.md")).is_err());
         assert!(validate_resources(&ok("a/b.txt")).is_err());
+        // 根目录的 SKILL.md 是入口，不能当资源；子目录里同名不受影响
+        assert!(validate_resources(&ok("SKILL.md")).is_err());
+        assert!(validate_resources(&ok("skill.MD")).is_err());
+        assert!(validate_resources(&ok("references/SKILL.md")).is_ok());
         assert!(validate_resources(&[]).is_ok());
     }
 }
