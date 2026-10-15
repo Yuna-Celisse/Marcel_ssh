@@ -303,6 +303,11 @@ export default function AgentPanel() {
     }
   }, []);
 
+  // 任务收尾条的复制：失败交给收尾条自己提示（它要决定显示「已复制」还是「复制失败」）。
+  const handleCopyText = useCallback(async (text: string) => {
+    await writeText(text);
+  }, []);
+
   const handleStop = () => {
     stopActiveTask();
   };
@@ -365,6 +370,7 @@ export default function AgentPanel() {
         rollbackDisabled={isRunning || isCompacting || sending}
         onRollback={handleRollbackMessage}
         onCopy={handleCopyMessage}
+        onCopyText={handleCopyText}
         userJustSentRef={userJustSentRef}
         emptyState={<>
           {!activeSession && (

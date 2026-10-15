@@ -1520,7 +1520,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set((store) => {
       const msgs = store.messages[conversationId];
       if (!msgs) return store;
-      const next = withTailTurnState(msgs, state);
+      // 同时记下结束时刻：任务用时的 live 终点（assistant 消息的时间戳是开始
+      // 流式输出的时刻，不能当终点）。重载后由落库时间戳兜底，见 turnTranscript。
+      const next = withTailTurnState(msgs, state, new Date().toISOString());
       if (next === msgs) return store;
       return {
         messages: { ...store.messages, [conversationId]: next },

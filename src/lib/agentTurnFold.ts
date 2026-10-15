@@ -119,10 +119,16 @@ export function isTurnStart(message: AgentMessage): boolean {
  * 个位置（回合首条 user 消息），所以 live 与重载后的折叠判定天然一致。
  *
  * 找不到 user 消息（该对话没加载 / 还没发出过消息）→ 原样返回（不造空回合）。
+ *
+ * `finishedAt`（可选）：回合结束的时刻，随状态一起记在锚点上（`turnFinishedAt`，
+ * 任务用时的 live 终点）。**只在状态真的发生变化时才记**：完成信号会从两条路径
+ * 各到一次，用时以先到的那次为准；已经是该状态的回合（比如从库里载回来的）再被
+ * 叫一次，不能把「现在」当成它的结束时间。
  */
 export function withTailTurnState(
   messages: AgentMessage[],
   state: TurnState,
+  finishedAt?: string,
 ): AgentMessage[] {
   let idx = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -132,7 +138,11 @@ export function withTailTurnState(
     }
   }
   if (idx === -1 || messages[idx].turnState === state) return messages;
-  return messages.map((m, i) => (i === idx ? { ...m, turnState: state } : m));
+  return messages.map((m, i) =>
+    i === idx
+      ? { ...m, turnState: state, ...(finishedAt !== undefined ? { turnFinishedAt: finishedAt } : {}) }
+      : m,
+  );
 }
 
 /** 回合内所有消息（含开头的 user）。 */

@@ -152,6 +152,10 @@ export default function MobileChatHistorySheet({
     }
   }, []);
 
+  const handleCopyText = useCallback(async (text: string) => {
+    await writeText(text);
+  }, []);
+
   return (
     <MobileSheet
       open={open}
@@ -230,6 +234,7 @@ export default function MobileChatHistorySheet({
                 conversationId={selectedConvId ?? undefined}
                 foldTurns={false}
                 onCopy={(m) => void handleCopyMessage(m)}
+                onCopyText={handleCopyText}
                 highlightMessageId={highlightMessageId}
                 matchedMessageIds={activeMatchIds}
                 searchKeyword={

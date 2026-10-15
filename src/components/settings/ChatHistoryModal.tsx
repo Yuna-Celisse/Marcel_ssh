@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useCallback } from 'react';
 import { Pin } from 'lucide-react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Modal from '@/components/ui/Modal';
 import type { SavedConnection } from '@/lib/types';
 import { useConnectionStore } from '@/stores/connectionStore';
@@ -69,6 +70,18 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
       void loadAllConnections(connections);
     }
   }, [open, connections, loadAllConnections, reset]);
+
+  // 历史是只读浏览，但复制照样要能用（用户消息下的复制、任务收尾条的复制）。
+  const handleCopyMessage = useCallback(async (message: { content: string }) => {
+    try {
+      await writeText(message.content);
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  }, []);
+  const handleCopyText = useCallback(async (text: string) => {
+    await writeText(text);
+  }, []);
 
   const handleRenameInModal = async (e: React.MouseEvent, convId: string, oldTitle: string) => {
     e.stopPropagation();
@@ -353,6 +366,8 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
               {!loadingMsgs && messages.length > 0 && (
                 <AgentMessageList
                   messages={messages}
+                  onCopy={handleCopyMessage}
+                  onCopyText={handleCopyText}
                   highlightMessageId={highlightMessageId}
                   matchedMessageIds={activeMatchIds}
                   searchKeyword={isSearching ? debouncedQuery.trim() : undefined}

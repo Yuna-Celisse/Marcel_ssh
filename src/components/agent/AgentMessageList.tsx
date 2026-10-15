@@ -7,6 +7,7 @@ import type { AgentMessage } from '@/lib/types';
 import { isNearBottom } from '@/lib/agentScroll';
 import { isTurnStart } from '@/lib/agentTurnFold';
 import { isTaskBusy } from '@/lib/agentStatus';
+import { turnFooters, type TurnFooter } from '@/lib/turnTranscript';
 import { getErrorMessage } from '@/lib/errors';
 import { useConversationStore } from '@/stores/conversationStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -16,6 +17,7 @@ import { useIsomorphicLayoutEffect } from '@/hooks/useStickyFollow';
 import { useAgentScrollIntent } from '@/hooks/useAgentScrollIntent';
 import AgentMessageItem from './AgentMessage';
 import ToolCallCard from './ToolCallCard';
+import TurnActions from './TurnActions';
 import { getToolView } from './toolViews';
 import ExplorationGroup from './ExplorationGroup';
 import { TurnFoldControl } from './TurnFoldGroup';
@@ -39,6 +41,11 @@ interface Props {
   rollbackDisabled?: boolean;
   onRollback?: (message: AgentMessage) => void;
   onCopy?: (message: AgentMessage) => void;
+  /**
+   * 复制任意文本（任务收尾条的「复制最后一条回复 / 整个任务」用）。失败请抛出。
+   * 不传 = 不显示任务收尾条（没有剪贴板能力的只读场景）。
+   */
+  onCopyText?: (text: string) => void | Promise<void>;
   messagesEndRef?: RefObject<HTMLDivElement>;
   highlightMessageId?: string | null;
   matchedMessageIds?: string[];
@@ -54,6 +61,7 @@ interface Props {
 const PAGE_SIZE = 50;
 const TOP_MARGIN = 160;
 const EMPTY_EXPANDED: Record<string, boolean> = {};
+const NO_FOOTERS: ReadonlyMap<string, TurnFooter> = new Map();
 
 export function alignedWindowStart(messages: readonly AgentMessage[], count: number): number {
   const start = Math.max(0, messages.length - count);
@@ -95,7 +103,7 @@ function DedicatedViewRetention({
 }
 
 function MessageList({
-  messages, conversationId = '', rollbackDisabled = false, onRollback, onCopy, messagesEndRef,
+  messages, conversationId = '', rollbackDisabled = false, onRollback, onCopy, onCopyText, messagesEndRef,
   highlightMessageId = null, matchedMessageIds, searchKeyword, alwaysShowActions = false,
   foldTurns: foldTurnsProp, enableStickyFollow = true, listRef, onManualLayout,
 }: Props) {
@@ -126,6 +134,13 @@ function MessageList({
   const tailActive = useTaskStore((s) => Object.values(s.tasks).some(
     (t) => t.conversationId === conversationId && !!t.sessionId && isTaskBusy(t.status),
   ));
+  // 已结束的任务在「模型说的最后一段话」下面挂收尾条（复制 + 用时）。只依赖消息与
+  // 运行态，不依赖折叠状态：折叠/展开过程不改变哪条消息是最后一段话。
+  const canCopyText = !!onCopyText;
+  const footers = useMemo(
+    () => (canCopyText ? turnFooters(sliced, { tailActive }) : NO_FOOTERS),
+    [canCopyText, sliced, tailActive],
+  );
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const mountedRows = useRef(new Set<string>());
   const onRowMountChange = useCallback((key: string, mounted: boolean) => {
@@ -436,12 +451,14 @@ function MessageList({
         return next;
       })} />;
     const message = row.message;
+    const footer = onCopyText ? footers.get(message.id) : undefined;
     return <MessageViewIdContext.Provider value={message.id}>
       <div data-message-id={message.id}
-        className={`relative min-w-0 rounded-lg ${matched.has(message.id) ? 'border-l-2 border-indigo-400 pl-2' : ''}
+        className={`relative min-w-0 rounded-lg ${footer ? 'group/turn' : ''} ${matched.has(message.id) ? 'border-l-2 border-indigo-400 pl-2' : ''}
           ${flash === message.id ? 'bg-indigo-500/20 ring-1 ring-indigo-400/30' : ''}`}>
         <MemoMessageBody message={message} grouped={row.grouped} rollbackDisabled={rollbackDisabled}
           onRollback={onRollback} onCopy={onCopy} searchKeyword={searchKeyword} alwaysShowActions={alwaysShowActions} />
+        {footer && onCopyText && <TurnActions footer={footer} onCopyText={onCopyText} mobile={alwaysShowActions} />}
       </div>
     </MessageViewIdContext.Provider>;
   };

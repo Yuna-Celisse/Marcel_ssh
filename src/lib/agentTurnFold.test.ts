@@ -405,6 +405,31 @@ describe('withTailTurnState', () => {
     const base = withTailTurnState(conv(), 'running');
     expect(withTailTurnState(base, 'completed')[2].turnState).toBe('completed');
   });
+
+  it('状态变化时一并记下结束时刻（任务用时的 live 终点）', () => {
+    const next = withTailTurnState(conv(), 'completed', '2026-01-01T00:00:10.000Z');
+    expect(next[2].turnFinishedAt).toBe('2026-01-01T00:00:10.000Z');
+    expect(next[0].turnFinishedAt).toBeUndefined();
+  });
+
+  it('同一状态再落一次：不覆盖已有的结束时刻（先到的信号为准）', () => {
+    const first = withTailTurnState(conv(), 'completed', '2026-01-01T00:00:10.000Z');
+    const again = withTailTurnState(first, 'completed', '2026-01-01T00:09:00.000Z');
+    expect(again).toBe(first);
+    expect(again[2].turnFinishedAt).toBe('2026-01-01T00:00:10.000Z');
+  });
+
+  it('从库里载回来已是该状态的回合：被再叫一次也不能把「现在」当成结束时间', () => {
+    // 重载后锚点有 turnState 但没有 turnFinishedAt（不落库）
+    const loaded = conv().map((m, i) => (i === 2 ? { ...m, turnState: 'completed' as const } : m));
+    const next = withTailTurnState(loaded, 'completed', '2026-06-01T12:00:00.000Z');
+    expect(next).toBe(loaded);
+    expect(next[2].turnFinishedAt).toBeUndefined();
+  });
+
+  it('不传结束时刻 → 与旧行为一致，不写 turnFinishedAt', () => {
+    expect(withTailTurnState(conv(), 'failed')[2].turnFinishedAt).toBeUndefined();
+  });
 });
 
 describe('turnFoldLabel', () => {

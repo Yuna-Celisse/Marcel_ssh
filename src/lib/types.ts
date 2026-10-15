@@ -577,6 +577,15 @@ export interface AgentMessage {
    * 没锚定到 user 行）→ 不否决，维持按消息形态判定的既有行为。
    */
   turnState?: TurnState;
+  /**
+   * 回合结束的时刻（ISO）—— 与 `turnState` 同落点（回合首条 user 消息），**只在
+   * live 阶段由前端记下**，不落库：重载后缺失，任务用时回落成「回合里最后一条
+   * 消息的落库时间戳」（见 `turnTranscript.turnElapsedMs`）。
+   *
+   * 为什么 live 阶段必须单独记：assistant 消息的 `timestamp` 是**开始流式输出**
+   * 的时刻，拿它当终点会漏掉最后一段话的输出时间。
+   */
+  turnFinishedAt?: string;
 }
 
 export interface ToolCallInfo {

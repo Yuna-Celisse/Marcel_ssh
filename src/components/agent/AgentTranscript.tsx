@@ -16,6 +16,8 @@ interface Props {
   userJustSentRef: MutableRefObject<boolean>;
   onRollback: (message: AgentMessage) => void;
   onCopy: (message: AgentMessage) => void;
+  /** 任务收尾条的「复制」写剪贴板用；失败请抛出。不传 = 不显示收尾条。 */
+  onCopyText?: (text: string) => void | Promise<void>;
   emptyState: ReactNode;
   mobile?: boolean;
   visible?: boolean;
@@ -24,7 +26,7 @@ interface Props {
 /** The transcript alone subscribes to message frames; hidden mobile pages keep their last view. */
 export default memo(function AgentTranscript({
   canInteract, conversationId, rollbackDisabled, userJustSentRef,
-  onRollback, onCopy, emptyState, mobile = false, visible = true,
+  onRollback, onCopy, onCopyText, emptyState, mobile = false, visible = true,
 }: Props) {
   const snapshot = useRef(EMPTY_MESSAGES);
   const messages = useConversationStore((s) =>
@@ -114,6 +116,7 @@ export default memo(function AgentTranscript({
               rollbackDisabled={rollbackDisabled}
               onRollback={onRollback}
               onCopy={onCopy}
+              onCopyText={onCopyText}
               alwaysShowActions={mobile}
               enableStickyFollow={false}
               onManualLayout={onManualLayout}

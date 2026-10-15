@@ -340,6 +340,11 @@ export default function MobileAgentHost({
     }
   }, []);
 
+  // 任务收尾条的复制（与桌面同一契约：失败抛出，由收尾条提示「复制失败」）。
+  const handleCopyText = useCallback(async (text: string) => {
+    await writeText(text);
+  }, []);
+
   // ── `/` 命令面板（与桌面同款组件）：输入以 "/" 开头时在输入框上方弹出，
   // 手机端以触摸点选为主；软键盘回车/发送语义不变。
   // 唤出门控（任务运行中/压缩中不唤出，理由见共享函数注释）与桌面
@@ -507,6 +512,7 @@ export default function MobileAgentHost({
         userJustSentRef={userJustSentRef}
         onRollback={handleRollbackMessage}
         onCopy={handleCopyMessage}
+        onCopyText={handleCopyText}
         mobile
         visible={visible}
         emptyState={<>
