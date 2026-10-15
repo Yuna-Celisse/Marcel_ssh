@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
@@ -32,6 +33,14 @@ class MainActivity : TauriActivity() {
   private var lastImeBottomPx: Int = -1
   /** Last system navigation bar height (physical px) pushed to the page. */
   private var lastNavBottomPx: Int = -1
+
+  /**
+   * 最近一次分发到的 insets（CSS 长度）。页面（重）载入时 evaluateJavascript 推过来的值
+   * 会随旧文档一起丢掉，原生缓存却以为推成功了——所以让页面自己经
+   * [MobileBridge.getInsetBottoms] 拉一次，不依赖原生推送的时机。
+   */
+  @Volatile var imeBottomCss: String = "0px"
+  @Volatile var navBottomCss: String = "0px"
 
   /** 注入 WebView 的原生桥接对象（window.AndroidBridge）。 */
   private val mobileBridge by lazy { MobileBridge(this) }
@@ -53,7 +62,13 @@ class MainActivity : TauriActivity() {
     // （core-splashscreen 的 api-stub Kotlin 元数据有缺陷，编译无法通过）。
     // WebView 自身背景设为深色（onWebViewCreate），覆盖 HTML 解析前的窗口，
     // 保证 splash → WebView → React 全程深色无白屏。
-    enableEdgeToEdge()
+    // 应用界面恒为深色，系统栏图标必须恒为浅色。默认的 auto 样式按系统明暗主题挑图标颜色：
+    // 手机在浅色模式时给的是深色图标，压在深色界面上几乎看不见（状态栏文字发黑）。
+    // SystemBarStyle.dark = 浅色图标，与系统主题无关。
+    enableEdgeToEdge(
+      statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+      navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+    )
     super.onCreate(savedInstanceState)
 
     // 申请高刷新率显示模式（120Hz 及以上），让 WebView 跟着跑满。
@@ -204,6 +219,7 @@ class MainActivity : TauriActivity() {
           // toString() on a clean integer when possible avoids long floats.
           val cssValue =
             if (cssPx == cssPx.toInt().toFloat()) "${cssPx.toInt()}px" else "${cssPx}px"
+          imeBottomCss = cssValue
           webView.evaluateJavascript(
             "document.documentElement.style.setProperty('--ime-bottom','$cssValue')",
             null,
@@ -218,6 +234,7 @@ class MainActivity : TauriActivity() {
             if (density > 0f) navBottom / density else navBottom.toFloat()
           val cssValue =
             if (cssPx == cssPx.toInt().toFloat()) "${cssPx.toInt()}px" else "${cssPx}px"
+          navBottomCss = cssValue
           webView.evaluateJavascript(
             "document.documentElement.style.setProperty('--nav-bar-bottom','$cssValue')",
             null,
@@ -241,7 +258,18 @@ class MainActivity : TauriActivity() {
           null,
         )
       }
+      // 监听器挂上时系统第一次分发多半已经过去，之后没有 insets 变化就永远不会再来
+      // （三键导航下导航栏高度恒定）。主动要一次，监听器才能拿到当前值。
+      ViewCompat.requestApplyInsets(parent)
     }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    // 回到前台：缓存可能对应已被丢弃的旧文档，清掉让下一次分发一定重推。
+    lastImeBottomPx = -1
+    lastNavBottomPx = -1
+    (webViewRef?.parent as? ViewGroup)?.let { ViewCompat.requestApplyInsets(it) }
   }
 
   override fun onRequestPermissionsResult(

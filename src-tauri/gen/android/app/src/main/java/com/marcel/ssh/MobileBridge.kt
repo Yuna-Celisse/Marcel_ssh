@@ -54,6 +54,15 @@ class MobileBridge(private val activity: MainActivity) {
         MarcelForegroundService.notifyAgentEvent(activity, id, title, body)
     }
 
+    // ---------- 系统栏 insets ----------
+
+    /**
+     * 当前键盘 / 导航栏底部高度，格式 "ime,nav"（CSS 长度，如 "0px,48px"）。
+     * 页面（重）载入后主动拉一次：原生推送的值可能落在被丢弃的旧文档上。
+     */
+    @JavascriptInterface
+    fun getInsetBottoms(): String = "${activity.imeBottomCss},${activity.navBottomCss}"
+
     // ---------- 通知权限 ----------
 
     /** 检查 POST_NOTIFICATIONS 权限（API 33+ 需运行时权限，更低版本默认授予）。 */

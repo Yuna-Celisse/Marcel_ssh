@@ -9,6 +9,7 @@ import {
   isAndroidBridgeAvailable,
   isNotificationPermissionGranted,
   startForegroundService,
+  syncSystemInsets,
 } from './mobileBridge';
 
 const VALID_AGENT_MODES: readonly AgentMode[] = ['plan', 'agent', 'auto'];
@@ -97,6 +98,8 @@ let bootstrapStarted = false;
 export async function bootstrapMobileApp(): Promise<void> {
   if (bootstrapStarted) return;
   bootstrapStarted = true;
+  // 最先做：底栏避让导航键靠它，不该等设置加载。
+  syncSystemInsets();
   try {
     await runMobileBootstrap({
       appReady: () => appReady(),

@@ -22,6 +22,8 @@ interface AndroidBridgeRaw {
   isNotificationPermissionGranted(): boolean;
   /** 异步弹出系统权限对话框，结果通过 window.__marcelNotificationPermissionResult 回调 */
   requestNotificationPermission(): void;
+  /** "ime,nav"（CSS 长度）；旧版 APK 没有这个方法，调用前必须判空 */
+  getInsetBottoms?(): string;
 }
 
 declare global {
@@ -35,6 +37,25 @@ declare global {
 /** 是否在注入了 AndroidBridge 的环境（即 Android 端）。 */
 export function isAndroidBridgeAvailable(): boolean {
   return typeof window !== 'undefined' && !!window.AndroidBridge;
+}
+
+/**
+ * 把原生当前的键盘 / 导航栏高度写进 `--ime-bottom` / `--nav-bar-bottom`。
+ *
+ * 原生侧只在 insets 变化时推送，而页面载入前推过去的值会随旧文档丢掉；三键导航下导航栏
+ * 高度恒定、不会再变，页面就一直拿不到值，底栏被导航键盖住。所以页面载入后自己拉一次。
+ */
+export function syncSystemInsets(): void {
+  try {
+    const raw = window.AndroidBridge?.getInsetBottoms?.();
+    if (!raw) return;
+    const [ime, nav] = raw.split(',');
+    const style = document.documentElement.style;
+    if (ime) style.setProperty('--ime-bottom', ime);
+    if (nav) style.setProperty('--nav-bar-bottom', nav);
+  } catch (e) {
+    console.warn('[mobileBridge] syncSystemInsets failed:', e);
+  }
 }
 
 /** 启动前台保活服务。已运行则更新通知文案。 */
