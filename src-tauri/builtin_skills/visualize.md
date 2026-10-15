@@ -155,236 +155,317 @@ Chart.defaults.font.family = 'inherit';
 - 自己画 SVG 时：数据域由数据计算；从容器宽度绘制并随 `ResizeObserver` 重绘；检查标签不重叠；入场动画只播放一次，重绘不重复。
 - 直接标注优先于图例和浮层 tooltip；单位落在刻度或轴上，不要只写在读数里；小数位数保持稳定。
 
-## 示例：一条会堵的队列
+## 示例：反比例函数 y = k/x
 
-下面是一个把本文档所有契约合在一起的完整示例：形式由内容决定（讲“堵”就画一条流动的队列，而不是报表），排版只服务阅读，颜色与控件全部来自宿主，五类动效各就各位。从它学判断和手感，不是照抄的骨架——换一个内容，形式就该跟着换。
+下面是一个把本文档所有契约合在一起的完整示例：形式由内容决定（讲“反比例函数”就画一条能上手拖的曲线，而不是报表），排版只服务阅读，颜色与控件全部来自宿主，五类动效各就各位。从它学判断和手感，不是照抄的骨架——换一个内容，形式就该跟着换。
 
 ```html
-<div id="marcel-queue-demo">
-  <style>
-    #marcel-queue-demo .q-head{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:10px;animation:q-in 300ms ease-out 40ms backwards}
-    #marcel-queue-demo .q-head h3{margin:0}
-    #marcel-queue-demo .q-stats{display:flex;gap:26px;animation:q-in 300ms ease-out 120ms backwards}
-    #marcel-queue-demo .q-stat{display:flex;flex-direction:column;align-items:flex-end}
-    #marcel-queue-demo .q-stat .form-label{margin:0}
-    #marcel-queue-demo .q-num{font-variant-numeric:tabular-nums;font-size:1.3em;font-weight:500;line-height:1.2}
-    #marcel-queue-demo .q-unit{font-size:.6em;color:var(--muted-foreground);margin-left:2px;font-weight:400}
-    #marcel-queue-demo .q-stage{position:relative;animation:q-in 300ms ease-out 140ms backwards}
-    #marcel-queue-demo canvas{display:block;border-radius:var(--radius);touch-action:none}
-    #marcel-queue-demo .viz-controls{margin-top:10px;animation:q-in 300ms ease-out 240ms backwards}
-    #marcel-queue-demo .q-step{display:flex;flex-direction:column}
-    #marcel-queue-demo .q-step .viz-row{gap:6px}
-    #marcel-queue-demo .q-val{font-variant-numeric:tabular-nums;min-width:74px;text-align:center;font-weight:500}
-    #marcel-queue-demo .q-val .q-unit{font-size:11px}
-    #marcel-queue-demo .q-step .btn{width:30px;height:28px;padding:0;justify-content:center;font-weight:500}
-    #marcel-queue-demo .q-gate-badge{display:none}
-    #marcel-queue-demo .q-gate-badge.on{display:inline-block}
-    @keyframes q-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-    @media (prefers-reduced-motion:reduce){#marcel-queue-demo .q-head,#marcel-queue-demo .q-stage,#marcel-queue-demo .viz-controls{animation:none}}
-  </style>
+<div id="ivp-root" class="ivp-intro">
+<style>
+#ivp-root{display:flex;flex-direction:column;gap:12px;color:var(--foreground)}
+#ivp-root .ivp-in{animation:ivp-in 360ms cubic-bezier(.2,.7,.3,1) both}
+#ivp-root .ivp-hint{animation-delay:40ms}
+#ivp-root .ivp-ctrl{animation-delay:120ms}
+@keyframes ivp-in{from{opacity:0;transform:translateY(8px)}}
+@keyframes ivp-fade{from{opacity:0}}
+#ivp-root .ivp-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px}
+#ivp-root .ivp-formula{display:flex;align-items:center;gap:10px;font-size:30px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+#ivp-root .ivp-formula i{font-family:"Times New Roman",Georgia,serif;font-weight:500}
+#ivp-root .ivp-frac{display:inline-flex;flex-direction:column;align-items:center;font-size:24px}
+#ivp-root .ivp-num{color:var(--viz-series-1);min-width:4ch;text-align:center}
+#ivp-root .ivp-bar{align-self:stretch;height:2px;border-radius:1px;background:currentColor;margin:5px 0}
+#ivp-root .ivp-swap{display:grid;flex:1 1 240px;min-width:0;font-size:14px;line-height:1.5;color:var(--muted-foreground)}
+#ivp-root .ivp-swap>span{grid-area:1/1;transition:opacity 220ms ease-out,transform 220ms ease-out}
+#ivp-root .ivp-swap>span.enter{opacity:0;transform:translateY(6px)}
+#ivp-root .ivp-swap>span.leave{opacity:0;transform:translateY(-6px)}
+#ivp-root .ivp-hint{margin:0;color:var(--muted-foreground)}
+#ivp-root .ivp-stage{width:100%}
+#ivp-root svg{display:block;width:100%;overflow:hidden;user-select:none;-webkit-user-select:none;font-variant-numeric:tabular-nums}
+#ivp-root .ivp-gm{stroke:var(--border);stroke-width:1;stroke-opacity:.5}
+#ivp-root .ivp-gM{stroke:var(--border);stroke-width:1}
+#ivp-root .ivp-axis{stroke:var(--muted-foreground);stroke-width:1.25;transform-box:view-box}
+#ivp-root .ivp-arrow{fill:var(--muted-foreground)}
+#ivp-root .ivp-tick{fill:var(--muted-foreground);font-size:11px;paint-order:stroke;stroke:var(--background);stroke-width:3px;stroke-linejoin:round}
+#ivp-root .ivp-axname{fill:var(--muted-foreground);font-family:"Times New Roman",Georgia,serif;font-style:italic;font-size:15px}
+#ivp-root .ivp-halo{fill:none;stroke:var(--viz-series-1);stroke-width:9;stroke-opacity:.13;stroke-linecap:round;stroke-linejoin:round}
+#ivp-root .ivp-curve{fill:none;stroke:var(--viz-series-1);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+#ivp-root .ivp-rect{fill:var(--viz-series-1);fill-opacity:.14;stroke:var(--viz-series-1);stroke-opacity:.6;stroke-width:1.25;stroke-dasharray:5 4;transform-box:view-box}
+#ivp-root .ivp-ghost{fill:none;stroke:var(--viz-series-1);stroke-width:1;pointer-events:none;animation:ivp-ghost 800ms ease-out forwards}
+@keyframes ivp-ghost{from{opacity:.5}to{opacity:0}}
+#ivp-root .ivp-sym{stroke:var(--muted-foreground);stroke-width:1;stroke-opacity:.35}
+#ivp-root .ivp-mirror{fill:var(--background);stroke:var(--viz-series-1);stroke-width:2}
+#ivp-root .ivp-rlabel{font-size:12px;font-weight:600;fill:var(--viz-series-1);paint-order:stroke;stroke:var(--background);stroke-width:4px;stroke-linejoin:round}
+#ivp-root .ivp-chip rect{fill:var(--viz-series-1)}
+#ivp-root .ivp-chip text{fill:var(--background);font-size:11px;font-weight:600}
+#ivp-root .ivp-drag{fill:var(--muted-foreground);font-size:12px;paint-order:stroke;stroke:var(--background);stroke-width:4px;stroke-linejoin:round;transition:opacity 300ms ease-out}
+#ivp-root .ivp-drag.gone{opacity:0}
+#ivp-root .ivp-glow{fill:var(--viz-series-1);opacity:0;transform-box:fill-box;transform-origin:center;transform:scale(.5);transition:opacity 160ms ease-out,transform 160ms ease-out}
+#ivp-root .ivp-pt:hover .ivp-glow{opacity:.16;transform:scale(1)}
+#ivp-root .ivp-pt.is-grab .ivp-glow{opacity:.24;transform:scale(1.3)}
+#ivp-root .ivp-dot{fill:var(--viz-series-1);stroke:var(--background);stroke-width:2;transform-box:fill-box;transform-origin:center;transition:transform 110ms ease-out}
+#ivp-root .ivp-pt:hover .ivp-dot{transform:scale(1.12)}
+#ivp-root .ivp-pt.is-grab .ivp-dot{transform:scale(1.28)}
+#ivp-root .ivp-ring{fill:none;stroke:var(--primary);stroke-width:2;opacity:0;transition:opacity 150ms ease-out}
+#ivp-root .ivp-pt.is-focus .ivp-ring{opacity:1}
+#ivp-root .ivp-hit{fill:transparent;cursor:grab;touch-action:none;outline:none}
+#ivp-root.is-dragging,#ivp-root.is-dragging .ivp-hit{cursor:grabbing}
+#ivp-root .ivp-ptin{transform-box:fill-box;transform-origin:center}
+#ivp-root.ivp-intro .ivp-gl{animation:ivp-fade 240ms ease-out both}
+#ivp-root.ivp-intro .ivp-ax{animation:ivp-gx 300ms cubic-bezier(.2,.7,.3,1) both}
+#ivp-root.ivp-intro .ivp-ay{animation:ivp-gy 300ms cubic-bezier(.2,.7,.3,1) both}
+@keyframes ivp-gx{from{transform:scaleX(0)}}
+@keyframes ivp-gy{from{transform:scaleY(0)}}
+#ivp-root.ivp-intro .ivp-ticks{animation:ivp-fade 220ms ease-out 140ms both}
+#ivp-root.ivp-intro .ivp-curve,#ivp-root.ivp-intro .ivp-halo{stroke-dasharray:1 1;animation:ivp-draw 360ms cubic-bezier(.3,.7,.3,1) 120ms both}
+@keyframes ivp-draw{from{stroke-dashoffset:1}}
+#ivp-root.ivp-intro .ivp-rect{animation:ivp-grow 260ms cubic-bezier(.2,.7,.3,1) 300ms both}
+@keyframes ivp-grow{from{transform:scale(0);opacity:0}}
+#ivp-root.ivp-intro .ivp-ptin{animation:ivp-pop 240ms cubic-bezier(.2,.7,.3,1) 320ms both}
+@keyframes ivp-pop{from{transform:scale(0)}}
+#ivp-root.ivp-intro .ivp-late{animation:ivp-fade 200ms ease-out 340ms both}
+#ivp-root .ivp-ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding-top:4px}
+#ivp-root .ivp-kread{display:flex;flex-direction:column;gap:2px;min-width:5.5em}
+#ivp-root .ivp-klabel{font-size:12px;color:var(--muted-foreground)}
+#ivp-root .ivp-kval{font-size:22px;font-weight:600;line-height:1.1;color:var(--viz-series-1);font-variant-numeric:tabular-nums}
+#ivp-root .ivp-rangewrap{flex:1 1 240px;min-width:200px}
+#ivp-root .btn{transition:transform 100ms ease-out,background-color 180ms ease-out,color 180ms ease-out}
+#ivp-root .btn:active{transform:scale(.97)}
+#ivp-root .ivp-range{-webkit-appearance:none;appearance:none;display:block;width:100%;height:28px;margin:0;background:transparent;cursor:pointer;touch-action:pan-y}
+#ivp-root .ivp-range::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--ivp-track,var(--border))}
+#ivp-root .ivp-range::-moz-range-track{height:6px;border-radius:3px;background:var(--ivp-track,var(--border))}
+#ivp-root .ivp-range::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-8px;border-radius:50%;background:var(--primary);border:3px solid var(--background);box-shadow:0 0 0 1px var(--border);transition:transform 100ms ease-out}
+#ivp-root .ivp-range::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--primary);border:3px solid var(--background);box-shadow:0 0 0 1px var(--border);transition:transform 100ms ease-out}
+#ivp-root .ivp-range:active::-webkit-slider-thumb{transform:scale(1.15)}
+#ivp-root .ivp-range:active::-moz-range-thumb{transform:scale(1.15)}
+#ivp-root .ivp-range:focus{outline:none}
+#ivp-root .ivp-range:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:6px}
+#ivp-root .ivp-scale{position:relative;height:20px;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+#ivp-root .ivp-scale span{position:absolute;top:7px;left:calc(11px + (100% - 22px) * var(--f));transform:translateX(-50%);line-height:1}
+#ivp-root .ivp-scale span::before{content:"";position:absolute;left:50%;top:-7px;width:1px;height:4px;background:var(--border)}
+#ivp-root .ivp-scale .zero{color:var(--foreground)}
+@media (prefers-reduced-motion:reduce){#ivp-root *{animation-duration:1ms!important;animation-delay:0ms!important}}
+</style>
 
-  <div class="q-head">
-    <div>
-      <h3>一条会堵的队列</h3>
-      <div class="text-small">直接拖动橙色闸门改变开口 · 参数随时可调，过程连续呈现</div>
-    </div>
-    <div class="q-stats">
-      <div class="q-stat"><span class="form-label">平均等待</span><span class="q-num" id="q-wait">—</span></div>
-      <div class="q-stat"><span class="form-label">排队中</span><span class="q-num" id="q-q">0<span class="q-unit">人</span></span></div>
-      <div class="q-stat"><span class="form-label">已服务</span><span class="q-num" id="q-done">0</span></div>
-    </div>
+<div class="ivp-head ivp-in">
+  <div class="ivp-formula" aria-label="反比例函数 y 等于 k 除以 x"><i>y</i><span>=</span><span class="ivp-frac"><span class="ivp-num" id="ivp-knum">2.0</span><span class="ivp-bar"></span><i>x</i></span></div>
+  <div class="ivp-swap" id="ivp-desc" aria-live="polite"></div>
+</div>
+
+<p class="text-small ivp-hint ivp-in">沿曲线拖动实心点：拖过的矩形形状各异，面积却都等于 |k|。</p>
+
+<div class="ivp-stage" id="ivp-stage"><svg id="ivp-svg" role="group" aria-label="反比例函数图像，带坐标网格"></svg></div>
+
+<div class="ivp-ctrl ivp-in">
+  <div class="ivp-kread"><span class="ivp-klabel">比例系数 k</span><output id="ivp-kval" for="ivp-k" class="ivp-kval">2.0</output></div>
+  <div class="ivp-rangewrap">
+    <input type="range" id="ivp-k" class="ivp-range" min="-8" max="8" step="any" value="2" aria-label="比例系数 k">
+    <div class="ivp-scale" aria-hidden="true"><span style="--f:0">−8</span><span style="--f:.25">−4</span><span class="zero" style="--f:.5">0</span><span style="--f:.75">4</span><span style="--f:1">8</span></div>
   </div>
+  <button class="btn btn-ghost" id="ivp-reset" type="button">复位</button>
+</div>
 
-  <div class="q-stage"><canvas id="q-canvas"></canvas></div>
+<script>
+(function(){
+var root=document.getElementById('ivp-root');
+var NS='http://www.w3.org/2000/svg';
+function q(id){return root.querySelector('#'+id);}
+var svg=q('ivp-svg'),stage=q('ivp-stage'),input=q('ivp-k'),kval=q('ivp-kval'),knum=q('ivp-knum'),descEl=q('ivp-desc'),resetBtn=q('ivp-reset');
+var R=8,K0=2,P0=2,ST=600,DA=2*Math.sqrt(600),CHW=46;
+var W=640,H=400,U=W/(2*R),YR=H/(2*U),lastW=-1,curX=0;
+var kS={value:K0,target:K0,velocity:0},pS={value:P0,target:P0,velocity:0},tS={value:K0,target:K0,velocity:0};
+var dragging=false,grabOff=0,thumbAnim=false,running=false,last=0,hinted=false;
+var vx=0,lastMoveT=0,lastMoveV=0,ghostX=-1e9;
+var xTicks=[],yTicks=[],oLabel=null;
+var TEXT={pos:'k > 0：两支位于第一、三象限；在每一支上，y 随 x 增大而减小。',neg:'k < 0：两支位于第二、四象限；在每一支上，y 随 x 增大而增大。',zero:'k = 0 时 y = 0，不再是反比例函数（要求 k ≠ 0）。'};
 
-  <div class="viz-controls">
-    <div class="q-step">
-      <span class="form-label">到达率 λ</span>
-      <div class="viz-row">
-        <button class="btn" type="button" data-k="l" data-d="-1">−</button>
-        <span class="q-val" id="q-lv">1.0<span class="q-unit">/s</span></span>
-        <button class="btn" type="button" data-k="l" data-d="1">＋</button>
-      </div>
-    </div>
-    <div class="q-step">
-      <span class="form-label">服务率 μ</span>
-      <div class="viz-row">
-        <button class="btn" type="button" data-k="m" data-d="-1">−</button>
-        <span class="q-val" id="q-mv">1.4<span class="q-unit">/s</span></span>
-        <button class="btn" type="button" data-k="m" data-d="1">＋</button>
-      </div>
-    </div>
-    <span class="viz-badge q-gate-badge" id="q-gb">闸门限制了服务</span>
-  </div>
+function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var a in attrs)e.setAttribute(a,attrs[a]);if(parent)parent.appendChild(e);return e;}
+function clamp(v,a,b){return Math.min(b,Math.max(a,v));}
+function fmt(v,d){var p=Math.pow(10,d),r=Math.round(v*p)/p;if(r===0)r=0;return (r<0?'−':'')+Math.abs(r).toFixed(d);}
+function sx(x){return W/2+x*U;}
+function sy(y){return H/2-y*U;}
+function dataX(e){var r=svg.getBoundingClientRect();return ((e.clientX-r.left)*(W/r.width)-W/2)/U;}
+function lo(k){return Math.max(0.3,Math.abs(k)/(YR*0.88));}
+function hi(){return R*0.95;}
+function disp(v,k){var l=lo(k),h=hi(),m;
+  if(v<l){m=l*0.08;return l-m*(1-Math.exp(-(l-v)/m));}
+  if(v>h){m=0.4;return h+m*(1-Math.exp(-(v-h)/m));}
+  return v;}
 
-  <script>
-  (function(){
-    var root=document.getElementById('marcel-queue-demo');
-    var cv=document.getElementById('q-canvas'),ctx=cv.getContext('2d');
-    function probe(){var s=document.createElement('span');s.style.cssText='position:absolute;visibility:hidden;pointer-events:none';document.body.appendChild(s);
-      function g(n){s.style.color=n;return getComputedStyle(s).color;}
-      var c={p:g('var(--viz-series-1)'),o:g('var(--viz-series-2)'),gr:g('var(--viz-series-3)'),fg:g('var(--foreground)'),mut:g('var(--muted-foreground)'),bd:g('var(--border)'),card:g('var(--card)')};
-      s.remove();return c;}
-    var C=probe(),probeTick=0;
+var clipId='ivp-clip-'+Math.random().toString(36).slice(2,8);
+var defs=el('defs',{},svg),clipRect=el('rect',{x:0,y:0},el('clipPath',{id:clipId},defs));
+var gGrid=el('g',{},svg),gAxes=el('g',{},svg),gTicks=el('g',{'class':'ivp-ticks'},svg);
+var gPlot=el('g',{'clip-path':'url(#'+clipId+')'},svg);
+var gGhost=el('g',{},gPlot);
+var rect=el('path',{'class':'ivp-rect'},gPlot);
+var haloL=el('path',{'class':'ivp-halo',pathLength:1},gPlot),haloR=el('path',{'class':'ivp-halo',pathLength:1},gPlot);
+var curveL=el('path',{'class':'ivp-curve',pathLength:1},gPlot),curveR=el('path',{'class':'ivp-curve',pathLength:1},gPlot);
+var gLate=el('g',{'class':'ivp-late'},svg);
+var sym=el('line',{'class':'ivp-sym'},gLate);
+var mirror=el('circle',{'class':'ivp-mirror',r:5},gLate);
+var rectLabel=el('text',{'class':'ivp-rlabel','text-anchor':'middle','dominant-baseline':'central'},gLate);
+function chip(p){var g=el('g',{'class':'ivp-chip'},p);return {r:el('rect',{rx:5,ry:5,width:CHW,height:18},g),t:el('text',{'text-anchor':'middle','dominant-baseline':'central'},g)};}
+function placeChip(c,txt,left,mid){c.r.setAttribute('x',left.toFixed(1));c.r.setAttribute('y',(mid-9).toFixed(1));c.t.setAttribute('x',(left+CHW/2).toFixed(1));c.t.setAttribute('y',mid.toFixed(1));c.t.textContent=txt;}
+var chipX=chip(gLate),chipY=chip(gLate);
+var dragHint=el('text',{'class':'ivp-drag'},gLate);dragHint.textContent='拖动';
+var pt=el('g',{'class':'ivp-pt'},svg),ptin=el('g',{'class':'ivp-ptin'},pt);
+el('circle',{'class':'ivp-glow',r:17},ptin);el('circle',{'class':'ivp-ring',r:12},ptin);el('circle',{'class':'ivp-dot',r:7},ptin);
+var hit=el('circle',{'class':'ivp-hit',r:22,tabindex:0,role:'slider','aria-label':'曲线上实心点的横坐标 x','aria-valuemin':0,'aria-valuemax':R},ptin);
 
-    var W=680,H=280,laneY,laneH=56,serverX,xSpawn,gMin,gMax;
-    function layout(){laneY=H*0.56;serverX=W*0.76;xSpawn=34;gMin=xSpawn+128;gMax=Math.max(gMin+40,serverX-74);}
-    function resize(){var st=root.querySelector('.q-stage');W=Math.max(320,st.getBoundingClientRect().width);H=280;
-      var dpr=window.devicePixelRatio||1;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
-      cv.style.width='100%';cv.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0);layout();}
-    if('ResizeObserver' in window){new ResizeObserver(resize).observe(root.querySelector('.q-stage'));}
-    resize();
+function build(){
+  [gGrid,gAxes,gTicks,gGhost].forEach(function(g){while(g.firstChild)g.removeChild(g.firstChild);});
+  xTicks=[];yTicks=[];
+  var cx=W/2,cy=H/2,i,ln,t,ymax=Math.floor(YR-0.01);
+  for(i=-R+1;i<R;i++){if(i===0)continue;
+    ln=el('line',{x1:sx(i),x2:sx(i),y1:0,y2:H,'class':'ivp-gl '+(i%2?'ivp-gm':'ivp-gM')},gGrid);
+    ln.style.animationDelay=Math.round(Math.abs(i)/R*120)+'ms';}
+  for(i=-ymax;i<=ymax;i++){if(i===0)continue;
+    ln=el('line',{x1:0,x2:W,y1:sy(i),y2:sy(i),'class':'ivp-gl '+(i%2?'ivp-gm':'ivp-gM')},gGrid);
+    ln.style.animationDelay=Math.round(Math.abs(i)/YR*120)+'ms';}
+  var ax=el('line',{x1:0,x2:W-4,y1:cy,y2:cy,'class':'ivp-axis ivp-ax'},gAxes);ax.style.transformOrigin=cx+'px '+cy+'px';
+  var ay=el('line',{x1:cx,x2:cx,y1:H,y2:4,'class':'ivp-axis ivp-ay'},gAxes);ay.style.transformOrigin=cx+'px '+cy+'px';
+  el('path',{d:'M'+W+' '+cy+'l-9 -4.5v9z','class':'ivp-arrow'},gTicks);
+  el('path',{d:'M'+cx+' 0l-4.5 9h9z','class':'ivp-arrow'},gTicks);
+  el('text',{x:W-12,y:cy-10,'class':'ivp-axname','text-anchor':'end'},gTicks).textContent='x';
+  el('text',{x:cx+10,y:15,'class':'ivp-axname'},gTicks).textContent='y';
+  var ls=U>=44?1:(U>=24?2:4);
+  for(i=-R+ls;i<R;i+=ls){if(i===0||Math.abs(i)>R-0.6)continue;
+    t=el('text',{x:sx(i),y:cy+17,'class':'ivp-tick','text-anchor':'middle'},gTicks);t.textContent=fmt(i,0);xTicks.push({t:t,p:sx(i)});}
+  var ym=Math.floor((YR-0.5)/ls)*ls;
+  for(i=-ym;i<=ym;i+=ls){if(i===0)continue;
+    t=el('text',{x:cx-8,y:sy(i),'class':'ivp-tick','text-anchor':'end','dominant-baseline':'central'},gTicks);t.textContent=fmt(i,0);yTicks.push({t:t,p:sy(i)});}
+  oLabel=el('text',{x:cx-7,y:cy+17,'class':'ivp-tick','text-anchor':'end'},gTicks);oLabel.textContent='O';
+  rect.style.transformOrigin=cx+'px '+cy+'px';
+}
 
-    var lamT=1.0,muT=1.4,lam=1.0,mu=1.4;
-    var ents=[],server=null,served=0,waitE=0,spawnAcc=0,pulse=0;
-    var gx,gv=0,drag=false,dOff=0;
-    gx=gMin+0.35*(gMax-gMin);
-    function openness(){var t=(gx-gMin)/(gMax-gMin);return 1-t*0.7;} // 1 → 0.3
-    function clampGx(x){return Math.min(gMax,Math.max(gMin,x));}
+function branch(k,s){
+  var a=Math.max(Math.abs(k)/(YR*1.3),0.002),b=R*1.05,n=150,d='';
+  for(var i=0;i<n;i++){var x=a*Math.pow(b/a,i/(n-1)),X=s*x;d+=(i?'L':'M')+sx(X).toFixed(1)+' '+sy(k/X).toFixed(1);}
+  return d;}
 
-    var t0=performance.now(),last=t0;
-    var rm=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
-    function easeT(x){return x<0?0:x>1?1:1-(1-x)*(1-x);}
+var swapCur=null,swapKey=null;
+function swap(key){
+  if(key===swapKey)return;swapKey=key;
+  var n=document.createElement('span');n.className='enter';n.textContent=TEXT[key];descEl.appendChild(n);
+  if(swapCur){var o=swapCur;o.classList.add('leave');o.addEventListener('transitionend',function(){if(o.parentNode)o.remove();},{once:true});setTimeout(function(){if(o.parentNode)o.remove();},320);}
+  void n.offsetWidth;n.classList.remove('enter');swapCur=n;}
 
-    function spawn(){if(ents.length>32)return;ents.push({x:xSpawn,st:'go',born:performance.now(),a:0});}
+function cp(v){return 'calc(11px + (100% - 22px) * '+v.toFixed(4)+')';}
 
-    // ── 参数步进：按下即生效（pointerdown，不等 click）
-    root.querySelectorAll('button[data-k]').forEach(function(b){
-      b.addEventListener('pointerdown',function(e){e.preventDefault();
-        var d=+b.dataset.d;
-        if(b.dataset.k==='l')lamT=Math.min(3,Math.max(0.2,Math.round((lamT+0.2*d)*10)/10));
-        else muT=Math.min(3,Math.max(0.2,Math.round((muT+0.2*d)*10)/10));
-        syncVals();});
-    });
-    function syncVals(){
-      document.getElementById('q-lv').innerHTML=lamT.toFixed(1)+'<span class="q-unit">/s</span>';
-      document.getElementById('q-mv').innerHTML=muT.toFixed(1)+'<span class="q-unit">/s</span>';}
+function render(){
+  var k=kS.value,cx=W/2,cy=H/2;
+  var dR=branch(k,1),dL=branch(k,-1);
+  curveR.setAttribute('d',dR);haloR.setAttribute('d',dR);curveL.setAttribute('d',dL);haloL.setAttribute('d',dL);
+  var x=disp(pS.value,k),y=k/x,X=sx(x),Y=sy(y);curX=X;
+  rect.setAttribute('d','M'+cx+' '+cy+'H'+X.toFixed(1)+'V'+Y.toFixed(1)+'H'+cx+'Z');
+  pt.setAttribute('transform','translate('+X.toFixed(1)+' '+Y.toFixed(1)+')');
+  var MX=sx(-x),MY=sy(-y);
+  mirror.setAttribute('cx',MX.toFixed(1));mirror.setAttribute('cy',MY.toFixed(1));
+  sym.setAttribute('x1',X.toFixed(1));sym.setAttribute('y1',Y.toFixed(1));sym.setAttribute('x2',MX.toFixed(1));sym.setAttribute('y2',MY.toFixed(1));
+  var s=clamp(0.5+(Y-cy)/36,0,1),dist=Math.abs(Y-cy);
+  rectLabel.setAttribute('x',Math.max((cx+X)/2,cx+47).toFixed(1));rectLabel.setAttribute('y',((cy+Y)/2).toFixed(1));
+  rectLabel.textContent='x·y = '+fmt(x*y,2);
+  rectLabel.style.opacity=clamp((dist-6)/14,0,1).toFixed(3);
+  placeChip(chipX,fmt(x,2),clamp(X-CHW/2,2,W-CHW-2),cy+15*(1-2*s));
+  placeChip(chipY,fmt(y,2),cx-6-CHW,clamp(Y,10,H-10));
+  var hw=CHW/2+4,i,o,near;
+  for(i=0;i<xTicks.length;i++){o=xTicks[i];near=clamp((Math.abs(o.p-X)-hw)/10,0,1);o.t.style.opacity=(1-(1-s)*(1-near)).toFixed(3);}
+  for(i=0;i<yTicks.length;i++){o=yTicks[i];o.t.style.opacity=clamp((Math.abs(o.p-Y)-13)/8,0,1).toFixed(3);}
+  if(oLabel){var nx=1-(1-s)*(1-clamp((Math.abs(cx-12-X)-hw)/10,0,1)),ny=clamp((Math.abs(cy+12-Y)-13)/8,0,1);oLabel.style.opacity=Math.min(nx,ny).toFixed(3);}
+  dragHint.setAttribute('x',Math.min(X+16,W-40).toFixed(1));dragHint.setAttribute('y',Math.max(Y-16,16).toFixed(1));
+  hit.setAttribute('aria-valuenow',x.toFixed(2));hit.setAttribute('aria-valuetext','x = '+fmt(x,2)+'，y = '+fmt(y,2));
+  var ks=fmt(k,1);knum.textContent=ks;kval.textContent=ks;
+  swap(k>=0.05?'pos':(k<=-0.05?'neg':'zero'));
+  var tv=parseFloat(input.value),f=clamp((tv+8)/16,0,1),a=Math.min(.5,f),b=Math.max(.5,f);
+  input.style.setProperty('--ivp-track','linear-gradient(90deg,var(--border) '+cp(a)+',var(--primary) '+cp(a)+',var(--primary) '+cp(b)+',var(--border) '+cp(b)+')');
+  input.setAttribute('aria-valuetext','k = '+fmt(tv,1));
+  if(!dragging){var tg=clamp(pS.target,lo(k),hi());if(tg!==pS.target){pS.target=tg;kick();}}
+}
 
-    // ── 闸门拖拽：1:1 跟随，保留抓取偏移，越界渐阻
-    function px(e){var r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
-    function nearGate(p){return Math.abs(p.x-gx)<20&&Math.abs(p.y-(laneY-laneH/2-18))<22;}
-    cv.addEventListener('pointerdown',function(e){var p=px(e);
-      if(nearGate(p)||Math.abs(p.x-gx)<14&&Math.abs(p.y-laneY)<laneH/2+6){
-        drag=true;dOff=gx-p.x;cv.setPointerCapture(e.pointerId);cv.style.cursor='grabbing';e.preventDefault();}});
-    cv.addEventListener('pointermove',function(e){var p=px(e);
-      if(drag){var raw=p.x+dOff;
-        if(raw>gMax)gx=gMax+(raw-gMax)*0.18;else if(raw<gMin)gx=gMin+(raw-gMin)*0.18;else gx=raw;}
-      else cv.style.cursor=nearGate(p)?'grab':'default';});
-    function endDrag(){if(!drag)return;drag=false;gv=0;cv.style.cursor='grab';}
-    cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
+function spr(st,dt){var acc=ST*(st.target-st.value)-DA*st.velocity;st.velocity+=acc*dt;st.value+=st.velocity*dt;}
+function still(st){return Math.abs(st.target-st.value)<4e-4&&Math.abs(st.velocity)<4e-3;}
+function kick(){if(running)return;running=true;last=performance.now();requestAnimationFrame(tick);}
+function tick(now){
+  var dt=Math.min((now-last)/1000,0.032)/2;last=now;
+  for(var i=0;i<2;i++){spr(kS,dt);if(!dragging)spr(pS,dt);if(thumbAnim)spr(tS,dt);}
+  if(thumbAnim)input.value=tS.value;
+  if(still(kS)&&(dragging||still(pS))&&(!thumbAnim||still(tS))){
+    kS.value=kS.target;kS.velocity=0;
+    if(!dragging){pS.value=pS.target;pS.velocity=0;}
+    if(thumbAnim){thumbAnim=false;input.value=tS.target;}
+    running=false;render();return;}
+  render();requestAnimationFrame(tick);
+}
 
-    var statT=0;
-    function frame(now){
-      var dt=Math.min(0.05,(now-last)/1000);last=now;
-      if(++probeTick>36){probeTick=0;C=probe();}
-      var tt=(now-t0)/1000;
-      var aS=rm?1:easeT(tt/0.28), aD=rm?1:easeT((tt-0.15)/0.3);
+function hideHint(){if(!hinted){hinted=true;dragHint.classList.add('gone');}}
+function addGhost(){
+  var g=el('path',{'class':'ivp-ghost',d:rect.getAttribute('d')},gGhost);
+  g.addEventListener('animationend',function(){if(g.parentNode)g.remove();});
+  while(gGhost.childNodes.length>14)gGhost.removeChild(gGhost.firstChild);}
 
-      // 参数平滑趋近目标（连续过渡，可随时再改）
-      lam+=(lamT-lam)*Math.min(1,dt*4);
-      mu+=(muT-mu)*Math.min(1,dt*4);
-      var o=openness(),muEff=mu*(0.15+0.85*o);
+hit.addEventListener('pointerdown',function(e){
+  if(e.button>0)return;
+  e.preventDefault();try{hit.setPointerCapture(e.pointerId);}catch(_){}
+  dragging=true;pS.velocity=0;pS.target=pS.value;grabOff=dataX(e)-pS.value;
+  vx=0;lastMoveT=performance.now();lastMoveV=pS.value;ghostX=curX;
+  pt.classList.add('is-grab');root.classList.add('is-dragging');hideHint();
+  try{hit.focus({preventScroll:true});}catch(_){}
+});
+hit.addEventListener('pointermove',function(e){
+  if(!dragging)return;
+  var l=lo(kS.value),v=clamp(dataX(e)-grabOff,l*0.6,hi()+2),now=performance.now(),dt=(now-lastMoveT)/1000;
+  if(dt>0.001){vx=vx*0.6+((v-lastMoveV)/dt)*0.4;lastMoveT=now;lastMoveV=v;}
+  pS.value=v;pS.target=v;render();
+  if(Math.abs(curX-ghostX)>22){ghostX=curX;addGhost();}
+});
+function endDrag(){
+  if(!dragging)return;dragging=false;
+  pt.classList.remove('is-grab');root.classList.remove('is-dragging');
+  var v=(performance.now()-lastMoveT<90)?clamp(vx,-25,25):0;
+  pS.velocity=v;pS.target=clamp(pS.value+v*0.12,lo(kS.value),hi());kick();}
+hit.addEventListener('pointerup',endDrag);hit.addEventListener('pointercancel',endDrag);
+hit.addEventListener('keydown',function(e){
+  var st=e.shiftKey?1:0.25,d;
+  if(e.key==='ArrowRight'||e.key==='ArrowUp')d=st;else if(e.key==='ArrowLeft'||e.key==='ArrowDown')d=-st;else return;
+  e.preventDefault();hideHint();pS.target=clamp(pS.target+d,lo(kS.value),hi());kick();});
+hit.addEventListener('focus',function(){var fv=true;try{fv=hit.matches(':focus-visible');}catch(_){}pt.classList.toggle('is-focus',fv);});
+hit.addEventListener('blur',function(){pt.classList.remove('is-focus');});
 
-      // 闸门释放后的临界阻尼弹簧，从当前位置继续
-      if(!drag){var tgt=clampGx(gx);if(Math.abs(tgt-gx)>0.1||Math.abs(gv)>1){
-        var k=Math.pow(2*Math.PI/0.35,2);
-        gv+=(k*(tgt-gx)-2*Math.sqrt(k)*gv)*dt;gx+=gv*dt;}
-        else{gx=tgt;gv=0;}}
+input.addEventListener('pointerdown',function(){thumbAnim=false;});
+input.addEventListener('input',function(){thumbAnim=false;kS.target=parseFloat(input.value);kick();render();});
+input.addEventListener('change',function(){
+  if(thumbAnim)return;var v=parseFloat(input.value),r=Math.round(v*10)/10;
+  if(r!==v){input.value=r;kS.target=r;kick();render();}});
+input.addEventListener('keydown',function(e){
+  var v=parseFloat(input.value),d,big=e.shiftKey?1:0.1;
+  switch(e.key){case 'ArrowRight':case 'ArrowUp':d=v+big;break;case 'ArrowLeft':case 'ArrowDown':d=v-big;break;
+    case 'PageUp':d=v+1;break;case 'PageDown':d=v-1;break;case 'Home':d=-8;break;case 'End':d=8;break;default:return;}
+  e.preventDefault();thumbAnim=false;d=clamp(Math.round(d*10)/10,-8,8);input.value=d;kS.target=d;kick();render();});
 
-      // 到达（泊松）
-      spawnAcc+=lam*dt;while(spawnAcc>=1){spawnAcc--;spawn();}
+resetBtn.addEventListener('click',function(){
+  tS.value=parseFloat(input.value);tS.velocity=0;tS.target=K0;thumbAnim=Math.abs(tS.value-K0)>1e-6;
+  kS.target=K0;pS.target=P0;kick();});
 
-      // 排队：按 x 排序，前位紧贴闸门
-      var wait=ents.filter(function(e){return e.st==='go'&&e.x>gx-40||e.st==='q';});
-      wait.sort(function(a,b){return b.x-a.x;});
-      var fp=gx-16,sp=18;
-      for(var i=0;i<wait.length;i++){var e=wait[i];
-        var slot=fp-i*sp;
-        if(e.st==='go'){if(e.x<slot)e.x=Math.min(e.x+110*dt,slot);if(e.x>=slot-2)e.st='q';}
-        if(e.st==='q'){e.x+=(slot-e.x)*Math.min(1,dt*8);}}
-      // 其余前进的实体
-      ents.forEach(function(e){
-        if(e.st==='go'&&!wait.some(function(w){return w===e;}))
-          e.x+=110*dt*(e.x>gx-24&&e.x<gx+10?o:1); // 过闸口随开口减速
-        if(e.st==='exit'){e.x+=170*dt;e.a=Math.min(1,e.a+dt*4);}
-      });
-      // 收位：服务台空闲则放行队首
-      if(!server&&wait.length&&wait[0].st==='q'&&wait[0].x>fp-5){
-        var f=wait[0];f.st='in';server={e:f,t:0,dur:Math.max(0.3,1/muEff)};
-        var w=(now-f.born)/1000;waitE=waitE?waitE*0.88+w*0.12:w;
-      }
-      if(server){server.t+=dt;server.e.x+=(serverX-16-server.e.x)*Math.min(1,dt*3);
-        if(server.t>=server.dur){var de=server.e;de.st='exit';de.a=1;server=null;served++;pulse=1;}}
-      pulse=Math.max(0,pulse-dt*3);
-      ents=ents.filter(function(e){return e.x<W+24;});
-
-      draw(aS,aD,o,muEff);
-
-      statT+=dt;
-      if(statT>0.12){statT=0;
-        document.getElementById('q-wait').innerHTML=(waitE?waitE.toFixed(1):'0.0')+'<span class="q-unit">s</span>';
-        document.getElementById('q-q').innerHTML=wait.filter(function(e){return e.st!=='exit'&&e.st!=='in';}).length+'<span class="q-unit">人</span>';
-        document.getElementById('q-done').textContent=served;
-        document.getElementById('q-gb').classList.toggle('on',o<0.75);}
-      requestAnimationFrame(frame);
-    }
-
-    function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
-    function draw(aS,aD,o,muEff){
-      ctx.clearRect(0,0,W,H);
-      // 轨道
-      ctx.globalAlpha=aS;ctx.strokeStyle=C.bd;ctx.lineWidth=1.5;
-      rr(xSpawn-16,laneY-laneH/2,W-14-(xSpawn-16),laneH,14);ctx.stroke();
-      ctx.fillStyle=C.card;rr(xSpawn-16,laneY-laneH/2,serverX-46-(xSpawn-16),laneH,14);ctx.fill();
-      // 实体
-      ctx.globalAlpha=aD;
-      ents.forEach(function(e){
-        var al=e.st==='exit'?e.a*Math.max(0,1-Math.max(0,(e.x-(W-46))/60)):1;
-        ctx.globalAlpha=aD*al;
-        ctx.fillStyle=e.st==='q'?C.o:C.p;
-        ctx.beginPath();ctx.arc(e.x,laneY,7,0,7);ctx.fill();});
-      ctx.globalAlpha=aD;
-      // 闸门
-      var open=o*laneH,gTop=laneY-open/2,gBot=laneY+open/2,kY=laneY-laneH/2-18;
-      ctx.fillStyle=C.o;
-      rr(gx-3,laneY-laneH/2,6,Math.max(0,gTop-(laneY-laneH/2)),3);ctx.fill();
-      rr(gx-3,gBot,6,Math.max(0,(laneY+laneH/2)-gBot),3);ctx.fill();
-      ctx.beginPath();ctx.arc(gx,kY,10,0,7);ctx.fillStyle=C.o;ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=1.5;
-      ctx.beginPath();ctx.moveTo(gx-4,kY-3);ctx.lineTo(gx+4,kY-3);ctx.moveTo(gx-4,kY+3);ctx.lineTo(gx+4,kY+3);ctx.stroke();
-      // 服务台
-      ctx.beginPath();ctx.arc(serverX,laneY,30,0,7);ctx.fillStyle=C.card;ctx.fill();
-      ctx.strokeStyle=C.bd;ctx.lineWidth=1.5;ctx.stroke();
-      if(server){ctx.beginPath();ctx.arc(serverX,laneY,24,-Math.PI/2,-Math.PI/2+server.t/server.dur*Math.PI*2);
-        ctx.strokeStyle=C.p;ctx.lineWidth=4;ctx.lineCap='round';ctx.stroke();
-        ctx.fillStyle=C.p;ctx.beginPath();ctx.arc(serverX,laneY,8,0,7);ctx.fill();}
-      if(pulse>0){ctx.globalAlpha=aD*pulse*0.7;ctx.beginPath();ctx.arc(serverX,laneY,30+(1-pulse)*10,0,7);
-        ctx.strokeStyle=C.gr;ctx.lineWidth=2;ctx.stroke();ctx.globalAlpha=aD;}
-      // 直接标注
-      ctx.fillStyle=C.mut;ctx.font='11px system-ui,-apple-system,sans-serif';ctx.textBaseline='alphabetic';
-      ctx.textAlign='left';ctx.fillText('到达 '+lam.toFixed(1)+'/s',xSpawn-8,laneY-laneH/2-14);
-      ctx.textAlign='center';
-      ctx.fillText((server?'服务中 ':'有效服务 ')+muEff.toFixed(1)+'/s',serverX,laneY+laneH/2+26);
-      var qn=ents.filter(function(e){return e.st==='q';}).length;
-      if(qn>0)ctx.fillText('排队 '+qn,gx-16-(qn*18)/2,laneY-laneH/2-14);
-      ctx.textAlign='left';ctx.fillText('开口 '+Math.round(o*100)+'%',gx+16,kY+4);
-      // 队列过长提示
-      if(qn>=14){ctx.fillStyle=C.o;ctx.fillText('队列在变长，试试提高 μ 或拉大闸门',xSpawn+40,laneY-laneH/2-14);}
-      ctx.globalAlpha=1;
-    }
-    requestAnimationFrame(frame);
-  })();
-  </script>
+function layout(){
+  var w=Math.round(stage.clientWidth)||640;lastW=w;
+  W=w;H=Math.round(clamp(w*0.62,280,480));U=W/(2*R);YR=H/(2*U);
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.style.height=H+'px';
+  clipRect.setAttribute('width',W);clipRect.setAttribute('height',H);
+  build();render();}
+if(window.ResizeObserver){new ResizeObserver(function(){var w=Math.round(stage.clientWidth);if(w&&w!==lastW)layout();}).observe(stage);}
+layout();
+setTimeout(function(){root.classList.remove('ivp-intro');},800);
+})();
+</script>
 </div>
 ```
 
 值得注意的细节：
 
-- 排版只有三层：标题与操作提示（`.text-small`）、右上角三个读数（数值大标签弱、`tabular-nums`）、画面本体；根元素无框，没有包卡片。
-- 颜色全部经探针从主题变量解析（`--viz-series-1/2/3`、`--border`、`--card`），画布跟着深浅主题走。
-- 五个动效点：分层进场（40–240ms 依次 `q-in`）、按钮 `pointerdown` 即反馈、λ/μ 与开口变化时流量连续过渡、拖闸门 1:1 跟随 + 越界渐阻 + 松手临界阻尼弹簧收敛、服务完成一圈短促脉冲与计数同帧。
-- `prefers-reduced-motion` 时直接关掉入场动画，状态变化保留。
-- 直接标注（“到达 1.0/s”“开口 35%”“排队 N”）画在它解释的东西旁边，不用图例、不做浮层。
+- 排版按阅读顺序：公式与结论（公式用真分数排版）→ 操作提示 → 画面 → 控件；控件在画面**下方**，读数紧挨着它解释的对象。
+- 颜色全部来自主题变量（`--viz-series-1`、`--border`、`--muted-foreground`、`--primary`），网格、曲线、控件跟着深浅主题走。
+- 五个动效点：分层入场（网格按离原点距离依次淡入、坐标轴从原点展开、曲线描边生长、矩形缩放出现、点弹出）、拖点 1:1 跟随并保留抓取偏移、k 与拖动点都走临界阻尼弹簧、快速拖动留下矩形拖影并在松手时继承速度、完成/状态切换用短促过渡。
+- 拖过的虚线矩形面积恒等于 |k|，是内容本身在说话，不是装饰。
+- 原生 `<input type=range>` + 命中圈 `role="slider"` + 方向键步进，键盘可达；`prefers-reduced-motion` 全局降级。
 
 ## 完成前检查
 

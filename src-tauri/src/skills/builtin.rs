@@ -6,12 +6,12 @@ use crate::skills::store::{Skill, SkillStore};
 /// 内置 skill 的 id 前缀。前后端都以此前缀识别内置 skill。
 ///
 /// 设计约定（不可破坏）：
-/// - 内置 skill 使用**固定确定性 id**，保证多设备同步后仍是同一条记录；
+/// - 内置 skill 使用**固定确定性 id**，保证应用升级前后仍是同一条记录；
 /// - 内置 skill **不可编辑、不可删除**，只能启用/禁用——内容始终以当前
 ///   二进制内嵌的版本为准，应用升级后启动时无条件覆盖，确保用户总能
 ///   吃到最新教学内容（enabled 状态保留）；
-/// - `skill_update` / `skill_delete` command 与 sync 的 `apply_skill`
-///   都必须遵守上述规则（见 `commands/skill.rs`、`sync/accessor.rs`）。
+/// - `skill_update` / `skill_delete` command 都必须遵守上述规则
+///   （见 `commands/skill.rs`）。
 pub const BUILTIN_SKILL_PREFIX: &str = "builtin.";
 
 pub fn is_builtin_skill_id(id: &str) -> bool {
@@ -48,9 +48,9 @@ const BUILTIN_SKILLS: &[BuiltinSkillDef] = &[
 /// - 本地不存在 → 注入（enabled = true）；
 /// - 本地存在但内容与二进制内嵌版本不同（旧版本内容、或旧版本 App 允许
 ///   编辑时被用户改过）→ 覆盖为内嵌版本，**保留 enabled 与 created_at**；
-/// - 内容一致 → 不动（不产生变更、不触发同步）。
+/// - 内容一致 → 不动（不产生变更）。
 ///
-/// 返回发生注入/更新的 skill 列表，调用方据此决定是否持久化 + 推送同步。
+/// 返回发生注入/更新的 skill 列表，调用方据此决定是否持久化。
 pub fn ensure_builtin_skills(store: &mut SkillStore) -> Vec<Skill> {
     let mut changed = Vec::new();
     for def in BUILTIN_SKILLS {
@@ -127,9 +127,9 @@ mod tests {
 
     /// 作者契约：方向性规范 + 小规模实例 + **恰好一个**完整示例。示例一多，
     /// 模型就会把所有内容塞进同一个形状，「一切服务于你想表达的内容」名存实
-    /// 亡。required 钉住契约与唯一示例（marcel-queue-demo），forbidden 钉住
-    /// 旧模板不得回归，`<canvas` 恰好一次钉住「只有一个完整示例」——将来要
-    /// 加第二个示例，必须先确认那不是在造模板，再改这里的计数。
+    /// 亡。required 钉住契约与唯一示例（`ivp-root`，反比例函数），forbidden
+    /// 钉住旧模板不得回归；示例根 id 与 `<svg` 各恰好一次，钉住「只有一个完整
+    /// 示例」——将来要加第二个示例，必须先确认那不是在造模板，再改这里的计数。
     #[test]
     fn visualize_skill_keeps_authoring_contract_and_single_example() {
         let def = BUILTIN_SKILLS
@@ -145,7 +145,7 @@ mod tests {
             "chart.update()",
             "ResizeObserver",
             "function springTo(state, target, render)",
-            "marcel-queue-demo",
+            "id=\"ivp-root\"",
             "动效是硬性验收项",
             "可中断性最重要",
             "采用高召回策略",
@@ -158,17 +158,24 @@ mod tests {
                 "visualize skill 缺少关键契约/示例: {required}"
             );
         }
-        for forbidden in ["sim-cooling", "cmp-langs", "必须从这里改"] {
+        for forbidden in [
+            "sim-cooling",
+            "cmp-langs",
+            "必须从这里改",
+            "marcel-queue-demo",
+        ] {
             assert!(
                 !parsed.prompt.contains(forbidden),
-                "visualize skill 不应再提供整页模板: {forbidden}"
+                "visualize skill 不应再提供旧模板/旧示例: {forbidden}"
             );
         }
-        assert_eq!(
-            parsed.prompt.matches("<canvas").count(),
-            1,
-            "visualize skill 只允许一个完整示例；多出来的都会变成模板"
-        );
+        for once in ["id=\"ivp-root\"", "<svg"] {
+            assert_eq!(
+                parsed.prompt.matches(once).count(),
+                1,
+                "visualize skill 只允许一个完整示例（锚点 {once} 应恰好一次）；多出来的都会变成模板"
+            );
+        }
     }
 
     #[test]
