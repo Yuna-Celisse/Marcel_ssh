@@ -847,6 +847,14 @@ struct ChunkUsage {
     prompt_tokens_details: Option<PromptTokensDetails>,
     #[serde(default)]
     completion_tokens_details: Option<CompletionTokensDetails>,
+    /// DeepSeek 官方字段：本次输入里命中缓存的 token 数（`prompt_tokens` 含它，
+    /// 与 `prompt_cache_miss_tokens` 之和等于 `prompt_tokens`）。不认它，缓存命中率
+    /// 在 DeepSeek 渠道上永远是「渠道没报」。
+    #[serde(default)]
+    prompt_cache_hit_tokens: Option<u32>,
+    /// Moonshot（Kimi）等把缓存命中数直接放在 usage 顶层。
+    #[serde(default)]
+    cached_tokens: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -863,13 +871,75 @@ struct CompletionTokensDetails {
 
 impl From<ChunkUsage> for TokenUsage {
     fn from(u: ChunkUsage) -> Self {
+        // 三种写法都是「`prompt_tokens` 里命中缓存的那部分」。同一份 usage 里可能
+        // 有人同时发两种（兼容网关常见 `details.cached_tokens: 0` 外加真实的
+        // `prompt_cache_hit_tokens`），取最大值：全是 0/缺失才算没命中，而不是
+        // 让排在前面的那个 0 盖掉真值。三个都缺 = 渠道没报，保持 `None`。
+        let cached_read_tokens = [
+            u.prompt_tokens_details.and_then(|d| d.cached_tokens),
+            u.prompt_cache_hit_tokens,
+            u.cached_tokens,
+        ]
+        .into_iter()
+        .flatten()
+        .max();
         Self {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
             reasoning_tokens: u.completion_tokens_details.and_then(|d| d.reasoning_tokens),
-            cached_read_tokens: u.prompt_tokens_details.and_then(|d| d.cached_tokens),
+            cached_read_tokens,
         }
+    }
+}
+
+#[cfg(test)]
+mod usage_cache_tests {
+    use super::*;
+
+    fn parse(json: &str) -> TokenUsage {
+        serde_json::from_str::<ChunkUsage>(json)
+            .expect("usage 应能解析")
+            .into()
+    }
+
+    #[test]
+    fn openai_style_details_are_read() {
+        let u = parse(
+            r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,
+                "prompt_tokens_details":{"cached_tokens":64}}"#,
+        );
+        assert_eq!(u.cached_read_tokens, Some(64));
+    }
+
+    #[test]
+    fn deepseek_style_hit_tokens_are_read() {
+        let u = parse(
+            r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,
+                "prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20}"#,
+        );
+        assert_eq!(u.cached_read_tokens, Some(80));
+    }
+
+    #[test]
+    fn moonshot_style_top_level_cached_tokens_are_read() {
+        let u = parse(r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"cached_tokens":30}"#);
+        assert_eq!(u.cached_read_tokens, Some(30));
+    }
+
+    #[test]
+    fn a_zero_in_one_field_does_not_mask_the_real_value_in_another() {
+        let u = parse(
+            r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,
+                "prompt_tokens_details":{"cached_tokens":0},"prompt_cache_hit_tokens":80}"#,
+        );
+        assert_eq!(u.cached_read_tokens, Some(80));
+    }
+
+    #[test]
+    fn channel_that_reports_nothing_stays_none_not_zero() {
+        let u = parse(r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105}"#);
+        assert_eq!(u.cached_read_tokens, None);
     }
 }
 

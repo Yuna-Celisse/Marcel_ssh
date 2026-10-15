@@ -24,8 +24,10 @@ const SEGMENTS = [
  *   其余都是它的注脚；没配窗口时退而显示已用 token 数，不让主位空着。
  * - **口径写在段标题右侧的小字里**（最近一次请求 / 含子 agent），不靠用户猜；
  *   占用环只算本会话自己（子 agent 有自己的窗口），累计才是含子 agent。
- * - 明细只留三行（输入 / 输出 / 合计），「缓存读取 / 未缓存 / 命中率 / 推理」
- *   降成各自的说明行 —— 它们解释的是上一行，不是并列的第四五六行。
+ * - 明细是四行（输入 / 输出 / 缓存命中率 / 合计）：缓存命中率是用户会专门来
+ *   找的一项，独占一行并带一条比例条；「缓存读取 / 未缓存 / 推理」仍降成说明行
+ *   —— 它们解释的是上一行，不是并列的行。渠道没返回缓存用量时这一行**也保留**
+ *   （显示 `—` 并写明原因），否则用户分不清是没做还是渠道没报。
  * - 数字统一 k/M 缩写：`1,240,000` 那种七位数并排三行读不出大小关系。
  *
  * 降级都在这里显式表达：没有数据 → `—`（不是 0）；窗口未配置 → 说明一句，
@@ -195,6 +197,7 @@ export function TokenUsagePanel({
                   : null
               }
             />
+            <CacheHitRow totals={totals} />
             <div className="flex items-baseline justify-between gap-2 border-t border-zinc-700/70 pt-1">
               <span className="text-[0.92em] text-zinc-400">合计</span>
               <span
@@ -211,17 +214,64 @@ export function TokenUsagePanel({
   );
 }
 
-/** 输入行下面的缓存说明；渠道没报缓存 → 不给（不是给 0）。 */
+/**
+ * 输入行下面的缓存说明（缓存 / 未缓存两个绝对量）；渠道没报缓存 → 不给（不是给 0）。
+ * 命中率不在这里重复一遍：它有自己的 {@link CacheHitRow}。
+ */
 function cacheCaption(totals: NonNullable<ReturnType<typeof usageTotals>>): string | null {
   if (totals.cachedReadTokens == null) return null;
   const parts = [`缓存 ${formatCompactTokens(totals.cachedReadTokens)}`];
   if (totals.uncachedInputTokens != null) {
     parts.push(`未缓存 ${formatCompactTokens(totals.uncachedInputTokens)}`);
   }
-  if (totals.cacheHitPercent != null) {
-    parts.push(`命中 ${formatPercent(totals.cacheHitPercent)}%`);
-  }
   return parts.join(' · ');
+}
+
+/**
+ * 缓存命中率：累计输入里有多大比例吃到了缓存（命中的按折扣价计费，所以这个数
+ * 越高越省钱）。
+ *
+ * 比例条只表达「命中占输入」这一件事 —— 条长 = 命中率，不另外分段着色。
+ * 悬停给精确的 token 数（命中 / 输入），与其它行的「缩写 + 悬停全精度」一致。
+ *
+ * 两种拿不到数的情形分开说：渠道根本没报缓存读取（`cachedReadTokens == null`）
+ * 要点明「渠道没返回」；报了但还没有输入量（算不出比例）则只给 `—`。
+ */
+function CacheHitRow({ totals }: { totals: NonNullable<ReturnType<typeof usageTotals>> }) {
+  const percent = totals.cacheHitPercent;
+  if (percent == null) {
+    return (
+      <div data-testid="cache-hit-row">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[0.92em] text-zinc-400">缓存命中率</span>
+          <span className="text-[1em] tabular-nums text-zinc-500">—</span>
+        </div>
+        {totals.cachedReadTokens == null && (
+          <div className="mt-0.5 text-[0.85em] text-zinc-500">该渠道没有返回缓存用量</div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div data-testid="cache-hit-row">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[0.92em] text-zinc-400">缓存命中率</span>
+        <span
+          className="text-[1em] tabular-nums text-zinc-100"
+          title={`命中 ${formatExactTokens(totals.cachedReadTokens ?? 0)} / 输入 ${formatExactTokens(totals.promptTokens)}`}
+        >
+          {formatPercent(percent)}%
+        </span>
+      </div>
+      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-zinc-700" aria-hidden>
+        <div
+          className="h-full rounded-full bg-emerald-400"
+          style={{ width: `${percent}%` }}
+          data-testid="cache-hit-bar"
+        />
+      </div>
+    </div>
+  );
 }
 
 function UsageRow({

@@ -60,11 +60,57 @@ describe('TokenUsagePanel 三态', () => {
     expect(text).toContain('1.2M'); // 输入（k/M 缩写：>=100 取整、<100 一位小数）
     expect(text).toContain('45.2K'); // 输出
     expect(text).toContain('1.3M'); // 合计
-    // 缓存与推理是「说明上一行」的小字，不是并列的第四五六行
+    // 缓存读取 / 未缓存 / 推理是「说明上一行」的小字，不是并列的行
     expect(text).toContain('缓存 260K');
     expect(text).toContain('未缓存 980K');
-    expect(text).toContain('命中 21%');
     expect(text).toContain('推理 12K');
+    // 命中率是独立的一行，不再挤在输入行的说明里重复一遍
+    expect(text).toContain('缓存命中率');
+    expect(text).toContain('21%');
+    expect(text).not.toContain('命中 21%');
+  });
+
+  it('缓存命中率：独占一行，比例条的长度就是命中率', () => {
+    render(withData, 200_000);
+    const row = container.querySelector('[data-testid="cache-hit-row"]');
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain('缓存命中率');
+    expect(row!.textContent).toContain('21%');
+    const bar = container.querySelector('[data-testid="cache-hit-bar"]') as HTMLElement;
+    expect(bar.style.width).toBe('21%');
+  });
+
+  it('缓存命中率：悬停给精确的命中 / 输入 token 数', () => {
+    render(withData, 200_000);
+    const titles = Array.from(container.querySelectorAll('[title]')).map((el) =>
+      el.getAttribute('title'),
+    );
+    expect(titles).toContain('命中 260,000 / 输入 1,240,000');
+  });
+
+  it('缓存命中率：部分命中不会被四舍五入成 100%', () => {
+    const almost: ConversationUsage = {
+      promptTokens: 1_000_000,
+      completionTokens: 10,
+      totalTokens: 1_000_010,
+      cachedReadTokens: 999_999,
+    };
+    const text = render(almost, 0);
+    expect(text).toContain('99.9%');
+    expect(text).not.toContain('100%');
+  });
+
+  it('缓存命中率：一点都没命中显示 0%（报了就是真的 0，不同于没报）', () => {
+    const none: ConversationUsage = {
+      promptTokens: 5_000,
+      completionTokens: 10,
+      totalTokens: 5_010,
+      cachedReadTokens: 0,
+    };
+    const text = render(none, 0);
+    const row = container.querySelector('[data-testid="cache-hit-row"]');
+    expect(row!.textContent).toContain('0%');
+    expect(text).not.toContain('没有返回缓存用量');
   });
 
   it('缩写之外保留全精度：悬停能看到精确值', () => {
@@ -106,7 +152,7 @@ describe('TokenUsagePanel 三态', () => {
     expect(container.querySelectorAll('dl').length).toBeGreaterThan(0);
   });
 
-  it('渠道没报缓存：说明行整条不出现（而不是显示 0）', () => {
+  it('渠道没报缓存：命中率行保留并写明原因，显示 — 而不是 0', () => {
     const noCache: ConversationUsage = {
       promptTokens: 100,
       completionTokens: 10,
@@ -121,9 +167,17 @@ describe('TokenUsagePanel 三态', () => {
     };
     const text = render(noCache, 1_000);
     expect(text).toContain('输入');
-    expect(text).not.toContain('缓存');
+    // 输入行下的缓存说明整条不出现（不是显示 0）……
     expect(text).not.toContain('未缓存');
-    expect(text).not.toContain('命中');
+    expect(text).not.toContain('缓存 0');
+    // ……但命中率那一行还在：用户找这一项时得知道是「渠道没返回」
+    const row = container.querySelector('[data-testid="cache-hit-row"]');
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain('缓存命中率');
+    expect(row!.textContent).toContain('—');
+    expect(row!.textContent).toContain('该渠道没有返回缓存用量');
+    expect(row!.textContent).not.toContain('0%');
+    expect(container.querySelector('[data-testid="cache-hit-bar"]')).toBeNull();
   });
 
   it('渠道一轮都没报用量：累计段说明情况，绝不显示 0', () => {
