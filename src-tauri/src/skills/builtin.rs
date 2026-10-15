@@ -152,6 +152,9 @@ mod tests {
             "不要先询问“要不要做图”",
             "项目没有 Mermaid 展示能力",
             "不提工具、fragment、文件或实现机制",
+            // fragment 的转义口径：真实换行、不预转义。反过来教模型自己写 `\n` / `\"`，实测
+            // 出过整页被二次转义的坏图（render_html 对此另有检测兜底，两处互为补充）。
+            "不要预先转义",
         ] {
             assert!(
                 parsed.prompt.contains(required),
@@ -163,6 +166,8 @@ mod tests {
             "cmp-langs",
             "必须从这里改",
             "marcel-queue-demo",
+            // 旧措辞「换行写 \n、引号写 \"」：诱导模型把 fragment 预先转义，不得回归。
+            "换行写",
         ] {
             assert!(
                 !parsed.prompt.contains(forbidden),
