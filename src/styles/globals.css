@@ -1122,3 +1122,38 @@ body.marcel-resizing-x * {
 .agent-width-handle[data-dragging]::after {
   opacity: 1;
 }
+
+/* ── 不确定进度（连接中 / 总大小未知 / 解析中）──
+   一段向右流动的光带，一眼能看出「在动、但不知道走了多少」，不会被误读成
+   「已经完成了一部分」。只动 transform（合成器线程）。减少动态效果时改为整条
+   轻柔明暗呼吸，不再位移。 */
+@keyframes skill-progress-flow {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes skill-progress-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.skill-progress-indeterminate {
+  width: 40%;
+  animation: skill-progress-flow 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skill-progress-indeterminate {
+    width: 100%;
+    animation: skill-progress-breathe 2.4s ease-in-out infinite;
+  }
+}
