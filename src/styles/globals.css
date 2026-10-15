@@ -1157,3 +1157,135 @@ body.marcel-resizing-x * {
     animation: skill-progress-breathe 2.4s ease-in-out infinite;
   }
 }
+
+/* ── 至尊无敌特效（关于页图标彩蛋）──
+   鹈鹕的车轮/脚踏/颠簸全部是 CSS 动画（合成线程），仪式里 .pelican-paused 一加上就定格。
+   腿与曲柄的 `d` 关键帧由 src/lib/pelicanPedal.ts 生成并内联在 SVG 里。 */
+@keyframes pelican-spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes pelican-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.8px);
+  }
+}
+
+.pelican-wheel {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pelican-spin 0.42s linear infinite;
+}
+
+.pelican-bob {
+  animation: pelican-bob 0.45s ease-in-out infinite;
+}
+
+.pelican-leg-a {
+  animation: pelican-leg-a 0.9s linear infinite;
+}
+
+.pelican-leg-b {
+  animation: pelican-leg-b 0.9s linear infinite;
+}
+
+.pelican-crank-a {
+  animation: pelican-crank-a 0.9s linear infinite;
+}
+
+.pelican-crank-b {
+  animation: pelican-crank-b 0.9s linear infinite;
+}
+
+.pelican-paused .pelican-wheel,
+.pelican-paused .pelican-bob,
+.pelican-paused .pelican-leg-a,
+.pelican-paused .pelican-leg-b,
+.pelican-paused .pelican-crank-a,
+.pelican-paused .pelican-crank-b {
+  animation-play-state: paused;
+}
+
+/* 解锁横幅：弹性入场，退场只淡出（退得比进得轻，不抢戏） */
+@keyframes supreme-banner-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes supreme-banner-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes supreme-banner-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.supreme-banner {
+  animation: supreme-banner-in 460ms var(--spring-bounce) both;
+}
+
+.supreme-banner-leaving {
+  animation: supreme-banner-out 360ms ease-out both;
+}
+
+/* 解锁后开关那一行出现：从上方滑入并带一圈暖色底光，告诉用户「新东西在这儿」 */
+@keyframes supreme-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+    background-color: rgb(245 158 11 / 0.26);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    background-color: rgb(245 158 11 / 0);
+  }
+}
+
+@keyframes supreme-reveal-fade {
+  0% {
+    opacity: 0;
+    background-color: rgb(245 158 11 / 0.26);
+  }
+  100% {
+    opacity: 1;
+    background-color: rgb(245 158 11 / 0);
+  }
+}
+
+.supreme-reveal {
+  animation: supreme-reveal 1500ms var(--spring-smooth) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .supreme-banner {
+    animation: supreme-banner-fade-in 240ms ease-out both;
+  }
+  .supreme-reveal {
+    animation: supreme-reveal-fade 700ms ease-out both;
+  }
+}

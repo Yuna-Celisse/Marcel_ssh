@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { EMPTY_DRAFT, useAgentDraftStore } from '@/stores/agentDraftStore';
+import { celebrateTyping } from '@/lib/typingConfetti';
 
 /** Draft updates belong to the composer, not the transcript or its host. */
 export function AgentDraft({ draftKey, children }: { draftKey: string; children: (draft: string) => ReactNode }) {
@@ -49,6 +50,8 @@ export const AgentTextarea = forwardRef<HTMLTextAreaElement, Props>(
       }}
       value={draft}
       onChange={(event) => {
+        // 桌面与手机的 Agent 输入框都经这里：「至尊无敌特效」只需接这一处
+        celebrateTyping(event.target, draft, event.target.value);
         setDraft(draftKey, event.target.value);
         onTyping?.();
       }}

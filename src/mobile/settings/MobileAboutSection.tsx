@@ -7,7 +7,8 @@ import { getErrorMessage } from '@/lib/errors';
 import { openExternalLink, SUPPORT_URL } from '@/lib/externalLinks';
 import { updatePercent } from '@/lib/updateProgress';
 import { compareVersions } from '@/lib/semver';
-import { APP_LOGO, APP_NAME } from '@/lib/constants';
+import { APP_NAME } from '@/lib/constants';
+import { prefersReducedMotion } from '@/lib/confetti';
 import {
   availableUpdateModes,
   displayUpdateMode,
@@ -16,16 +17,20 @@ import {
   updateModeDescription,
 } from '@/lib/updateMode';
 import { MobileChoiceGroup } from '@/mobile/ui/MobileChoiceGroup';
+import Toggle from '@/components/ui/Toggle';
+import EasterEggLogo from '@/components/effects/EasterEggLogo';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdateStore } from '@/stores/updateStore';
 import { MobileSettingRow } from './MobileSettingRow';
 import { useDebugUnlock } from '@/hooks/useDebugUnlock';
+import { useSupremeEffects } from '@/hooks/useSupremeEffects';
 
 const REPO_URL = 'https://github.com/q541810/Marcel_ssh';
 
 /** About page for mobile: version, manual update check, re-run onboarding, project link. */
 export function MobileAboutSection({ onOpenDebug }: { onOpenDebug?: () => void }) {
   const handleVersionTap = useDebugUnlock(() => onOpenDebug?.());
+  const supreme = useSupremeEffects();
   const [appVersion, setAppVersion] = useState('');
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -120,12 +125,7 @@ export function MobileAboutSection({ onOpenDebug }: { onOpenDebug?: () => void }
     <div className="flex flex-col gap-2">
       {/* App identity */}
       <div className="flex flex-col items-center py-4">
-        <img
-          src={APP_LOGO}
-          alt={`${APP_NAME} logo`}
-          className="h-24 w-24 select-none object-contain"
-          draggable={false}
-        />
+        <EasterEggLogo className="h-24 w-24 select-none object-contain" />
         <div className="mt-2 text-base font-semibold text-zinc-100">
           {APP_NAME}
         </div>
@@ -325,6 +325,21 @@ export function MobileAboutSection({ onOpenDebug }: { onOpenDebug?: () => void }
           <ExternalLink className="h-4 w-4" />在 GitHub 上查看
         </button>
       </MobileSettingRow>
+
+      {/* 彩蛋解锁后才出现（与桌面同一规则）：刚解锁时带入场动画并滚进视野 */}
+      {supreme.unlocked && (
+        <div ref={supreme.rowRef} className={supreme.justRevealed ? 'supreme-reveal rounded-xl' : undefined}>
+          <MobileSettingRow
+            label="至尊无敌特效"
+            description={
+              prefersReducedMotion()
+                ? '输入框每输入新内容就放一发礼炮。系统开启了「减少动态效果」，目前不会播放'
+                : '输入框每输入新内容，就在光标处放一发礼炮'
+            }
+            trailing={<Toggle checked={supreme.enabled} onChange={supreme.setEnabled} />}
+          />
+        </div>
+      )}
     </div>
   );
 }

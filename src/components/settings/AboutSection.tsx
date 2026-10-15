@@ -6,9 +6,11 @@ import { getErrorMessage } from '@/lib/errors';
 import { openExternalLink, SUPPORT_URL } from '@/lib/externalLinks';
 import { updatePercent } from '@/lib/updateProgress';
 import { compareVersions } from '@/lib/semver';
-import { APP_NAME, APP_LOGO } from '@/lib/constants';
+import { APP_NAME } from '@/lib/constants';
 import Button from '@/components/ui/Button';
 import SegmentedControl from '@/components/ui/SegmentedControl';
+import Toggle from '@/components/ui/Toggle';
+import EasterEggLogo from '@/components/effects/EasterEggLogo';
 import { Card, SettingItem } from './helpers';
 import {
   availableUpdateModes,
@@ -23,6 +25,8 @@ import ChatHistoryModal from './ChatHistoryModal';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useViewStore } from '@/stores/viewStore';
 import { useDebugUnlock } from '@/hooks/useDebugUnlock';
+import { useSupremeEffects } from '@/hooks/useSupremeEffects';
+import { prefersReducedMotion } from '@/lib/confetti';
 
 export default function AboutSection() {
   const [appVersion, setAppVersion] = useState('');
@@ -55,6 +59,7 @@ export default function AboutSection() {
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const setActiveView = useViewStore((s) => s.setActiveId);
   const handleVersionTap = useDebugUnlock(() => setActiveView('builtin.debug'));
+  const supreme = useSupremeEffects();
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => setAppVersion('0.1.3'));
@@ -127,12 +132,7 @@ export default function AboutSection() {
   return (
     <>
       <div className="flex justify-center mb-6">
-        <img
-          src={APP_LOGO}
-          alt={`${APP_NAME} logo`}
-          className="w-56 h-56 object-contain select-none"
-          draggable="false"
-        />
+        <EasterEggLogo className="w-56 h-56 object-contain select-none" />
       </div>
       <Card id="settings-about" title="应用信息">
         <SettingItem id="about-name" label="应用名称" sectionId="settings-about">
@@ -313,6 +313,28 @@ export default function AboutSection() {
             加入交流群
           </Button>
         </SettingItem>
+        {/* 彩蛋解锁后才出现；刚解锁时带入场动画并滚进视野（见 useSupremeEffects） */}
+        {supreme.unlocked && (
+          <div ref={supreme.rowRef} className={supreme.justRevealed ? 'supreme-reveal' : undefined}>
+            <SettingItem
+              id="about-supreme-effects"
+              label="至尊无敌特效"
+              description={
+                prefersReducedMotion()
+                  ? '输入框每输入新内容就放一发礼炮。系统开启了「减少动态效果」，目前不会播放'
+                  : '输入框每输入新内容，就在光标处放一发礼炮'
+              }
+              sectionId="settings-about"
+              keywords={['特效', '礼炮', '彩带', '彩蛋', '至尊', 'confetti', 'effects']}
+            >
+              <Toggle
+                checked={supreme.enabled}
+                onChange={supreme.setEnabled}
+                label={supreme.enabled ? '已开启' : '已关闭'}
+              />
+            </SettingItem>
+          </div>
+        )}
       </Card>
       <ChatHistoryModal open={showHistory} onClose={() => setShowHistory(false)} />
     </>
