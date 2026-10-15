@@ -2,6 +2,7 @@ import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import type { PluggableList } from 'unified';
 import { markdownRemarkPlugins, markdownRehypePlugins } from '@/lib/markdownPlugins';
+import { normalizeMathDelimiters } from '@/lib/mathDelimiters';
 import { markdownRenderManager } from '@/lib/markdownRenderManager';
 import type { MarkdownTree } from '@/lib/markdownProcessor';
 import { openExternalLink } from '@/lib/externalLinks';
@@ -24,7 +25,7 @@ const CompiledMarkdown = memo(function CompiledMarkdown({ tree }: { tree: Markdo
 
 const SynchronousMarkdown = memo(function SynchronousMarkdown({ content }: { content: string }) {
   return <Markdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins} components={components}>
-    {content}
+    {normalizeMathDelimiters(content)}
   </Markdown>;
 });
 
