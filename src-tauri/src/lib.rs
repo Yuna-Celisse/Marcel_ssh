@@ -707,11 +707,16 @@ pub fn run() {
             crate::commands::plugin_uri::handle_plugin_uri(app, request)
         })
         .on_window_event(|window, event| {
-            // 主窗口关闭时同步关闭所有插件独立窗口：Tauri 只在最后一个窗口
+            // 主窗口真正销毁时同步关闭所有插件独立窗口：Tauri 只在最后一个窗口
             // 关闭后退出应用，悬浮的插件窗口（如桌宠）不关会挡住应用退出。
+            //
+            // 挂在 `Destroyed` 而不是 `CloseRequested`：前端的退出确认
+            // （`QuitGuard`，还有任务在跑时拦住关闭并询问）可能把这次关闭否决掉，
+            // 而 `CloseRequested` 是在前端有机会否决**之前**触发的 —— 挂在那里，
+            // 用户点了「继续使用」之后插件窗口（桌宠等）已经被提前关光了。
             #[cfg(desktop)]
             if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let tauri::WindowEvent::Destroyed = event {
                     crate::commands::plugin_window::close_all_plugin_windows(&window.app_handle());
                 }
             }

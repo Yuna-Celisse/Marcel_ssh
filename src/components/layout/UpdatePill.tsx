@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUpdateStore, isUpdateVisible } from '@/stores/updateStore';
-import { useTaskStore } from '@/stores/taskStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useIsBusy } from '@/hooks/useBusyWork';
 import { openExternalLink } from '@/lib/externalLinks';
 import { getErrorMessage } from '@/lib/errors';
-import { isTaskBusy } from '@/lib/agentStatus';
 import { updatePercent } from '@/lib/updateProgress';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
@@ -40,11 +39,11 @@ export default function UpdatePill() {
   // 药丸 + 气泡的整体容器：outside click 关闭气泡时排除自身
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // Agent 任务运行中 / 有活跃 SSH 会话 → 安装（会退出应用 / 重启）前必须确认
-  const agentBusy = useTaskStore((s) => {
-    const t = s.activeTaskId ? s.tasks[s.activeTaskId] : null;
-    return t ? isTaskBusy(t.status) : false;
-  });
+  // 有任务在跑（Agent 任务 / 后台作业 / 传输）或有活跃 SSH 会话 → 安装（会退出
+  // 应用 / 重启）前必须确认。「任务在跑」的口径与关闭窗口时的退出确认同源
+  // （`useIsBusy`，只订阅一个布尔 —— 标题栏常驻，不能跟着任务/传输每个 tick 重渲）：
+  // 之前这里只看当前激活的那一个任务，后台任务和作业都漏了。
+  const agentBusy = useIsBusy();
   const sshBusy = useSessionStore((s) =>
     Object.values(s.sessions).some(
       (x) => x.status === 'connecting' || x.status === 'connected',
@@ -299,7 +298,7 @@ export default function UpdatePill() {
       >
         <div className="space-y-4">
           <p className="text-sm text-zinc-300">
-            当前有正在运行的 Agent 任务或 SSH 会话，安装会中断它们。
+            当前有正在运行的任务（Agent 任务、后台作业、文件传输）或 SSH 会话，安装会中断它们。
             <br />
             {capabilities?.installKind === 'apk'
               ? '接下来会打开系统安装界面，确认后应用会重启到新版本。'

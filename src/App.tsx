@@ -15,6 +15,7 @@ import TabBar from '@/components/terminal/TabBar';
 import AppHeader from '@/components/layout/AppHeader';
 import HostKeyWarningToast from '@/components/layout/HostKeyWarningToast';
 import SettingsWarningToast from '@/components/layout/SettingsWarningToast';
+import QuitGuard from '@/components/layout/QuitGuard';
 import OnboardingWizard from '@/components/onboarding/OnboardingWizard';
 import StarPromptModal from '@/components/star/StarPromptModal';
 import GlobalInteractionOverlay from '@/components/agent/GlobalInteractionOverlay';
@@ -907,6 +908,7 @@ export default function App() {
       <HostKeyWarningToast />
       <StarPromptModal />
       <GlobalInteractionOverlay />
+      <QuitGuard />
 
       {/* Shared overlay container for content-script plugins. Fixed, full
           screen, no pointer events by default; plugins opt-in via
