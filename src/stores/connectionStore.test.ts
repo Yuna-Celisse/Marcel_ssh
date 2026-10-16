@@ -24,6 +24,43 @@ function conn(id: string, group?: string): SavedConnection {
 
 const ids = () => useConnectionStore.getState().connections.map((c) => c.id);
 
+describe('connectionStore.loaded', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useConnectionStore.setState({
+      connections: [],
+      loading: false,
+      loaded: false,
+      error: null,
+    });
+  });
+
+  it('初始为 false：占位的空数组不能被当成「用户没有连接」', () => {
+    expect(useConnectionStore.getInitialState().loaded).toBe(false);
+  });
+
+  it('fetchConnections 成功后置真', async () => {
+    (tauri.getConnections as any).mockResolvedValue([conn('a')]);
+
+    const pending = useConnectionStore.getState().fetchConnections();
+    expect(useConnectionStore.getState().loaded).toBe(false);
+    await pending;
+
+    expect(useConnectionStore.getState().loaded).toBe(true);
+    expect(ids()).toEqual(['a']);
+  });
+
+  it('fetchConnections 失败也置真（问过了，错误由 error 展示，不能一直转圈）', async () => {
+    (tauri.getConnections as any).mockRejectedValue(new Error('boom'));
+
+    await useConnectionStore.getState().fetchConnections();
+
+    const state = useConnectionStore.getState();
+    expect(state.loaded).toBe(true);
+    expect(state.error).toBe('boom');
+  });
+});
+
 describe('connectionStore.applyConnectionOrder', () => {
   beforeEach(() => {
     vi.clearAllMocks();

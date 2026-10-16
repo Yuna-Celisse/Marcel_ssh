@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   prompt: vi.fn(),
   privacy: false,
   connections: [] as SavedConnection[],
+  loaded: true,
 }));
 
 vi.mock('@/lib/tauri', () => ({
@@ -41,6 +42,7 @@ vi.mock('@/stores/connectionStore', () => ({
     selector({
       connections: mocks.connections,
       loading: false,
+      loaded: mocks.loaded,
       error: null,
       fetchConnections: vi.fn(),
       addConnection: vi.fn(),
@@ -144,6 +146,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.privacy = false;
   mocks.connections = [PW_CONN];
+  mocks.loaded = true;
   mocks.connect.mockResolvedValue('session-1');
   mocks.savePassword.mockResolvedValue(undefined);
   mocks.hasPassword.mockResolvedValue(true);
@@ -154,6 +157,47 @@ afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
   document.body.innerHTML = '';
+});
+
+/**
+ * 启动首帧 store 里的 `connections: []` 只是占位，不代表用户没有连接。
+ * 没读回过后端真值前画「暂无已保存的连接」，用户会先看到空态再看到真实列表。
+ */
+describe('启动加载态与空态', () => {
+  it('尚未读回过后端真值：转圈，不闪「暂无已保存的连接」', () => {
+    mocks.connections = [];
+    mocks.loaded = false;
+
+    render();
+
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('加载连接列表');
+    expect(text).not.toContain('暂无已保存的连接');
+    // 转圈延后现身：数据很快回来时用户根本看不到它
+    expect(document.querySelector('.load-indicator-delayed')).not.toBeNull();
+  });
+
+  it('读回后确实没有连接：才画空态，且不再转圈', () => {
+    mocks.connections = [];
+    mocks.loaded = true;
+
+    render();
+
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('暂无已保存的连接');
+    expect(text).not.toContain('加载连接列表');
+  });
+
+  it('尚未读回但列表已有内容（如调试服务器）：直接显示列表，不转圈', () => {
+    mocks.loaded = false;
+
+    render();
+
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('生产机');
+    expect(text).not.toContain('加载连接列表');
+    expect(text).not.toContain('暂无已保存的连接');
+  });
 });
 
 /**

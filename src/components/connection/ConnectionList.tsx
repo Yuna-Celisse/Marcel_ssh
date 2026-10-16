@@ -5,6 +5,7 @@ import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useConnectWithPassword } from '@/hooks/useConnectWithPassword';
 import { useHostKeyMismatch } from '@/hooks/useHostKeyMismatch';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
+import { useCardReveal } from '@/hooks/useCardReveal';
 import { formatConnLabel } from '@/lib/privacy';
 import {
   loadCollapsedGroups,
@@ -91,7 +92,7 @@ function scrollableAncestor(el: HTMLElement | null): HTMLElement | null {
 
 export default function ConnectionList() {
   const connections = useConnectionStore((s) => s.connections);
-  const loading = useConnectionStore((s) => s.loading);
+  const loaded = useConnectionStore((s) => s.loaded);
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const addConnection = useConnectionStore((s) => s.addConnection);
   const removeConnection = useConnectionStore((s) => s.removeConnection);
@@ -104,6 +105,8 @@ export default function ConnectionList() {
   const connectWithSavedPassphrase = useSessionStore((s) => s.connectWithSavedPassphrase);
   const { onConnected } = useSessionLifecycle();
   const privacyMode = usePrivacyMode();
+  // 卡片入场：冷启动时「转圈 → 卡片」依次浮现；判定细则见 hooks/useCardReveal
+  const revealOf = useCardReveal(loaded);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -836,6 +839,9 @@ export default function ConnectionList() {
       ]
     : [];
 
+  // 入场错开的序号：跨分组连续计数（分组是视觉上的分栏，不该让每组各自从 0 重来）
+  let revealSeq = 0;
+
   return (
     <ListPanel
       data-region="sessions"
@@ -863,11 +869,21 @@ export default function ConnectionList() {
             </button>
           </div>
         )}
-        {loading && (
-          <p className="text-sm text-zinc-500 text-center mt-4">加载中...</p>
+        {/*
+          空态与加载态以 `loaded`（是否读回过后端真值）为界：启动首帧 store 里的空数组
+          只是占位，按 `loading` 判断会先闪一下「暂无已保存的连接」再跳出真实列表。
+          读回之后的再次刷新不回到转圈（与移动端同一口径）。
+        */}
+        {!loaded && connections.length === 0 && (
+          <p className="load-indicator-delayed text-sm text-zinc-500 text-center mt-4">
+            加载中...
+          </p>
         )}
-        {!loading && filteredConnections.length === 0 && (
-          <div className="text-center mt-6 px-2">
+        {loaded && filteredConnections.length === 0 && (
+          <div
+            className={`text-center mt-6 px-2 ${revealOf('__empty__', 0).className}`}
+            style={revealOf('__empty__', 0).style}
+          >
             <p className="text-sm text-zinc-500 mb-3">暂无已保存的连接</p>
             <button
               onClick={openNewConnectionForm}
@@ -983,6 +999,7 @@ export default function ConnectionList() {
                       }}
                     >
                       {group.items.map((conn, indexInGroup) => {
+                      const reveal = revealOf(conn.id, revealSeq++);
                       const rowLine =
                         dragSubject?.kind === 'row' && dropTarget?.group === group.name
                           ? dropTarget.beforeId === conn.id
@@ -996,7 +1013,7 @@ export default function ConnectionList() {
                         <button
                           key={conn.id}
                           data-conn-id={conn.id}
-                          style={shiftStyle(rowOffset(conn))}
+                          style={{ ...shiftStyle(rowOffset(conn)), ...reveal.style }}
                           onClick={() => {
                             // 拖拽松手后的合成点击要忽略，否则一拖就顺带连上了
                             if (Date.now() < suppressClickUntilRef.current) return;
@@ -1005,7 +1022,7 @@ export default function ConnectionList() {
                           onContextMenu={(e) => handleContextMenu(e, conn)}
                           onMouseDown={startPointerDrag({ kind: 'row', id: conn.id })}
                           className={`
-                    w-full text-left px-2 py-2 rounded-lg text-sm transition-colors border
+                    w-full text-left px-2 py-2 rounded-lg text-sm transition-colors border ${reveal.className}
                     ${
                       dragSubject?.kind === 'row' && dragSubject.id === conn.id
                         ? 'opacity-40 relative z-10'

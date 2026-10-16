@@ -1042,6 +1042,50 @@ button,
   }
 }
 
+/* ── 列表卡片入场（桌面连接列表与移动端共用，判定见 hooks/useCardReveal） ──
+   keyframes 只写 from：终点取元素自己的计算值（opacity 1 / 行内 transform）。
+   拖拽排序时卡片的让位位移就是行内 transform，若在 to 里写死 translateY(0)
+   并 fill forwards，会把它盖掉。
+   fill-mode 用 backwards：错开的延迟期间先停在起点，卡片不会"先露脸、再消失、再入场"。
+   --reveal-delay 由 hook 按序号写入。 */
+@keyframes cardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes cardRevealFade {
+  from {
+    opacity: 0;
+  }
+}
+
+.card-reveal {
+  animation: cardReveal 320ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1))
+    var(--reveal-delay, 0ms) backwards;
+}
+
+/* 加载指示延后现身：数据在这段时间内回来，指示器就从未可见——几十毫秒的转圈
+   一闪而过比不转更打扰。backwards 让延迟期间保持透明。 */
+@keyframes loadIndicatorIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.load-indicator-delayed {
+  animation: loadIndicatorIn 200ms ease-out 240ms backwards;
+}
+
+/* 减少动态效果：位移改成纯淡入，仍然保留"内容到了"的信号 */
+@media (prefers-reduced-motion: reduce) {
+  .card-reveal {
+    animation-name: cardRevealFade;
+    animation-duration: 160ms;
+  }
+}
+
 /*
  * 拖动侧栏分隔条期间把光标钉死。
  * cursor 是继承属性，但终端（.xterm 自带 cursor: text）、按钮等自己声明过 cursor 的元素

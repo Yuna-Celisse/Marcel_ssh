@@ -31,7 +31,7 @@ describe('hydrateBootstrapData', () => {
       hasWebSearchApiKey: false,
       hasJevApiKey: false,
     });
-    useConnectionStore.setState({ connections: [], loading: false, error: null });
+    useConnectionStore.setState({ connections: [], loading: false, loaded: false, error: null });
     useSkillStore.setState({ skills: [], loading: false, error: null });
   });
 
@@ -69,5 +69,21 @@ describe('hydrateBootstrapData', () => {
     await hydrateBootstrapData();
 
     expect(useSettingsStore.getState().hasJevApiKey).toBe(false);
+  });
+
+  it('快照里没有连接时也把连接标成已读回（让界面画空态而不是一直转圈）', async () => {
+    getBootstrapData.mockResolvedValue({
+      settings: useSettingsStore.getInitialState().settings,
+      hasApiKey: false,
+      hasWebSearchApiKey: false,
+      hasJevApiKey: false,
+      channelKeyStatus: [],
+      connections: [],
+      skills: [],
+    });
+
+    await hydrateBootstrapData();
+
+    expect(useConnectionStore.getState().loaded).toBe(true);
   });
 });

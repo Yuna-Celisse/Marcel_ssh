@@ -15,6 +15,7 @@ import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useConnectWithPassword } from '@/hooks/useConnectWithPassword';
 import { useHostKeyMismatch } from '@/hooks/useHostKeyMismatch';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
+import { useCardReveal } from '@/hooks/useCardReveal';
 import { isAndroidBridgeAvailable } from './mobileBridge';
 import {
   dismissKeepAliveTipPermanently,
@@ -51,7 +52,7 @@ export default function MobileConnectionList({
   backLabel = '返回会话',
 }: MobileConnectionListProps = {}) {
   const connections = useConnectionStore((s) => s.connections);
-  const loading = useConnectionStore((s) => s.loading);
+  const loaded = useConnectionStore((s) => s.loaded);
   const error = useConnectionStore((s) => s.error);
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const addConnection = useConnectionStore((s) => s.addConnection);
@@ -70,6 +71,8 @@ export default function MobileConnectionList({
     useConnectWithPassword();
   const mismatch = useHostKeyMismatch();
   const privacyMode = usePrivacyMode();
+  // 卡片入场：冷启动时「转圈 → 卡片」依次浮现；判定细则见 hooks/useCardReveal
+  const revealOf = useCardReveal(loaded);
   const applyConnectionOrder = useConnectionStore((s) => s.applyConnectionOrder);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   // 长按拖拽排序（移动端列表是平铺的，拖动即全局顺序；分组仍由编辑表单设置）
@@ -244,6 +247,9 @@ export default function MobileConnectionList({
 
   const displayError = localError ?? error;
 
+  // 入场错开的序号：跨分组连续计数（分组是视觉上的分栏，不该让每组各自从 0 重来）
+  let revealSeq = 0;
+
   /** 删除确认里的连接称谓：名字优先，没名字就退到脱敏口径的 user@host:port。 */
   const deleteTargetLabel = deleteTarget
     ? deleteTarget.name ||
@@ -285,15 +291,25 @@ export default function MobileConnectionList({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {loading && connections.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-zinc-500">
+        {/*
+          空态与加载态以 `loaded`（是否读回过后端真值）为界，而不是 `loading`：
+          启动首帧 store 还是占位的空数组，`loading` 也还没被置真，按 `loading`
+          判断会先闪一下「暂无已保存的连接」再跳出真实列表。读回之后的再次刷新
+          （列表重新挂载、增删后重拉）不回到转圈，否则零连接的用户每次回到这页
+          都会看到空态与转圈来回切。
+        */}
+        {!loaded && connections.length === 0 && !displayError && (
+          <div className="load-indicator-delayed flex flex-col items-center justify-center gap-2 py-16 text-zinc-500">
             <Loader2 className="h-6 w-6 animate-spin" />
             <span className="text-sm">加载连接列表…</span>
           </div>
         )}
 
-        {!loading && connections.length === 0 && !displayError && (
-          <div className="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+        {loaded && connections.length === 0 && !displayError && (
+          <div
+            className={`flex flex-col items-center justify-center gap-3 px-4 py-16 text-center ${revealOf('__empty__', 0).className}`}
+            style={revealOf('__empty__', 0).style}
+          >
             <WifiOff className="h-10 w-10 text-zinc-600" />
             <p className="text-sm text-zinc-400">暂无已保存的连接</p>
             <button
@@ -394,6 +410,7 @@ export default function MobileConnectionList({
                     {group.items.map((conn) => {
                     const busy = connectingId === conn.id;
                     const dragging = drag.draggingId === conn.id;
+                    const reveal = revealOf(conn.id, revealSeq++);
                     return (
                       <li
                         key={conn.id}
@@ -402,13 +419,13 @@ export default function MobileConnectionList({
                         onTouchMove={drag.onTouchMovePending}
                         onTouchEnd={drag.onTouchEndPending}
                         onTouchCancel={drag.onTouchEndPending}
-                        style={{ transform: drag.translateFor(conn.id) }}
-                        className={
+                        style={{ transform: drag.translateFor(conn.id), ...reveal.style }}
+                        className={`${
                           // 被拖的行必须零过渡（跟手 1:1）；其余行保留过渡，拖拽时才有让位动画
                           dragging
                             ? 'relative z-10 shadow-xl shadow-black/40'
                             : `transition-transform ${drag.isDragging ? 'duration-150' : ''}`
-                        }
+                        } ${reveal.className}`}
                       >
                         <div className="flex w-full items-center rounded-xl border border-zinc-800 bg-zinc-900 pr-1">
                           <button

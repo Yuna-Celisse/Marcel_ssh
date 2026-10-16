@@ -26,6 +26,7 @@ export async function hydrateBootstrapData(): Promise<void> {
     useConnectionStore.setState((state) => ({
       connections: mergeDebugServer(data.connections, state.connections),
       loading: false,
+      loaded: true,
       error: null,
     }));
 

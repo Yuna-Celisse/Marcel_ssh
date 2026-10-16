@@ -10,6 +10,12 @@ interface ConnectionState {
   connections: SavedConnection[];
   activeConnectionId: string | null;
   loading: boolean;
+  /**
+   * 是否至少读回过一次后端的真值（启动快照或 `fetchConnections`，成败都算「问过了」）。
+   * 初始 `connections: []` 只是占位，不等于「用户没有连接」：UI 想画空态，必须先看这个，
+   * 否则启动那几十毫秒会先闪一下「暂无已保存的连接」再跳出真实列表。
+   */
+  loaded: boolean;
   error: string | null;
 
   fetchConnections: () => Promise<void>;
@@ -27,6 +33,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: [],
   activeConnectionId: null,
   loading: false,
+  loaded: false,
   error: null,
 
   fetchConnections: async () => {
@@ -37,7 +44,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     } catch (err) {
       set({ error: getErrorMessage(err) });
     } finally {
-      set({ loading: false });
+      set({ loading: false, loaded: true });
     }
   },
 
