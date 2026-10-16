@@ -913,6 +913,10 @@ export interface AppSettings {
   llmRegistry: LlmRegistry;
   agentModeSettings: AgentModeSettings;
   experimentalSettings?: ExperimentalSettings;
+  /**
+   * 旧版本的目录记忆（最近一次 / 按连接）。**只读兜底**：新的目录记忆在 localStorage，
+   * 见 `lib/fileManagerPathMemory.ts`——切目录不再整份保存设置。
+   */
   fileManagerPath: string;
   fileManagerPaths: Record<string, string>;
   fileManagerShowHidden: boolean;

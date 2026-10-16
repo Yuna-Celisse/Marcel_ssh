@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTransferStore } from '@/stores/transferStore';
 import type { SftpFileEntry } from '@/lib/types';
+import { FILE_MANAGER_PATH_MEMORY_STORAGE_KEY } from '@/lib/fileManagerPathMemory';
 
 type DropHandler = (paths: string[], position?: { x: number; y: number }) => void;
 
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   startDownload: vi.fn(),
   dropHandler: null as DropHandler | null,
+  settingsUpdate: vi.fn(async () => {}),
   treeStub: {
     cache: {},
     expanded: new Set<string>(),
@@ -79,7 +81,7 @@ vi.mock('@/stores/settingsStore', () => {
       fileManagerTreeUserHidden: false,
     },
     loaded: true,
-    update: vi.fn(async () => {}),
+    update: mocks.settingsUpdate,
   };
   const useSettingsStore = (selector: (s: typeof stub) => unknown) => selector(stub);
   (useSettingsStore as unknown as { getState: () => typeof stub }).getState = () => stub;
@@ -118,6 +120,9 @@ async function mountPanel() {
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // 目录记忆落在 localStorage：上一条用例点进子目录后，下一条会从那里起步而不是 `/`。
+  localStorage.clear();
+  mocks.settingsUpdate.mockClear();
   mocks.sftpListDir.mockReset();
   mocks.sftpPrepareDragUpload.mockReset();
   mocks.sftpCleanupTempDir.mockClear();
@@ -173,6 +178,33 @@ describe('FileManagerPanel 传输后的列表刷新', () => {
     expect(host.textContent).toContain('inner.txt');
     expect(host.textContent).not.toContain('a.txt');
     expect(mocks.sftpListDir.mock.calls.map(([, path]) => path)).toEqual(['/', '/sub']);
+  });
+});
+
+describe('FileManagerPanel 目录记忆', () => {
+  it('切目录不整份保存设置，记忆写进 localStorage，重新打开从上次的目录起步', async () => {
+    await mountPanel();
+    await act(async () => {
+      findRow('sub')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
+    await flush();
+    expect(host.textContent).toContain('inner.txt');
+
+    // 每切一次目录就 settings.update 会序列化 + fsync + 重扫插件目录 + 广播设置变更。
+    expect(mocks.settingsUpdate).not.toHaveBeenCalled();
+    const stored = JSON.parse(
+      localStorage.getItem(FILE_MANAGER_PATH_MEMORY_STORAGE_KEY) ?? '{}',
+    );
+    expect(stored.byConnection['conn-1']).toBe('/sub');
+
+    // 关掉再打开：从 /sub 起步，而不是设置里的 `/`。
+    await act(async () => {
+      root.unmount();
+    });
+    root = createRoot(host);
+    mocks.sftpListDir.mockClear();
+    await mountPanel();
+    expect(mocks.sftpListDir.mock.calls[0]?.[1]).toBe('/sub');
   });
 });
 

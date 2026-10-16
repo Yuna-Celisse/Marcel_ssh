@@ -16,6 +16,7 @@ import {
 import type { SftpFileEntry } from '@/lib/types';
 import { formatSize, modeToString, getErrorMessage, isDialogCancelled, isPreviewableImage, getFileExtension } from '@/lib/sftp-helpers';
 import { binaryNotEditableMessage, fileTooLargeMessage, imageTooLargeMessage, joinRemotePath, sortFileEntries } from '@/lib/sftpFileOpen';
+import { loadRememberedPath, rememberPath } from '@/lib/fileManagerPathMemory';
 import { MAX_EDITOR_FILE_SIZE, MAX_PREVIEW_IMAGE_SIZE, BINARY_EXTENSIONS, isArchiveFile, archiveStem } from '@/lib/constants';
 import PathBreadcrumb from './PathBreadcrumb';
 import FileTreeSidebar from './FileTreeSidebar';
@@ -48,8 +49,8 @@ interface FileManagerPanelProps {
 export default function FileManagerPanel({ sessionId, connectionKey }: FileManagerPanelProps) {
   const storeSettings = useSettingsStore((s) => s.settings);
   const settingsLoaded = useSettingsStore((s) => s.loaded);
-  const [currentPath, setCurrentPath] = useState(
-    storeSettings.fileManagerPaths?.[connectionKey] ?? storeSettings.fileManagerPath ?? '/',
+  const [currentPath, setCurrentPath] = useState(() =>
+    loadRememberedPath(connectionKey, storeSettings),
   );
   const [history, setHistory] = useState<string[]>(['/']);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -167,16 +168,12 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
     setSelected(new Set());
   }, [currentPath, loadDirectory]);
 
+  // 目录记忆走 localStorage（同步、不广播），不再经 settings.update 整份落盘：
+  // 每切一次目录就序列化 + fsync + 重扫插件目录 + 广播设置变更，还会让订阅整份
+  // settings 的本面板再整表重渲染一次。settings 尚未载入时不写，免得把旧记忆冲成 `/`。
   useEffect(() => {
     if (!settingsLoaded) return;
-    const settings = useSettingsStore.getState().settings;
-    useSettingsStore.getState().update({
-      fileManagerPath: currentPath,
-      fileManagerPaths: {
-        ...(settings.fileManagerPaths ?? {}),
-        [connectionKey]: currentPath,
-      },
-    });
+    rememberPath(connectionKey, currentPath);
   }, [connectionKey, currentPath]);
 
   useEffect(() => {

@@ -7,10 +7,8 @@ import {
   parentPath,
   filesEmptyStateReason,
   resolveFilesSessionIds,
-  resolveRememberedPath,
   transferProgressPercent,
   shouldPersistFileManagerPath,
-  buildFileManagerPathsPatch,
   isImageFileName,
   isProbablyTextFileName,
   openFileKind,
@@ -174,33 +172,6 @@ describe('resolveFilesSessionIds', () => {
   });
 });
 
-describe('resolveRememberedPath', () => {
-  it('loads path for connectionKey from fileManagerPaths', () => {
-    expect(
-      resolveRememberedPath(
-        'cfg-1',
-        { 'cfg-1': '/var/log', 'cfg-2': '/tmp' },
-        '/',
-      ),
-    ).toBe('/var/log');
-  });
-
-  it('falls back when key missing or null', () => {
-    expect(resolveRememberedPath(null, { 'cfg-1': '/var' }, '/home')).toBe(
-      '/home',
-    );
-    expect(resolveRememberedPath('cfg-x', { 'cfg-1': '/var' }, '/')).toBe('/');
-    expect(resolveRememberedPath('cfg-1', undefined, '/opt')).toBe('/opt');
-  });
-
-  it('falls back when stored path is empty', () => {
-    expect(resolveRememberedPath('cfg-1', { 'cfg-1': '' }, '/')).toBe('/');
-    expect(resolveRememberedPath('cfg-1', { 'cfg-1': '   ' }, '/tmp')).toBe(
-      '/tmp',
-    );
-  });
-});
-
 describe('transferProgressPercent', () => {
   it('returns 0 when total is 0 or negative', () => {
     expect(transferProgressPercent(10, 0)).toBe(0);
@@ -245,20 +216,6 @@ describe('shouldPersistFileManagerPath', () => {
         connectionKey: null,
       }),
     ).toBe(false);
-  });
-});
-
-describe('buildFileManagerPathsPatch', () => {
-  it('merges without dropping other connection paths', () => {
-    expect(
-      buildFileManagerPathsPatch({ a: '/a', b: '/b' }, 'b', '/new'),
-    ).toEqual({
-      a: '/a',
-      b: '/new',
-    });
-    expect(buildFileManagerPathsPatch(undefined, 'x', '/tmp')).toEqual({
-      x: '/tmp',
-    });
   });
 });
 

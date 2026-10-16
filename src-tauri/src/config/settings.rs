@@ -644,10 +644,14 @@ pub struct AppSettings {
     pub agent_mode_settings: AgentModeSettings,
     #[serde(default)]
     pub experimental_settings: ExperimentalSettings,
-    /// File manager last browsed path
+    /// File manager last browsed path.
+    ///
+    /// 旧版本的目录记忆，现在只读兜底：新的目录记忆在前端 localStorage
+    /// （`lib/fileManagerPathMemory.ts`），切目录不再整份保存设置。字段保留是为了
+    /// 让已有用户的记忆继续生效，并且不丢旧配置。
     #[serde(default = "default_file_manager_path")]
     pub file_manager_path: String,
-    /// File manager last browsed path per SSH connection key.
+    /// File manager last browsed path per SSH connection key（同上，只读兜底）。
     #[serde(default)]
     pub file_manager_paths: HashMap<String, String>,
     /// File manager show hidden files

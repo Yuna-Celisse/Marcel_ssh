@@ -57,35 +57,16 @@ export function resolveFilesSessionIds(
   };
 }
 
-export function resolveRememberedPath(
-  connectionKey: string | null,
-  fileManagerPaths: Record<string, string> | undefined,
-  fallback = '/',
-): string {
-  if (!connectionKey) return fallback;
-  const stored = fileManagerPaths?.[connectionKey];
-  if (typeof stored !== 'string' || !stored.trim()) return fallback;
-  return stored;
-}
-
-/** Only persist cwd after settings loaded and restore finished — avoid wiping memory with "/". */
+/**
+ * Only persist cwd after settings loaded and restore finished — avoid wiping memory with "/".
+ * （目录记忆的读写在 `@/lib/fileManagerPathMemory`，桌面与移动端共用。）
+ */
 export function shouldPersistFileManagerPath(opts: {
   settingsLoaded: boolean;
   pathReady: boolean;
   connectionKey: string | null;
 }): boolean {
   return opts.settingsLoaded && opts.pathReady && !!opts.connectionKey;
-}
-
-export function buildFileManagerPathsPatch(
-  existing: Record<string, string> | undefined,
-  connectionKey: string,
-  currentPath: string,
-): Record<string, string> {
-  return {
-    ...(existing ?? {}),
-    [connectionKey]: currentPath,
-  };
 }
 
 export function transferProgressPercent(

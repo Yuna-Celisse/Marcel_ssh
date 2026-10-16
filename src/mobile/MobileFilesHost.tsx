@@ -40,6 +40,7 @@ import {
 } from '@/lib/sftpFileOpen';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { isDebugSession } from '@/lib/debugServer';
+import { loadRememberedPath, rememberPath } from '@/lib/fileManagerPathMemory';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { withForegroundKeepAlive } from './mobileBridge';
@@ -57,8 +58,6 @@ import {
   openFileKind,
   parentPath,
   resolveFilesSessionIds,
-  buildFileManagerPathsPatch,
-  resolveRememberedPath,
   shouldPersistFileManagerPath,
   soleSelectedEntry,
   sortFileEntries,
@@ -177,11 +176,9 @@ export default function MobileFilesHost({
       return;
     }
     pathInitKeyRef.current = bindingKey;
-    const settings = useSettingsStore.getState().settings;
-    const remembered = resolveRememberedPath(
+    const remembered = loadRememberedPath(
       connectionKey,
-      settings.fileManagerPaths,
-      settings.fileManagerPath ?? '/',
+      useSettingsStore.getState().settings,
     );
     setCurrentPath(remembered);
     setPathReady(true);
@@ -192,6 +189,8 @@ export default function MobileFilesHost({
   }, [bindingKey, sessionId, connectionKey, settingsLoaded]);
 
   // Persist path memory (mirrors FileManagerPanel); only after restore + settings loaded.
+  // 走 localStorage 而不是 settings.update：每切一次目录就整份落盘 + 广播设置变更
+  // 太重，见 lib/fileManagerPathMemory.ts。
   useEffect(() => {
     if (
       !shouldPersistFileManagerPath({
@@ -203,15 +202,7 @@ export default function MobileFilesHost({
     ) {
       return;
     }
-    const settings = useSettingsStore.getState().settings;
-    void useSettingsStore.getState().update({
-      fileManagerPath: currentPath,
-      fileManagerPaths: buildFileManagerPathsPatch(
-        settings.fileManagerPaths,
-        connectionKey,
-        currentPath,
-      ),
-    });
+    rememberPath(connectionKey, currentPath);
   }, [settingsLoaded, pathReady, connectionKey, currentPath]);
 
   // 最新目录的镜像。上传/下载完成回调捕获的是**发起那一刻**的 currentPath：

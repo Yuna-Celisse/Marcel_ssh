@@ -17,13 +17,14 @@ import type { StoredTransferItem } from '@/stores/transferStore';
 const mocks = vi.hoisted(() => ({
   sftpListDir: vi.fn(),
   sftpRename: vi.fn(async () => {}),
+  saveSettings: vi.fn(async () => {}),
   writeText: vi.fn(async () => {}),
 }));
 
 vi.mock('@/lib/tauri', () => ({
   sftpListDir: mocks.sftpListDir,
   sftpRename: mocks.sftpRename,
-  saveSettings: vi.fn(async () => {}),
+  saveSettings: mocks.saveSettings,
   mobileSetAppForeground: vi.fn(async () => {}),
   sftpExtractArchive: vi.fn(async () => {}),
   sftpLocalFileName: vi.fn(async () => 'x'),
@@ -93,6 +94,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTransferStore } from '@/stores/transferStore';
 import { resetBackHandlers } from './backHandler';
+import { FILE_MANAGER_PATH_MEMORY_STORAGE_KEY } from '@/lib/fileManagerPathMemory';
 
 const SESSION = {
   id: 's1',
@@ -214,7 +216,10 @@ beforeEach(() => {
   mocks.sftpListDir.mockReset();
   mocks.sftpListDir.mockResolvedValue([DIR, FILE]);
   mocks.sftpRename.mockClear();
+  mocks.saveSettings.mockClear();
   mocks.writeText.mockClear();
+  // 目录记忆落在 localStorage：用例之间必须清空，否则上一条用例的导航会变成下一条的起点。
+  localStorage.clear();
   resetBackHandlers();
   useSessionStore.setState({
     sessions: { s1: SESSION },
@@ -231,6 +236,54 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   resetBackHandlers();
+});
+
+/**
+ * 目录记忆：每切一次目录不能再整份保存设置（序列化 + fsync + 重扫插件目录 +
+ * 广播设置变更），记忆落在本机 localStorage；旧设置里的记忆仍作兜底。
+ */
+describe('目录记忆走本机存储而不是整份保存设置', () => {
+  async function goUp() {
+    await act(async () => {
+      window.__marcelHandleBack?.();
+    });
+    await act(async () => {});
+  }
+
+  it('切目录不触发设置保存，记忆写进 localStorage', async () => {
+    await mountFilesTab();
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home/user');
+
+    await goUp();
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home');
+
+    expect(mocks.saveSettings).not.toHaveBeenCalled();
+    const stored = JSON.parse(
+      localStorage.getItem(FILE_MANAGER_PATH_MEMORY_STORAGE_KEY) ?? '{}',
+    );
+    expect(stored.byConnection['cfg-1']).toBe('/home');
+  });
+
+  it('重新进入文件页时，本机记忆优先于旧设置里的目录', async () => {
+    await mountFilesTab();
+    await goUp();
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home');
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    mocks.sftpListDir.mockClear();
+    await mountFilesTab();
+
+    // 设置里记的仍是 /home/user，但本机记忆是 /home。
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home');
+  });
+
+  it('本机没有记录时，沿用旧设置里该连接的目录', async () => {
+    await mountFilesTab();
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home/user');
+    expect(localStorage.getItem(FILE_MANAGER_PATH_MEMORY_STORAGE_KEY)).not.toBeNull();
+    expect(mocks.saveSettings).not.toHaveBeenCalled();
+  });
 });
 
 /**
