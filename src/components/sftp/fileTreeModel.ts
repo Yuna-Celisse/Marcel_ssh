@@ -1,5 +1,7 @@
 /** Pure helpers / types for the desktop file-manager directory tree. */
 
+import { compareFileNames } from '@/lib/sftpFileOpen';
+
 export const FILE_TREE_MIN_WIDTH = 140;
 export const FILE_TREE_MAX_WIDTH = 360;
 export const FILE_TREE_DEFAULT_WIDTH = 200;
@@ -64,9 +66,7 @@ export function clampTreeWidth(width: number): number {
 }
 
 export function sortDirChildren(dirs: TreeDirChild[]): TreeDirChild[] {
-  return [...dirs].sort((a, b) =>
-    a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
-  );
+  return [...dirs].sort((a, b) => compareFileNames(a.name, b.name));
 }
 
 export function filterDirEntries(

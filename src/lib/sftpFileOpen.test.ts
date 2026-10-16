@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { SftpFileEntry } from '@/lib/types';
 import {
   sortFileEntries,
+  compareFileNames,
   joinRemotePath,
   isImageFileName,
   isProbablyTextFileName,
@@ -75,6 +76,29 @@ describe('sortFileEntries', () => {
     const copy = [...input];
     sortFileEntries(input);
     expect(input).toEqual(copy);
+  });
+
+  // 换成共享 Collator 是纯性能改动：顺序必须与旧实现
+  // `localeCompare(b, undefined, {sensitivity:'base', numeric:true})` 逐项一致，
+  // 否则用户会看到列表顺序莫名其妙变了。含中文 / 大小写 / 数字 / 点文件。
+  it('keeps exactly the order the old per-call localeCompare produced', () => {
+    const names = [
+      'b.log', 'A.log', 'a10.log', 'a2.log', 'a1.log', '文档', '图片', '备份2', '备份10',
+      '.env', '.git', 'Zeta', 'zeta2', 'README', 'readme.md', '10', '9', '2024-01',
+    ];
+    const legacy = [...names].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }),
+    );
+    const sorted = sortFileEntries(names.map((name) => entry({ name }))).map((e) => e.name);
+    expect(sorted).toEqual(legacy);
+  });
+});
+
+describe('compareFileNames', () => {
+  it('is case-insensitive, numeric-aware, and consistent for equal-ish names', () => {
+    expect(compareFileNames('a2', 'a10')).toBeLessThan(0);
+    expect(compareFileNames('B', 'a')).toBeGreaterThan(0);
+    expect(compareFileNames('Readme', 'README')).toBe(0);
   });
 });
 
