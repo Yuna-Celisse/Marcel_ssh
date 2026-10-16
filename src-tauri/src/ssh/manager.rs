@@ -19,6 +19,7 @@ use crate::ssh::known_hosts::{KnownHostsStore, VerifyOutcome};
 
 use super::client::Client;
 use super::session::{self, SessionCommand, SshConnection};
+use super::sftp_shared::{failed_before_send, session_unusable, Reap, SharedSlot, IDLE_EVICTION};
 
 /// Configuration for establishing an SSH connection.
 ///
@@ -339,6 +340,7 @@ impl SshManager {
             cmd_tx,
             handle: shared_handle.clone(),
             jump_handle,
+            sftp_meta: SharedSlot::new(),
         });
 
         self.connections
@@ -832,6 +834,10 @@ impl SshManager {
 
     /// Open an SFTP session on a dedicated subsystem channel.
     /// Returns a `SftpSession` that can be used for file operations.
+    ///
+    /// 独占一条通道：上传 / 下载 / 读写文件正文用它，互不挤占。短小的元数据操作
+    /// （列目录、建目录、重命名、删除、取 mtime）走 [`Self::with_shared_sftp`]，
+    /// 复用同一条连接上的一条会话。
     pub async fn open_sftp(
         &self,
         session_id: &str,
@@ -841,26 +847,104 @@ impl SshManager {
             guard.get(session_id).cloned()
         };
         let conn = conn.ok_or_else(|| AppError::Ssh(format!("会话不存在: {}", session_id)))?;
-
-        let channel = conn
-            .handle
-            .lock()
-            .await
-            .channel_open_session()
-            .await
-            .map_err(|e| AppError::Ssh(format!("打开 SFTP 通道失败: {}", e)))?;
-
-        channel
-            .request_subsystem(true, "sftp")
-            .await
-            .map_err(|e| AppError::Ssh(format!("请求 SFTP 子系统失败: {}", e)))?;
-
-        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
-            .await
-            .map_err(|e| AppError::Ssh(format!("初始化 SFTP 会话失败: {}", e)))?;
-
-        Ok(sftp)
+        open_sftp_on(&conn.handle).await
     }
+
+    /// 在这条连接的**共享元数据 SFTP 会话**上执行一次短操作（见 `sftp_shared`）。
+    ///
+    /// - 外层 `Err` = 拿不到会话（连接不存在、开通道 / 握手失败）；
+    /// - 内层 `Err` = 会话上的操作本身失败，由调用方按各自文案翻成 `AppError`。
+    ///
+    /// 会话在请求发出**之前**就已失效（对端关了子系统通道、空闲回收的竞态）时，丢弃
+    /// 它并换新会话重试一次；请求发出之后的失败不重试（结果未知），但会丢掉缓存。
+    /// `op` 可能被调用两次，所以要能重入：把需要的数据在闭包里 clone。
+    pub async fn with_shared_sftp<T, F, Fut>(
+        &self,
+        session_id: &str,
+        mut op: F,
+    ) -> Result<Result<T, russh_sftp::client::error::Error>, AppError>
+    where
+        F: FnMut(Arc<russh_sftp::client::SftpSession>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, russh_sftp::client::error::Error>>,
+    {
+        let conn = self
+            .get_connection(session_id)
+            .await
+            .ok_or_else(|| AppError::Ssh(format!("会话不存在: {}", session_id)))?;
+
+        let mut retried = false;
+        loop {
+            let lease = conn
+                .sftp_meta
+                .get_or_create(|| open_sftp_on(&conn.handle))
+                .await?;
+            if lease.created {
+                spawn_sftp_reaper(&conn, lease.epoch);
+            }
+            match op(lease.value.clone()).await {
+                Ok(value) => return Ok(Ok(value)),
+                Err(error) if failed_before_send(&error) && !retried => {
+                    log::info!(
+                        "会话 {} 的共享 SFTP 通道已失效，换新会话重试一次",
+                        session_id
+                    );
+                    conn.sftp_meta.invalidate(lease.epoch).await;
+                    retried = true;
+                }
+                Err(error) => {
+                    if session_unusable(&error) {
+                        log::info!(
+                            "会话 {} 的共享 SFTP 会话不可用，已丢弃: {}",
+                            session_id,
+                            error
+                        );
+                        conn.sftp_meta.invalidate(lease.epoch).await;
+                    }
+                    return Ok(Err(error));
+                }
+            }
+        }
+    }
+}
+
+/// 在一条已建立的 SSH 连接上开一条 SFTP 子系统通道并完成协议握手
+/// （开通道 → 请求子系统 → SFTP init，三个往返）。
+async fn open_sftp_on(
+    handle: &TokioMutex<client::Handle<Client>>,
+) -> Result<russh_sftp::client::SftpSession, AppError> {
+    let channel = handle
+        .lock()
+        .await
+        .channel_open_session()
+        .await
+        .map_err(|e| AppError::Ssh(format!("打开 SFTP 通道失败: {}", e)))?;
+
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| AppError::Ssh(format!("请求 SFTP 子系统失败: {}", e)))?;
+
+    russh_sftp::client::SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| AppError::Ssh(format!("初始化 SFTP 会话失败: {}", e)))
+}
+
+/// 给刚创建的共享会话挂上空闲回收：闲置够久就释放服务器上的 `sftp-server` 进程
+/// 与通道名额。每个世代恰好一个回收任务，世代被失效 / 回收后它自己结束；只持有
+/// 连接的弱引用，不会让已断开的连接多活一刻。
+fn spawn_sftp_reaper(conn: &Arc<SshConnection>, epoch: u64) {
+    let weak = Arc::downgrade(conn);
+    tokio::spawn(async move {
+        let mut wait = IDLE_EVICTION;
+        loop {
+            tokio::time::sleep(wait).await;
+            let Some(conn) = weak.upgrade() else { return };
+            match conn.sftp_meta.reap(epoch, IDLE_EVICTION).await {
+                Reap::Gone => return,
+                Reap::Wait(next) => wait = next,
+            }
+        }
+    });
 }
 
 impl Default for SshManager {
@@ -918,5 +1002,440 @@ fn map_target_err(e: AppError, host: &str, via_jump: bool) -> AppError {
             strip_ssh_prefix(&other.to_string())
         )),
         other => other,
+    }
+}
+
+/// `with_shared_sftp` 的端到端测试：回环 sshd（支持 `sftp` 子系统）+ 真实的
+/// `SshManager` / `SshConnection`，数服务器上实际开了几条 SFTP 通道。
+#[cfg(test)]
+mod shared_sftp_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use russh::server::{self, Auth, Msg, Session};
+    use russh::{Channel, ChannelId};
+    use russh_sftp::protocol::{Attrs, File, FileAttributes, Handle, Name, Status, StatusCode};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Sshd {
+        /// 服务器上累计开过的 SFTP 子系统通道数。
+        sftp_channels: AtomicUsize,
+        /// 每条 SFTP 通道的关闭手柄（测试用来模拟对端把通道关掉）。
+        closers: std::sync::Mutex<Vec<(server::Handle, ChannelId)>>,
+    }
+
+    struct Peer {
+        sshd: Arc<Sshd>,
+        pending: HashMap<ChannelId, Channel<Msg>>,
+    }
+
+    impl server::Handler for Peer {
+        type Error = russh::Error;
+
+        async fn auth_none(&mut self, _: &str) -> Result<Auth, Self::Error> {
+            Ok(Auth::Accept)
+        }
+
+        async fn channel_open_session(
+            &mut self,
+            channel: Channel<Msg>,
+            _: &mut Session,
+        ) -> Result<bool, Self::Error> {
+            self.pending.insert(channel.id(), channel);
+            Ok(true)
+        }
+
+        async fn subsystem_request(
+            &mut self,
+            channel_id: ChannelId,
+            name: &str,
+            session: &mut Session,
+        ) -> Result<(), Self::Error> {
+            let Some(channel) = self.pending.remove(&channel_id).filter(|_| name == "sftp") else {
+                session.channel_failure(channel_id)?;
+                return Ok(());
+            };
+            session.channel_success(channel_id)?;
+            self.sshd.sftp_channels.fetch_add(1, Ordering::SeqCst);
+            self.sshd
+                .closers
+                .lock()
+                .unwrap()
+                .push((session.handle(), channel_id));
+            russh_sftp::server::run(channel.into_stream(), Fs::default()).await;
+            Ok(())
+        }
+    }
+
+    /// 只会列目录的最小 SFTP 文件系统：`/` 下有 a.txt 和 sub，其它路径不存在。
+    #[derive(Default)]
+    struct Fs {
+        next_handle: u32,
+        drained: std::collections::HashSet<String>,
+    }
+
+    fn ok_status(id: u32) -> Status {
+        Status {
+            id,
+            status_code: StatusCode::Ok,
+            error_message: "Ok".into(),
+            language_tag: "en-US".into(),
+        }
+    }
+
+    impl russh_sftp::server::Handler for Fs {
+        type Error = StatusCode;
+
+        fn unimplemented(&self) -> Self::Error {
+            StatusCode::OpUnsupported
+        }
+
+        async fn opendir(&mut self, id: u32, path: String) -> Result<Handle, Self::Error> {
+            if path != "/" {
+                return Err(StatusCode::NoSuchFile);
+            }
+            // 每次 opendir 一个新句柄：同一目录可以反复列。
+            self.next_handle += 1;
+            Ok(Handle {
+                id,
+                handle: format!("dir-{}", self.next_handle),
+            })
+        }
+
+        async fn readdir(&mut self, id: u32, handle: String) -> Result<Name, Self::Error> {
+            if !self.drained.insert(handle) {
+                return Err(StatusCode::Eof);
+            }
+            Ok(Name {
+                id,
+                files: vec![File::dummy("a.txt"), File::dummy("sub")],
+            })
+        }
+
+        async fn close(&mut self, id: u32, _: String) -> Result<Status, Self::Error> {
+            Ok(ok_status(id))
+        }
+
+        async fn stat(&mut self, id: u32, path: String) -> Result<Attrs, Self::Error> {
+            if path == "/" {
+                Ok(Attrs {
+                    id,
+                    attrs: FileAttributes::default(),
+                })
+            } else {
+                Err(StatusCode::NoSuchFile)
+            }
+        }
+    }
+
+    /// 起回环 sshd，连上它，并把连接按 `s1` 登记进一个真实的 `SshManager`。
+    async fn manager_with_sshd() -> (SshManager, Arc<Sshd>) {
+        let sshd = Arc::new(Sshd::default());
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let key = russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[9; 32]);
+        let config = server::Config {
+            keys: vec![key.into()],
+            ..Default::default()
+        };
+        let peer = Peer {
+            sshd: sshd.clone(),
+            pending: HashMap::new(),
+        };
+        let server = tokio::spawn(async move {
+            // 服务端会话要一直活着，测试结束随运行时一起收掉。
+            let session = server::run_stream(Arc::new(config), server_io, peer)
+                .await
+                .unwrap();
+            let _ = session.await;
+        });
+        let store = KnownHostsStore::in_memory();
+        let client = Client {
+            host: "127.0.0.1".into(),
+            port: 22,
+            store: store.clone(),
+            trust_new: true,
+            verdict: Arc::new(TokioMutex::new(None)),
+            tofu_record_error: Arc::new(TokioMutex::new(None)),
+        };
+        let mut handle =
+            client::connect_stream(Arc::new(client::Config::default()), client_io, client)
+                .await
+                .unwrap();
+        assert!(handle.authenticate_none("tester").await.unwrap().success());
+        drop(server);
+
+        let manager = SshManager::with_known_hosts(store);
+        register_connection(&manager, handle).await;
+        (manager, sshd)
+    }
+
+    /// 把一条已认证的连接按 `s1` 登记进管理器。
+    async fn register_connection(manager: &SshManager, handle: client::Handle<Client>) {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        manager.connections.write().await.insert(
+            "s1".into(),
+            Arc::new(SshConnection {
+                id: "s1".into(),
+                host: "127.0.0.1".into(),
+                port: 22,
+                username: "tester".into(),
+                connection_id: None,
+                generation: 1,
+                cmd_tx,
+                handle: Arc::new(TokioMutex::new(handle)),
+                jump_handle: None,
+                sftp_meta: SharedSlot::new(),
+            }),
+        );
+    }
+
+    async fn list_root(
+        manager: &SshManager,
+    ) -> Result<Vec<String>, russh_sftp::client::error::Error> {
+        manager
+            .with_shared_sftp("s1", |sftp| async move {
+                let dir = sftp.read_dir("/").await?;
+                Ok(dir.map(|entry| entry.file_name()).collect())
+            })
+            .await
+            .expect("拿得到会话")
+    }
+
+    #[tokio::test]
+    async fn consecutive_operations_share_one_sftp_channel() {
+        let (manager, sshd) = manager_with_sshd().await;
+        for _ in 0..3 {
+            assert_eq!(list_root(&manager).await.unwrap(), ["a.txt", "sub"]);
+        }
+        // 并发的几次也只用同一条。
+        let (a, b, c) = tokio::join!(
+            list_root(&manager),
+            list_root(&manager),
+            list_root(&manager)
+        );
+        assert!(a.is_ok() && b.is_ok() && c.is_ok());
+        assert_eq!(
+            sshd.sftp_channels.load(Ordering::SeqCst),
+            1,
+            "元数据操作应当复用同一条 SFTP 通道，而不是每次现开"
+        );
+
+        // 传输走独占通道：每次 open_sftp 仍然是新的一条。
+        let dedicated = manager.open_sftp("s1").await.unwrap();
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 2);
+        drop(dedicated);
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(
+            sshd.sftp_channels.load(Ordering::SeqCst),
+            2,
+            "独占通道不影响共享会话"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_channel_closed_by_the_server_is_replaced_transparently() {
+        let (manager, sshd) = manager_with_sshd().await;
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 1);
+
+        // 对端把共享通道关了（用户看不见的事），然后用户点了下一个目录。
+        let (handle, channel_id) = sshd.closers.lock().unwrap()[0].clone();
+        handle.close(channel_id).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(
+            list_root(&manager)
+                .await
+                .expect("请求发出前就失效：应当透明换新会话重试"),
+            ["a.txt", "sub"]
+        );
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 2);
+        // 换上的新会话继续被复用。
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_server_refusal_is_reported_and_keeps_the_session() {
+        let (manager, sshd) = manager_with_sshd().await;
+        let refused = manager
+            .with_shared_sftp("s1", |sftp| async move { sftp.metadata("/missing").await })
+            .await
+            .expect("拿得到会话");
+        assert!(matches!(
+            refused,
+            Err(russh_sftp::client::error::Error::Status(_))
+        ));
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(
+            sshd.sftp_channels.load(Ordering::SeqCst),
+            1,
+            "服务器的正常拒绝（不存在 / 无权限）不该让缓存的会话作废"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_session_is_reported_not_created() {
+        let (manager, sshd) = manager_with_sshd().await;
+        let result = manager
+            .with_shared_sftp("nope", |sftp| async move { sftp.metadata("/").await })
+            .await;
+        assert!(matches!(result, Err(AppError::Ssh(message)) if message.contains("会话不存在")));
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_shared_session_is_released_and_rebuilt_on_demand() {
+        let (manager, sshd) = manager_with_sshd().await;
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 1);
+
+        // 闲置超过回收时间：回收任务释放共享会话（让出服务器上的通道名额）。
+        tokio::time::advance(IDLE_EVICTION + Duration::from_secs(1)).await;
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+
+        // 下一次使用时按需重建。
+        assert!(list_root(&manager).await.is_ok());
+        assert_eq!(sshd.sftp_channels.load(Ordering::SeqCst), 2);
+    }
+
+    /// 真机对照（默认不跑）：同一目录，「每次现开通道」对「复用共享会话」的单次耗时。
+    ///
+    /// ```text
+    /// MARCEL_BENCH_HOST=<主机> MARCEL_BENCH_USER=<用户> MARCEL_BENCH_PASSWORD=<口令>     ///   cargo test --lib real_server_sftp_roundtrips -- --ignored --nocapture
+    /// ```
+    ///
+    /// 可选：`MARCEL_BENCH_PORT`（默认 22）、`MARCEL_BENCH_DIR`（默认 `/`）、
+    /// `MARCEL_BENCH_ROUNDS`（默认 30）。口令只从环境变量读，不打印、不落盘；只做
+    /// 只读的列目录。两种做法交替执行，避免网络抖动偏向某一边。
+    #[tokio::test]
+    #[ignore = "需要真实服务器，见文档注释里的环境变量"]
+    async fn real_server_sftp_roundtrips() {
+        fn env(name: &str) -> Option<String> {
+            std::env::var(name).ok().filter(|v| !v.is_empty())
+        }
+        let (Some(host), Some(user), Some(password)) = (
+            env("MARCEL_BENCH_HOST"),
+            env("MARCEL_BENCH_USER"),
+            env("MARCEL_BENCH_PASSWORD"),
+        ) else {
+            panic!("需要设置 MARCEL_BENCH_HOST / MARCEL_BENCH_USER / MARCEL_BENCH_PASSWORD");
+        };
+        let port: u16 = env("MARCEL_BENCH_PORT")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(22);
+        let dir = env("MARCEL_BENCH_DIR").unwrap_or_else(|| "/".into());
+        let rounds: usize = env("MARCEL_BENCH_ROUNDS")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(30);
+
+        let store = KnownHostsStore::in_memory();
+        let client = Client {
+            host: host.clone(),
+            port,
+            store: store.clone(),
+            trust_new: true,
+            verdict: Arc::new(TokioMutex::new(None)),
+            tofu_record_error: Arc::new(TokioMutex::new(None)),
+        };
+        let mut handle = client::connect(
+            Arc::new(client::Config::default()),
+            (host.as_str(), port),
+            client,
+        )
+        .await
+        .expect("连接服务器");
+        assert!(
+            handle
+                .authenticate_password(&user, &password)
+                .await
+                .expect("认证请求")
+                .success(),
+            "口令认证失败"
+        );
+        let manager = SshManager::with_known_hosts(store);
+        register_connection(&manager, handle).await;
+
+        let list = |manager: &SshManager, dir: String| {
+            let manager = manager.clone();
+            async move {
+                manager
+                    .with_shared_sftp("s1", |sftp| {
+                        let dir = dir.clone();
+                        async move {
+                            let entries = sftp.read_dir(dir).await?;
+                            Ok(entries.map(|e| e.file_name()).collect::<Vec<_>>())
+                        }
+                    })
+                    .await
+                    .expect("拿得到会话")
+                    .expect("列目录")
+            }
+        };
+
+        // 冷启动：第一次共享调用要付一次建会话的三个往返。
+        let started = std::time::Instant::now();
+        let shared_names = list(&manager, dir.clone()).await;
+        let cold = started.elapsed();
+
+        let mut dedicated_ms = Vec::new();
+        let mut shared_ms = Vec::new();
+        for _ in 0..rounds {
+            let started = std::time::Instant::now();
+            let sftp = manager.open_sftp("s1").await.expect("独占会话");
+            let dedicated_names: Vec<String> = sftp
+                .read_dir(dir.clone())
+                .await
+                .expect("列目录")
+                .map(|e| e.file_name())
+                .collect();
+            dedicated_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+            drop(sftp);
+            assert_eq!(dedicated_names, shared_names, "两种做法列出的内容必须一致");
+
+            let started = std::time::Instant::now();
+            let names = list(&manager, dir.clone()).await;
+            shared_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(names, shared_names);
+        }
+
+        // 一个往返的参照：共享会话上的一次 stat。
+        let mut rtt_ms = Vec::new();
+        for _ in 0..rounds {
+            let started = std::time::Instant::now();
+            let _ = manager
+                .with_shared_sftp("s1", |sftp| async move { sftp.metadata("/").await })
+                .await
+                .expect("拿得到会话");
+            rtt_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        fn stats(samples: &mut [f64]) -> (f64, f64, f64) {
+            samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let at = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
+            (samples[0], at(0.5), at(0.95))
+        }
+        let (d_min, d_med, d_p95) = stats(&mut dedicated_ms);
+        let (s_min, s_med, s_p95) = stats(&mut shared_ms);
+        let (r_min, r_med, _) = stats(&mut rtt_ms);
+        eprintln!(
+            "目录 {dir}（{} 项），每种 {rounds} 次，单位 ms",
+            shared_names.len()
+        );
+        eprintln!("  每次现开通道 : min {d_min:.1}  中位 {d_med:.1}  p95 {d_p95:.1}");
+        eprintln!("  复用共享会话 : min {s_min:.1}  中位 {s_med:.1}  p95 {s_p95:.1}");
+        eprintln!(
+            "  共享会话首次（含建会话）: {:.1}",
+            cold.as_secs_f64() * 1000.0
+        );
+        eprintln!("  单个往返参照（共享会话上的 stat）: min {r_min:.1}  中位 {r_med:.1}");
+        eprintln!(
+            "  中位数节省 {:.1} ms（{:.0}%）",
+            d_med - s_med,
+            (d_med - s_med) / d_med * 100.0
+        );
     }
 }

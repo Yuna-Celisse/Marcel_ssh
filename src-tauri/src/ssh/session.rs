@@ -40,6 +40,9 @@ pub struct SshConnection {
     /// the direct-tcpip tunnel does not close. `None` for direct connections.
     #[allow(dead_code)]
     pub(crate) jump_handle: Option<Arc<tokio::sync::Mutex<client::Handle<Client>>>>,
+    /// 元数据 SFTP 会话的共享槽位（`list_dir` / `mkdir` / `rename` 等短操作复用，
+    /// 省掉每次现开通道的三个往返）。随连接一起生灭，见 `sftp_shared`。
+    pub(crate) sftp_meta: super::sftp_shared::SharedSlot<russh_sftp::client::SftpSession>,
 }
 
 /// 把一块终端输出发给前端；空块（解码器把半截字符暂存时）不发事件。

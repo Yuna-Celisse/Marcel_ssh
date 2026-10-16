@@ -7,6 +7,7 @@ pub(crate) mod sftp_extract;
 mod client;
 mod manager;
 mod session;
+mod sftp_shared;
 #[cfg(test)]
 pub(crate) mod test_support;
 

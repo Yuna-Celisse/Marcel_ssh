@@ -49,6 +49,10 @@ pub struct FileEntry {
     pub mode: u32,
 }
 
+// 下面四个短小的元数据命令（列目录 / 建目录 / 重命名 / 取 mtime）走连接上共享的
+// SFTP 会话（`SshManager::with_shared_sftp`），省掉每次现开通道的三个往返；传输与
+// 文件正文读写仍各自独占通道（`open_sftp`），互不挤占。
+
 #[tauri::command]
 pub async fn sftp_list_dir(
     state: State<'_, AppState>,
@@ -56,27 +60,29 @@ pub async fn sftp_list_dir(
     path: String,
 ) -> Result<Vec<FileEntry>, AppError> {
     let path = validate_sftp_remote_path(&path)?;
-    let sftp = state.ssh_manager.open_sftp(&session_id).await?;
-    let mut entries = Vec::new();
-
-    let mut dir = sftp
-        .read_dir(&path)
-        .await
-        .map_err(|e| AppError::Ssh(format!("读取目录失败: {}", e)))?;
-
-    while let Some(entry) = dir.next() {
-        let metadata = entry.metadata();
-        entries.push(FileEntry {
-            name: entry.file_name(),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_regular(),
-            is_symlink: metadata.is_symlink(),
-            size: metadata.len(),
-            mode: metadata.permissions.unwrap_or(0),
-        });
-    }
-
-    Ok(entries)
+    state
+        .ssh_manager
+        .with_shared_sftp(&session_id, |sftp| {
+            let path = path.clone();
+            async move {
+                let mut dir = sftp.read_dir(&path).await?;
+                let mut entries = Vec::new();
+                while let Some(entry) = dir.next() {
+                    let metadata = entry.metadata();
+                    entries.push(FileEntry {
+                        name: entry.file_name(),
+                        is_dir: metadata.is_dir(),
+                        is_file: metadata.is_regular(),
+                        is_symlink: metadata.is_symlink(),
+                        size: metadata.len(),
+                        mode: metadata.permissions.unwrap_or(0),
+                    });
+                }
+                Ok(entries)
+            }
+        })
+        .await?
+        .map_err(|e| AppError::Ssh(format!("读取目录失败: {}", e)))
 }
 
 #[tauri::command]
@@ -86,13 +92,14 @@ pub async fn sftp_mkdir(
     path: String,
 ) -> Result<(), AppError> {
     let path = validate_sftp_remote_path(&path)?;
-    let sftp = state.ssh_manager.open_sftp(&session_id).await?;
-
-    sftp.create_dir(&path)
-        .await
-        .map_err(|e| AppError::Ssh(format!("创建目录失败: {}", e)))?;
-
-    Ok(())
+    state
+        .ssh_manager
+        .with_shared_sftp(&session_id, |sftp| {
+            let path = path.clone();
+            async move { sftp.create_dir(path).await }
+        })
+        .await?
+        .map_err(|e| AppError::Ssh(format!("创建目录失败: {}", e)))
 }
 
 async fn sftp_remove_recursive(
@@ -190,13 +197,14 @@ pub async fn sftp_rename(
 ) -> Result<(), AppError> {
     let old_path = validate_sftp_remote_path(&old_path)?;
     let new_path = validate_sftp_remote_path(&new_path)?;
-    let sftp = state.ssh_manager.open_sftp(&session_id).await?;
-
-    sftp.rename(&old_path, &new_path)
-        .await
-        .map_err(|e| AppError::Ssh(format!("重命名失败: {}", e)))?;
-
-    Ok(())
+    state
+        .ssh_manager
+        .with_shared_sftp(&session_id, |sftp| {
+            let (old_path, new_path) = (old_path.clone(), new_path.clone());
+            async move { sftp.rename(old_path, new_path).await }
+        })
+        .await?
+        .map_err(|e| AppError::Ssh(format!("重命名失败: {}", e)))
 }
 
 /// 把解压命令的输出翻成给用户的错误文案。
@@ -580,10 +588,13 @@ pub async fn sftp_get_mtime(
     path: String,
 ) -> Result<u64, AppError> {
     let path = validate_sftp_remote_path(&path)?;
-    let sftp = state.ssh_manager.open_sftp(&session_id).await?;
-    let metadata = sftp
-        .metadata(&path)
-        .await
+    let metadata = state
+        .ssh_manager
+        .with_shared_sftp(&session_id, |sftp| {
+            let path = path.clone();
+            async move { sftp.metadata(path).await }
+        })
+        .await?
         .map_err(|e| AppError::Ssh(format!("读取文件信息失败: {}", e)))?;
 
     if metadata.is_dir() {
