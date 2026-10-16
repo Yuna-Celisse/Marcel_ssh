@@ -1,6 +1,6 @@
 {
-  "version": "1.7.1",
-  "release_url": "https://github.com/q541810/Marcel_ssh/releases/tag/v1.7.1",
+  "version": "1.7.2",
+  "release_url": "https://github.com/q541810/Marcel_ssh/releases/tag/v1.7.2",
   "installer_url": "https://github.com/q541810/Marcel_ssh/releases/download/v1.7.1/Marcel.SSH_1.7.1_x64-setup.exe",
   "installer_mirrors": [
     "https://ghfast.top/https://github.com/q541810/Marcel_ssh/releases/download/v1.7.1/Marcel.SSH_1.7.1_x64-setup.exe",
@@ -10,8 +10,8 @@
   "sha256": "f2a833e7fb8f82c58a89690131f7145b5b78f383033cc02b3782714f8dcec678",
   "size": 12377138,
   "android": {
-    "version": "1.7.1",
-    "release_url": "https://github.com/q541810/Marcel_ssh/releases/tag/v1.7.1",
+    "version": "1.7.2",
+    "release_url": "https://github.com/q541810/Marcel_ssh/releases/tag/v1.7.2",
     "installer_url": "https://github.com/q541810/Marcel_ssh/releases/download/v1.7.1/Marcel-SSH_1.7.1_arm64.apk",
     "installer_mirrors": [
       "https://ghfast.top/https://github.com/q541810/Marcel_ssh/releases/download/v1.7.1/Marcel-SSH_1.7.1_arm64.apk",
