@@ -1526,7 +1526,7 @@ fn scripted_production_loop_stream_failures_keep_history_clean() {
 // busy 等待）。验收：
 // a. 回合照常跑完：任务 Completed、事件流完整（toolResult / done）、
 //    库里零新增行、旧历史连回合状态原样保留（不清空、不写半截行）；
-// b. 读失败（另一连接 BEGIN EXCLUSIVE）：真实压缩命令以结构化
+// b. 读失败（另一连接把 messages 表改名藏起来；WAL 下写锁不挡读，锁不住）：真实压缩命令以结构化
 //    AppError::Agent（「读取会话历史失败」前缀）返回，库不动、不落卡；
 // c. 解除注入后可恢复：照常落库、行序与回合状态正确。
 
@@ -1771,12 +1771,17 @@ fn scripted_production_loop_persistence_failure_degrades_safely() {
         drop(injector);
 
         // ── b. 读失败：压缩命令以结构化 AppError 返回，库不动 ──
-        // 快照先取（锁内连读都会 BUSY），锁只罩住命令执行本身。
+        // 会话库跑在 WAL 下，写锁不挡读者，所以不能再靠 `BEGIN EXCLUSIVE` 制造读失败。
+        // 改成另一连接把 messages 表改名藏起来：应用连接的下一次读取立刻
+        // "no such table"（与 a 一样不依赖 busy 等待）。快照先取，藏表只罩住命令
+        // 执行本身，命令一返回就改回去。
         let snapshot = snapshot_from_rows(
             &state.conversation_db.load_messages(&conversation.id).unwrap(),
         );
-        let lock = rusqlite::Connection::open(dir.path().join("conversations.db")).unwrap();
-        lock.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+        let hider = rusqlite::Connection::open(dir.path().join("conversations.db")).unwrap();
+        hider
+            .execute_batch("ALTER TABLE messages RENAME TO messages_hidden;")
+            .unwrap();
         let compact_error = crate::commands::agent_compact::agent_compact_conversation(
             app.handle().clone(),
             app.state::<AppState>(),
@@ -1785,9 +1790,12 @@ fn scripted_production_loop_persistence_failure_degrades_safely() {
             snapshot,
         )
         .await;
-        drop(lock);
+        hider
+            .execute_batch("ALTER TABLE messages_hidden RENAME TO messages;")
+            .unwrap();
+        drop(hider);
         let Err(compact_error) = compact_error else {
-            panic!("expected the compaction command to fail while the DB is locked");
+            panic!("expected the compaction command to fail while the messages table is unreadable");
         };
         match compact_error {
             AppError::Agent(message) => assert!(

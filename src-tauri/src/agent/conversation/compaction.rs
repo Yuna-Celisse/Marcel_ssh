@@ -1,5 +1,6 @@
 // 压缩落库：被压区间的定位（`locate_compaction_tail`）与提交（`commit_compaction`
 // —— 单事务插卡 + 吸收旧卡，原文全保留）。卡片前缀常量的权威定义在 persister 侧。
+use chrono::Utc;
 use rusqlite::{OptionalExtension, Result as RusqliteResult};
 use uuid::Uuid;
 
@@ -112,10 +113,9 @@ impl ConversationDb {
                 None::<&str>,
             ),
         )?;
+        // 插卡与顶会话同事务（见 `touch_at`）。
+        Self::touch_at(&tx, conversation_id, &Utc::now().to_rfc3339())?;
         tx.commit()?;
-        drop(conn);
-
-        self.touch_conversation(conversation_id)?;
         Ok(())
     }
 }

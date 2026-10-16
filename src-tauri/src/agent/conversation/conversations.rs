@@ -304,9 +304,22 @@ impl ConversationDb {
 
     pub fn touch_conversation(&self, conversation_id: &str) -> RusqliteResult<()> {
         let conn = self.conn.lock().unwrap();
+        Self::touch_at(&conn, conversation_id, &Utc::now().to_rfc3339())
+    }
+
+    /// 在**调用方已持有的连接或事务**上刷新 `updated_at`。
+    ///
+    /// 「写消息 + 顶会话」必须落在同一个事务里：分成两次自动提交时，第二步失败会
+    /// 留下「调用方拿到 Err、消息行却已落库」的半成品；也白白多一次提交。
+    /// 想在写入路径里顶会话的地方一律走这个，别再在事务外补一句 `touch_conversation`。
+    pub(super) fn touch_at(
+        conn: &rusqlite::Connection,
+        conversation_id: &str,
+        now: &str,
+    ) -> RusqliteResult<()> {
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
-            (Utc::now().to_rfc3339(), conversation_id),
+            (now, conversation_id),
         )?;
         Ok(())
     }

@@ -64,6 +64,7 @@ impl ConversationDb {
             path: path_str.clone(),
             source: e,
         })?;
+        tune_connection(&conn, &path_str);
 
         conn.execute_batch(
             "
@@ -92,10 +93,11 @@ impl ConversationDb {
             );
 
             CREATE INDEX IF NOT EXISTS idx_conversations_connection ON conversations(connection_id);
-            CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
             -- 归档翻页（load_earlier_messages）：锚点 (created_at,rowid) 向前取页
             -- 必须走索引序而不是全表排序。rowid 隐含在索引项末尾，等值 created_at
             -- 的 rowid 决胜与 DESC 反向扫描都不需要 TEMP B-TREE。
+            -- 这条同时覆盖所有只按 conversation_id 的等值查询（最左前缀），
+            -- 所以**不再**单独建 messages(conversation_id)：旧版本建过，见下方迁移。
             CREATE INDEX IF NOT EXISTS idx_messages_conv_time
                 ON messages(conversation_id, created_at);
             -- 注意：idx_conversations_parent 依赖 parent_conversation_id 列，
@@ -125,6 +127,13 @@ impl ConversationDb {
             ",
         )
         .map_err(|e| ConversationError::SchemaError { source: e })?;
+
+        // Migration: 删掉冗余索引 idx_messages_conversation(conversation_id)。
+        // 它是 idx_messages_conv_time(conversation_id, created_at) 的最左前缀，
+        // 查询计划用后者照样走索引；留着只会让每条消息的 INSERT/DELETE 多维护一棵
+        // B-tree。IF EXISTS：新库本来就没有。
+        conn.execute("DROP INDEX IF EXISTS idx_messages_conversation", [])
+            .map_err(|e| ConversationError::SchemaError { source: e })?;
 
         // Migration: rename session_id → connection_id if old schema exists
         if column_exists(&conn, "conversations", "session_id")
@@ -270,6 +279,44 @@ impl ConversationDb {
     /// Create an in-memory database for testing or as a fallback.
     pub fn in_memory() -> Result<Self, ConversationError> {
         Self::new(":memory:")
+    }
+}
+
+/// 连接级调优：WAL + `synchronous=NORMAL`。
+///
+/// 默认的回滚日志 + `synchronous=FULL` 下，每次**自动提交**都要两三次 fsync，
+/// 实测（Windows，本机）每条消息落库（插入 + 顶会话）≈ 12 ms，且全程占着
+/// tokio worker 与那把全局 `Mutex<Connection>`；WAL + NORMAL 下提交只追加 WAL
+/// 文件、不 fsync，≈ 0.04 ms，fsync 摊到检查点（默认每 ~4MB WAL 一次）。
+///
+/// **持久性取舍（产品已确认接受）**：NORMAL 下应用崩溃不丢数据；断电 / 系统崩溃
+/// 可能丢掉最后几次已提交事务（库不会损坏，只是回到上一个检查点之后的某个一致
+/// 状态）。会话历史可以接受这个代价。
+///
+/// 只有 WAL 真的生效才降到 NORMAL —— 回滚日志模式下 NORMAL 抵御不了断电损坏。
+/// WAL 不可用的环境（只读介质、个别网络盘、另一实例占着库、`:memory:`）静默
+/// 保持默认的 FULL，只记一条日志，**绝不让调优失败挡住打开库**。
+///
+/// WAL 是库文件级的持久设置（写进文件头），首次打开旧库时就地转换，此后每次
+/// 打开都已是 WAL。注意库目录里会多出 `-wal` / `-shm` 两个伴生文件：任何
+/// 「只拷贝 conversations.db」的备份都会丢掉尚未检查点的数据（当前代码里没有这
+/// 种备份；以后加的话要先 `PRAGMA wal_checkpoint(TRUNCATE)`）。
+fn tune_connection(conn: &Connection, path: &str) {
+    if path == ":memory:" {
+        return;
+    }
+    match conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get::<_, String>(0)) {
+        Ok(mode) if mode.eq_ignore_ascii_case("wal") => {
+            if let Err(e) = conn.execute_batch("PRAGMA synchronous = NORMAL;") {
+                log::warn!("会话库已启用 WAL，但设置 synchronous=NORMAL 失败（保持默认）: {}", e);
+            }
+        }
+        Ok(mode) => {
+            log::warn!("会话库未能切到 WAL（当前 journal_mode={}），保持默认持久性设置", mode);
+        }
+        Err(e) => {
+            log::warn!("会话库切换 WAL 失败（保持默认持久性设置）: {}", e);
+        }
     }
 }
 
@@ -533,5 +580,181 @@ mod tests {
                 .as_deref(),
             Some("completed")
         );
+    }
+
+    fn pragma_text(db: &ConversationDb, pragma: &str) -> String {
+        db.conn
+            .lock()
+            .unwrap()
+            .query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, String>(0))
+            .unwrap()
+    }
+
+    fn pragma_int(db: &ConversationDb, pragma: &str) -> i64 {
+        db.conn
+            .lock()
+            .unwrap()
+            .query_row(&format!("PRAGMA {pragma}"), [], |r| r.get::<_, i64>(0))
+            .unwrap()
+    }
+
+    fn index_names(db: &ConversationDb) -> Vec<String> {
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages'")
+            .unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
+    }
+
+    /// 文件库必须跑在 WAL + NORMAL（每条消息落库 ≈12ms → ≈0.04ms 的来源）；
+    /// 两项是一起生效的，掉了任何一项都说明调优被悄悄绕开了。
+    #[test]
+    fn file_db_runs_in_wal_with_normal_sync() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = ConversationDb::new(dir.path().join("conversations.db")).unwrap();
+        assert_eq!(pragma_text(&db, "journal_mode").to_lowercase(), "wal");
+        assert_eq!(pragma_int(&db, "synchronous"), 1, "1 = NORMAL（2 才是 FULL）");
+    }
+
+    /// 内存库没有 WAL 可言：调优必须直接跳过，不能报错也不能改它的行为。
+    #[test]
+    fn in_memory_db_skips_tuning() {
+        let db = ConversationDb::in_memory().unwrap();
+        assert_eq!(pragma_text(&db, "journal_mode").to_lowercase(), "memory");
+        assert_eq!(pragma_int(&db, "synchronous"), 2, "未调优 = 默认 FULL");
+    }
+
+    /// 存量用户的库是回滚日志模式、且带冗余索引：打开后必须就地转成 WAL、
+    /// 删掉冗余索引，数据与最左前缀索引原样保留。
+    #[test]
+    fn legacy_rollback_journal_db_converts_to_wal_and_drops_redundant_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("conversations.db");
+        {
+            let seed = ConversationDb::new(&path).unwrap();
+            let conv = seed.create_conversation("conn-1", "legacy").unwrap();
+            seed.save_message(&conv.id, "user", "hello", "2026-01-01T00:00:00Z", None, None)
+                .unwrap();
+        }
+        // 把它还原成「旧版本留下的样子」：回滚日志 + 冗余索引。
+        {
+            let raw = rusqlite::Connection::open(&path).unwrap();
+            let mode: String = raw
+                .query_row("PRAGMA journal_mode = DELETE", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(mode, "delete");
+            raw.execute_batch(
+                "CREATE INDEX idx_messages_conversation ON messages(conversation_id);",
+            )
+            .unwrap();
+        }
+
+        let db = ConversationDb::new(&path).unwrap();
+        assert_eq!(pragma_text(&db, "journal_mode").to_lowercase(), "wal");
+        let indexes = index_names(&db);
+        assert!(
+            !indexes.iter().any(|n| n == "idx_messages_conversation"),
+            "冗余索引应被迁移删除：{indexes:?}"
+        );
+        assert!(
+            indexes.iter().any(|n| n == "idx_messages_conv_time"),
+            "最左前缀覆盖它的 idx_messages_conv_time 必须保留：{indexes:?}"
+        );
+        let conv = &db.list_conversations("conn-1").unwrap()[0];
+        let msgs = db.load_messages(&conv.id).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "hello");
+    }
+
+    #[test]
+    fn fresh_db_has_no_redundant_index() {
+        let db = ConversationDb::in_memory().unwrap();
+        assert!(!index_names(&db).iter().any(|n| n == "idx_messages_conversation"));
+    }
+
+    /// 砍掉冗余索引后，按会话取消息仍必须走索引（而不是退化成全表扫描）。
+    #[test]
+    fn conversation_lookup_still_uses_an_index() {
+        let db = ConversationDb::in_memory().unwrap();
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("EXPLAIN QUERY PLAN SELECT id FROM messages WHERE conversation_id = ?1")
+            .unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(["c"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter().any(|d| d.contains("USING") && d.contains("idx_messages_conv_time")),
+            "plan: {plan:?}"
+        );
+    }
+
+    /// 让「顶会话」那条 UPDATE 必然失败：用来证明它和前一步写入同事务。
+    fn make_touch_fail(db: &ConversationDb) {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_touch BEFORE UPDATE OF updated_at ON conversations
+                 BEGIN SELECT RAISE(ABORT, 'injected touch failure'); END;",
+            )
+            .unwrap();
+    }
+
+    /// 写消息 + 顶会话是一个事务：顶会话失败时消息不得留下（旧实现是两次自动
+    /// 提交，调用方拿到 Err 但消息行已落库）。
+    #[test]
+    fn save_message_is_atomic_with_touching_the_conversation() {
+        let db = create_test_db();
+        let conv = db.create_conversation("conn_1", "atomic").unwrap();
+        make_touch_fail(&db);
+
+        let err = db.save_message(&conv.id, "user", "x", "2026-01-01T00:00:00Z", None, None);
+        assert!(err.is_err(), "顶会话失败必须让整次写入失败");
+        assert!(
+            db.load_messages(&conv.id).unwrap().is_empty(),
+            "失败的写入不得留下半成品消息行"
+        );
+    }
+
+    /// 撤回（截断）同理：顶会话失败 → 删除回滚，行与磁盘图都还在。
+    #[test]
+    fn truncate_is_atomic_with_touching_the_conversation() {
+        let db = create_test_db();
+        let conv = db.create_conversation("conn_1", "atomic").unwrap();
+        db.save_message(&conv.id, "user", "keep me", "2026-01-01T00:00:00Z", None, None)
+            .unwrap();
+        make_touch_fail(&db);
+
+        let err = db.delete_messages_from_timestamp(&conv.id, "2026-01-01T00:00:00Z");
+        assert!(err.is_err());
+        assert_eq!(db.load_messages(&conv.id).unwrap().len(), 1, "删除必须回滚");
+    }
+
+    /// 压缩提交同理：插卡失败/顶会话失败，旧卡不得被吸收掉。
+    #[test]
+    fn commit_compaction_is_atomic_with_touching_the_conversation() {
+        let db = create_test_db();
+        let (conv_id, _archived, card_id, _active) =
+            crate::agent::conversation::test_support::seed_compacted_conversation(&db);
+        let before = db.load_messages(&conv_id).unwrap();
+        make_touch_fail(&db);
+
+        let err = db.commit_compaction(
+            &conv_id,
+            &[card_id.clone()],
+            "【上下文已压缩】新卡",
+            "2026-01-01T00:30:00Z",
+            "2026-01-01T00:30:00Z",
+        );
+        assert!(err.is_err());
+        let after = db.load_messages(&conv_id).unwrap();
+        assert_eq!(after.len(), before.len(), "不得多出新卡，也不得少了旧卡");
+        assert!(after.iter().any(|m| m.id == card_id), "被吸收的旧卡必须还在");
     }
 }

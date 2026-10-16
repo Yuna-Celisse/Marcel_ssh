@@ -493,9 +493,11 @@ impl ConversationDb {
         let now = Utc::now();
         let id = Uuid::new_v4().to_string();
         let now_str = now.to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
 
-        conn.execute(
+        // 插消息与顶会话同事务：要么都落、要么都不落（见 `touch_at`）。
+        let tx = conn.transaction()?;
+        tx.execute(
             &format!("INSERT INTO messages {}", messages_insert_clause()),
             (
                 &id,
@@ -513,9 +515,9 @@ impl ConversationDb {
                 user_input_json,
             ),
         )?;
+        Self::touch_at(&tx, conversation_id, &now_str)?;
+        tx.commit()?;
         drop(conn);
-
-        self.touch_conversation(conversation_id)?;
 
         Ok(StoredMessage {
             id,
@@ -618,12 +620,18 @@ impl ConversationDb {
             to_delete
         };
 
+        // 删消息与顶会话同事务（见 `touch_at`）；磁盘图的回收放在提交之后——
+        // 事务回滚时行还在，图就不能先删。
         let deleted = {
-            let conn = self.conn.lock().unwrap();
-            conn.execute(
+            let mut conn = self.conn.lock().unwrap();
+            let tx = conn.transaction()?;
+            let deleted = tx.execute(
                 "DELETE FROM messages WHERE conversation_id = ?1 AND timestamp >= ?2",
                 (conversation_id, from_timestamp),
-            )?
+            )?;
+            Self::touch_at(&tx, conversation_id, &Utc::now().to_rfc3339())?;
+            tx.commit()?;
+            deleted
         };
 
         // 撤回语义（原文全保留，无归档）：
@@ -634,7 +642,6 @@ impl ConversationDb {
             let _ = crate::agent::image_store::delete_image(&path);
         }
 
-        self.touch_conversation(conversation_id)?;
         Ok(deleted)
     }
 
