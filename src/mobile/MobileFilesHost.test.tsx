@@ -63,7 +63,6 @@ vi.mock('./MobileAgentHost', () => ({ default: () => null }));
 vi.mock('./MobileSettings', () => ({ default: () => null }));
 vi.mock('./MobileOnboarding', () => ({ default: () => null }));
 vi.mock('./MobileUpdateToast', () => ({ default: () => null }));
-vi.mock('./MobileUpdateProgress', () => ({ default: () => null }));
 vi.mock('./MobileStarPromptSheet', () => ({ default: () => null }));
 vi.mock('./MobileGlobalInteractionOverlay', () => ({ default: () => null }));
 vi.mock('./bootstrap', () => ({

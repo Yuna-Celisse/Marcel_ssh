@@ -156,6 +156,13 @@ pub(super) fn is_unmetered_network() -> bool {
     }
 }
 
+/// 调用 MainActivity 上的原生方法（`notify` 的通知投递走这里）。
+/// 与 `is_unmetered_network` 同一条 JNI 通道，签名约束见 `android::call_activity`。
+#[cfg(target_os = "android")]
+pub(super) fn call_native(method: &str, arg: Option<&str>) -> Result<String, String> {
+    android::call_activity(method, arg)
+}
+
 /// 非 Android 平台没有流量概念。
 #[cfg(not(target_os = "android"))]
 pub(super) fn is_unmetered_network() -> bool {

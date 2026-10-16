@@ -22,7 +22,7 @@ pub fn set_app_in_foreground(in_foreground: bool) {
 }
 
 #[cfg(mobile)]
-fn is_app_in_foreground() -> bool {
+pub(crate) fn is_app_in_foreground() -> bool {
     APP_IN_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed)
 }
 

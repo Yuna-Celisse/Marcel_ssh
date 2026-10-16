@@ -96,6 +96,27 @@ class MarcelForegroundService : Service() {
             manager.createNotificationChannels(listOf(serviceChannel, agentChannel))
         }
 
+        /**
+         * 通知点击回应用：调起 MainActivity（launchMode=singleTask）。
+         * 用 SINGLE_TOP|CLEAR_TOP 复用已有任务栈（与 tauri-plugin-notification 的
+         * buildIntent 行为一致），不重建 Activity、不丢应用状态。
+         * targetSdk 36（Android 12+）必须 FLAG_IMMUTABLE，否则点击时崩溃。
+         *
+         * 放在 companion 里是为了让其它通知（如 [UpdateDownloadNotifier]）共用，
+         * 「点通知回到应用」的行为只有这一份定义。
+         */
+        fun buildLaunchAppIntent(context: Context): PendingIntent {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            return PendingIntent.getActivity(
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
         /** 启动前台服务（若已运行则更新通知）。 */
         fun start(context: Context, title: String, body: String) {
             val intent = Intent(context, MarcelForegroundService::class.java).apply {
@@ -237,23 +258,7 @@ class MarcelForegroundService : Service() {
         }
     }
 
-    /**
-     * 通知点击回应用：调起 MainActivity（launchMode=singleTask）。
-     * 用 SINGLE_TOP|CLEAR_TOP 复用已有任务栈（与 tauri-plugin-notification 的
-     * buildIntent 行为一致），不重建 Activity、不丢应用状态。
-     * targetSdk 36（Android 12+）必须 FLAG_IMMUTABLE，否则点击时崩溃。
-     */
-    private fun launchAppPendingIntent(): PendingIntent {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        return PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
+    private fun launchAppPendingIntent(): PendingIntent = buildLaunchAppIntent(this)
 
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return

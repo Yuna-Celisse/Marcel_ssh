@@ -14,7 +14,9 @@ import MobileSheet from './ui/MobileSheet';
  * - `available`：仅提示（关了自动更新、该版本没给安装包、或不支持后台下载）
  *   → 「后台下载」或「去下载页」/「稍后」；
  * - `failed`：自动更新失败 → 展示原因 + 「重试下载」/「知道了」（每会话一次）；
- * - `downloading`：不弹浮层（避免打断），由 `MobileUpdateProgress` 顶部细线承接。
+ * - `downloading`：不弹浮层（避免打断），应用内也不画进度条（手机屏幕上没有空位，
+ *   常驻胶囊必然挡住某处内容）；进度由系统通知栏承接（Rust 侧 `updater/notify.rs`
+ *   → `UpdateDownloadNotifier.kt`），设置页「关于」里也能看到。
  *
  * 「稍后」只隐藏本次提示：Android 的安装必须由用户在系统界面确认，不存在桌面
  * 那种「点了稍后却退出时照样装上」的意外，语义两端一致（都是「暂时不处理」）。

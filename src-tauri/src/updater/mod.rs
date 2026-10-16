@@ -38,6 +38,7 @@ use crate::config::settings::UpdateMode;
 use crate::error::AppError;
 
 pub mod install;
+mod notify;
 
 /// 更新签名公钥：minisign 公钥文件整体 base64（`pnpm tauri signer generate`
 /// 产出的 `.pub` 内容）。对应私钥 `~/.tauri/marcel-update.key`（空密码，
@@ -256,8 +257,16 @@ fn apply_state(app: &AppHandle, f: impl FnOnce(&mut UpdaterInner) -> Option<Upda
     let changed = prev_kind != kind_of(&next);
     inner.state = next;
     if changed {
-        let _ = app.emit(UPDATE_STATE_EVENT, &inner.state);
+        publish(app, &inner.state);
     }
+}
+
+/// 状态写出的**唯一出口**：推给前端（`update://state`），同时镜像到系统通知栏
+/// （Android 的下载进度，见 `notify.rs`）。所有写状态的地方都必须走这里 ——
+/// 直接 `app.emit(UPDATE_STATE_EVENT, ..)` 会让通知栏悄悄与应用内状态脱节。
+fn publish(app: &AppHandle, state: &UpdateState) {
+    let _ = app.emit(UPDATE_STATE_EVENT, state);
+    notify::mirror(state);
 }
 
 // ── 检查调度 ─────────────────────────────────────────────────────
@@ -953,7 +962,7 @@ fn emit_progress(app: &AppHandle, version: String, downloaded: u64, total: u64) 
             downloaded,
             total,
         };
-        let _ = app.emit(UPDATE_STATE_EVENT, &inner.state);
+        publish(app, &inner.state);
     }
 }
 

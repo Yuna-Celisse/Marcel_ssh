@@ -82,6 +82,8 @@ class MainActivity : TauriActivity() {
     // 同时调 Service 的 createChannels（幂等，双保险，确保 Service 类被加载）
     MarcelForegroundService.createChannels(this)
     verifyChannels()
+    // 更新通知通道 + 撤掉上一个进程遗留的下载进度条（进程被杀时系统不会替我们收通知）
+    UpdateDownloadNotifier.onAppStart(this)
 
     // Give the web layer first crack at the back gesture: sheets, overlays and
     // sub-pages register close callbacks in `window.__marcelHandleBack`
@@ -270,6 +272,8 @@ class MainActivity : TauriActivity() {
     lastImeBottomPx = -1
     lastNavBottomPx = -1
     (webViewRef?.parent as? ViewGroup)?.let { ViewCompat.requestApplyInsets(it) }
+    // 用户已回到应用：后台时留的「新版本已就绪」提醒完成使命，应用内浮层接手
+    UpdateDownloadNotifier.onAppForeground(this)
   }
 
   override fun onRequestPermissionsResult(
@@ -357,6 +361,17 @@ class MainActivity : TauriActivity() {
   // keep 规则（按上面两种签名整类保留）。改名或改签名必须同步改那边的规则，
   // 否则 release 包里方法被整个删掉，运行时 NoSuchMethodError，
   // 而 debug 包（isMinifyEnabled = false）看不出任何问题。
+
+  /**
+   * 更新通知指令（下载进度条 / 已就绪提醒 / 撤销）。
+   *
+   * 调用方：src-tauri/src/updater/notify.rs 经 `call_activity` 投递，`payload` 是 JSON，
+   * 形态见 [UpdateDownloadNotifier]。返回 `ok` 或 `error:…`。
+   * 签名是 `(String) -> String`，已被 proguard-rules.pro 的 keep 规则覆盖。
+   */
+  fun updateDownloadNotification(payload: String): String {
+    return UpdateDownloadNotifier.apply(applicationContext, payload)
+  }
 
   /**
    * 是否已允许本应用安装未知来源的应用（Android 8+ 需用户手动授权；

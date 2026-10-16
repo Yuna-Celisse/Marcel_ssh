@@ -7,7 +7,6 @@ import MobileFilesHost from './MobileFilesHost';
 import MobileOnboarding from './MobileOnboarding';
 import MobileSettings from './MobileSettings';
 import MobileUpdateToast from './MobileUpdateToast';
-import MobileUpdateProgress from './MobileUpdateProgress';
 import MobileStarPromptSheet from './MobileStarPromptSheet';
 import MobileGlobalInteractionOverlay from './MobileGlobalInteractionOverlay';
 import { initInteractionListener } from '@/stores/interactionStore';
@@ -217,8 +216,6 @@ export default function MobileApp() {
       <div className="absolute inset-x-0 bottom-0">
         <MobileTabBar activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
-
-      <MobileUpdateProgress />
 
       {!showOnboarding && <MobileUpdateToast />}
 
