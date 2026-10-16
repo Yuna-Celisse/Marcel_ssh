@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import { useUpdateStore, isUpdateVisible } from '@/stores/updateStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -295,17 +296,22 @@ export default function UpdatePill() {
         open={confirmOpen}
         onClose={() => !busy && setConfirmOpen(false)}
         title="现在安装更新？"
+        size="sm"
       >
-        <div className="space-y-4">
-          <p className="text-sm text-zinc-300">
-            当前有正在运行的任务（Agent 任务、后台作业、文件传输）或 SSH 会话，安装会中断它们。
-            <br />
+        <div className="space-y-4 p-4">
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5">
+            <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" aria-hidden="true" />
+            <p className="text-sm leading-relaxed text-amber-100/90">
+              当前有正在运行的任务（Agent 任务、后台作业、文件传输）或 SSH 会话，安装会中断它们。
+            </p>
+          </div>
+          <p className="text-sm leading-relaxed text-zinc-400">
             {capabilities?.installKind === 'apk'
               ? '接下来会打开系统安装界面，确认后应用会重启到新版本。'
               : '应用将退出并静默安装新版本，完成后自动重新打开。'}
           </p>
           {error && <p className="text-sm text-red-400">{error}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-1">
             <Button
               variant="secondary"
               onClick={() => setConfirmOpen(false)}
