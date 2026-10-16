@@ -33,6 +33,35 @@ export function formatCompactTokens(value: number): string {
   return `${scaled(value / 1_000_000)}M`;
 }
 
+/**
+ * 流式文本 → 本地估算 token 数（只用于「一轮还没结束、provider 还没报用量」的实时读数）。
+ *
+ * 中日韩字符约 0.7 token / 字，其余约 4 字符 / token。估算值会在该轮的
+ * `contextUsage` 事件到达时被 provider 的精确值覆盖，所以粗一点无妨。
+ */
+export function estimateTextTokens(text: string): number {
+  let cjk = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if ((code >= 0x2e80 && code <= 0x9fff) || (code >= 0xac00 && code <= 0xd7af) || (code >= 0xff00 && code <= 0xffef)) cjk++;
+  }
+  return cjk * 0.7 + (text.length - cjk) / 4;
+}
+
+/**
+ * 运行中任务的输出 token 读数：<1000 原样；K / M 一律保留两位小数（`1.23K`、`12.35K`、`1.20M`）。
+ *
+ * 与 [`formatCompactTokens`] 分开：那个按量级省位（`12.2K`、`980K`），读数跳动少；
+ * 这里是实时增长的数字，固定两位小数才看得出它在持续往上走，位数也稳定（滚动动画不抖）。
+ */
+export function formatLiveOutputTokens(value: number): string {
+  const n = Math.max(0, Math.round(value));
+  if (n < 1_000) return String(n);
+  const k = (n / 1_000).toFixed(2);
+  if (n < 1_000_000 && Number(k) < 1_000) return `${k}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
 /** 百分比：整数不带小数，带小数保留一位（`42%` / `99.9%`）。 */
 export function formatPercent(percent: number): string {
   return Number.isInteger(percent) ? String(percent) : percent.toFixed(1);

@@ -105,6 +105,91 @@
   }
 }
 
+/* 任务运行状态条：三点依次起伏的波浪 */
+@keyframes run-dot-wave {
+  0%, 60%, 100% {
+    transform: translateY(0) scale(0.75);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px) scale(1);
+    opacity: 1;
+  }
+}
+.run-dots > i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: rgb(129 140 248);
+  animation: run-dot-wave 1.1s ease-in-out infinite;
+}
+.run-dots > i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.run-dots > i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-dots > i {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* 滚动文字：变了的位上滚替换，旧字模糊淡出、新字由糊变清 */
+.rolling-text {
+  display: inline-flex;
+  white-space: pre;
+}
+.rolling-slot {
+  display: inline-grid;
+  line-height: 1.25;
+}
+.rolling-slot > * {
+  grid-area: 1 / 1;
+}
+.rolling-sizer {
+  visibility: hidden;
+}
+@keyframes rolling-in {
+  from {
+    transform: translateY(65%);
+    filter: blur(4px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+@keyframes rolling-out {
+  from {
+    transform: translateY(0);
+    filter: blur(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-65%);
+    filter: blur(4px);
+    opacity: 0;
+  }
+}
+.rolling-in {
+  animation: rolling-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.rolling-out {
+  animation: rolling-out 280ms cubic-bezier(0.5, 0, 0.75, 0) both;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rolling-in,
+  .rolling-out {
+    animation-duration: 1ms;
+  }
+}
+
 /* Spring utility classes */
 .spring-bounce {
   animation-timing-function: var(--spring-bounce);

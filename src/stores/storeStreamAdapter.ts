@@ -63,5 +63,8 @@ export function createDefaultStreamHandler(): StreamHandler {
     recordContextUsage(conversationId, ev) {
       useTaskStore.getState().recordContextUsage(conversationId, ev);
     },
+    recordOutputDelta(conversationId, text) {
+      useTaskStore.getState().recordOutputDelta(conversationId, text);
+    },
   };
 }

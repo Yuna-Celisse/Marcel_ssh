@@ -53,6 +53,8 @@ export interface StreamHandler {
    * 覆盖不累加（事件带的是后端写库后的累计值，见 `lib/tokenUsage.ts`）。
    */
   recordContextUsage(conversationId: string, ev: ContextUsageEvent): void;
+  /** 流式增量文本（正文 / 思考 / 工具参数）：累加「运行中任务的输出 token」估算。 */
+  recordOutputDelta(conversationId: string, text: string): void;
 }
 
 // ---------------------------------------------------------------------------

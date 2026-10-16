@@ -7,6 +7,7 @@ import {
   breakdownTotal,
   formatCompactTokens,
   formatExactTokens,
+  formatLiveOutputTokens,
   formatPercent,
   hasTotals,
   hasUsage,
@@ -50,6 +51,16 @@ describe('数字格式化', () => {
     expect(formatCompactTokens(98_000)).toBe('98K');
     expect(formatCompactTokens(200_000)).toBe('200K');
     expect(formatCompactTokens(1_240_000)).toBe('1.2M');
+  });
+
+  it('运行中输出读数：K / M 固定两位小数', () => {
+    expect(formatLiveOutputTokens(0)).toBe('0');
+    expect(formatLiveOutputTokens(999)).toBe('999');
+    expect(formatLiveOutputTokens(1000)).toBe('1.00K');
+    expect(formatLiveOutputTokens(1234)).toBe('1.23K');
+    expect(formatLiveOutputTokens(98_765)).toBe('98.77K');
+    expect(formatLiveOutputTokens(999_996)).toBe('1.00M');
+    expect(formatLiveOutputTokens(1_234_567)).toBe('1.23M');
   });
 
   it('百分比：整数不带小数、非整数一位', () => {

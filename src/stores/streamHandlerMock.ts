@@ -66,5 +66,6 @@ export function mockHandler(messages: Record<string, AgentMessage[]> = {}): Mock
       return loadingId;
     },
     recordContextUsage() {},
+    recordOutputDelta() {},
   };
 }

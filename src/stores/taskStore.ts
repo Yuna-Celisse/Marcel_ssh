@@ -25,7 +25,7 @@ import {
   DEBUG_67_DEFAULT_SPEED,
   DEBUG_67_DEFAULT_TOKEN_LIMIT,
 } from "./debugStore";
-import { usageFromContextEvent } from "@/lib/tokenUsage";
+import { estimateTextTokens, usageFromContextEvent } from "@/lib/tokenUsage";
 import { composeUserInput, validateUserInput } from "@/lib/userInput";
 import { MAX_ATTACH_IMAGES } from "@/lib/imageAttach";
 
@@ -62,6 +62,15 @@ export interface TaskState {
    * 跑过任务的会话数」。
    */
   usageByConversation: Record<string, ConversationUsageEntry>;
+  /**
+   * **正在运行的任务**到目前为止的模型输出 token 数，key = conversationId
+   * （一个会话同一时刻只有一个任务；每次 `startTask` 重置）。
+   *
+   * `base` = 任务开始时会话累计的 completionTokens；`settled` = 已结算轮次的精确值；
+   * `live` = 当前轮流式文本的本地估算（该轮 `contextUsage` 到达时被精确值取代）。
+   * 显示值 = `settled + live`。
+   */
+  taskOutputByConversation: Record<string, { base: number; settled: number; live: number }>;
   unreadCompletedConversations: string[];
   /**
    * 正在手动压缩上下文的会话（key = conversationId；在册即为进行中）。
@@ -123,6 +132,8 @@ export interface TaskState {
    * 写库后的累计值，前端的活就是把它显示出来。
    */
   recordContextUsage: (conversationId: string, ev: ContextUsageEvent) => void;
+  /** 流式文本增量（正文 / 思考 / 工具参数）→ 累加当前轮的输出 token 估算。 */
+  recordOutputDelta: (conversationId: string, text: string) => void;
 
   clearActiveTask: () => void;
   clearActiveTaskIf: (taskId: string) => void;
@@ -284,6 +295,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   plans: {},
   plansDirty: false,
   usageByConversation: {},
+  taskOutputByConversation: {},
   unreadCompletedConversations: [],
   compacting: {},
 
@@ -427,8 +439,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // 困惑）。给当前会话开轮（用户自己发消息）照旧占槽。
     const conversationIsActive =
       useConversationStore.getState().activeConversationId === conversationId;
+    const outputBase =
+      get().usageByConversation[conversationId]?.usage.completionTokens ??
+      useConversationStore.getState().conversations[conversationId]?.usage?.completionTokens ??
+      0;
     set((state) => ({
       tasks: { ...state.tasks, [taskId]: task },
+      taskOutputByConversation: {
+        ...state.taskOutputByConversation,
+        [conversationId]: { base: outputBase, settled: 0, live: 0 },
+      },
       activeTaskId: conversationIsActive ? taskId : state.activeTaskId,
       // 用量读数**不在这里清**：它是按会话累计的落库值（跨任务接着算），
       // 新一轮的第一个 `contextUsage` 事件会带着后端算好的累计值覆盖过来。
@@ -673,7 +693,37 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     });
   },
 
+  recordOutputDelta: (conversationId, text) => {
+    if (!text) return;
+    set((state) => {
+      const cur = state.taskOutputByConversation[conversationId];
+      if (!cur) return state;
+      return {
+        taskOutputByConversation: {
+          ...state.taskOutputByConversation,
+          [conversationId]: { ...cur, live: cur.live + estimateTextTokens(text) },
+        },
+      };
+    });
+  },
+
   recordContextUsage: (conversationId, ev) => {
+    set((state) => {
+      const cur = state.taskOutputByConversation[conversationId];
+      if (!cur) return {};
+      // provider 报了输出用量 → 精确值覆盖；没报（增量为 0）→ 把估算并入已结算，数字不回落。
+      const exact = Math.max(0, ev.completionTokens - cur.base);
+      return {
+        taskOutputByConversation: {
+          ...state.taskOutputByConversation,
+          [conversationId]: {
+            base: cur.base,
+            settled: exact > 0 ? Math.max(exact, 0) : cur.settled + cur.live,
+            live: 0,
+          },
+        },
+      };
+    });
     set((state) => ({
       usageByConversation: {
         ...state.usageByConversation,

@@ -4,6 +4,7 @@ import { useConversationStore } from '@/stores/conversationStore';
 import { isNearBottom, shouldAutoScroll, shouldShowScrollToBottomFab } from '@/lib/agentScroll';
 import type { AgentMessage } from '@/lib/types';
 import AgentMessageList, { type AgentMessageListHandle } from './AgentMessageList';
+import AgentRunStatus, { useConversationLoopRunning } from './AgentRunStatus';
 import { MarkdownVisibility } from './markdownVisibility';
 import { useAgentScrollIntent } from '@/hooks/useAgentScrollIntent';
 
@@ -33,6 +34,7 @@ export default memo(function AgentTranscript({
     visible ? (conversationId ? s.messages[conversationId] ?? EMPTY_MESSAGES : EMPTY_MESSAGES) : snapshot.current,
   );
   snapshot.current = messages;
+  const loopRunning = useConversationLoopRunning(conversationId);
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolling = useAgentScrollIntent(containerRef, visible);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,7 @@ export default memo(function AgentTranscript({
             />
             </MarkdownVisibility.Provider>
           )}
+          {canInteract && loopRunning && conversationId && <AgentRunStatus conversationId={conversationId} />}
         </div>
       </div>
       {shouldShowScrollToBottomFab(nearBottom, messages.length > 0) && (
