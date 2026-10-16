@@ -33,7 +33,8 @@
 //! 中文写进管道而我们按 UTF-8 解码 → 全是乱码。所以用户命令**前面**拼一段设置
 //! 输出编码的前置语句（[`WINDOWS_UTF8_PRELUDE`]），再按 UTF-8 解码读到的字节；
 //! 真·非法字节按 `String::from_utf8_lossy` 处理（与远端一致）。跨读取块被切开
-//! 的多字节字符由 [`Utf8Carry`] 接起来，否则一个「你」字会解成两个 U+FFFD。
+//! 的多字节字符由 [`Utf8Carry`]（`crate::utf8_carry`，终端与远端命令通道共用）
+//! 接起来，否则一个「你」字会解成两个 U+FFFD。
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -44,10 +45,12 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 
-use crate::emit_event;
 use crate::error::AppError;
+use crate::utf8_carry::Utf8Carry;
 
-use super::executor::{ChunkCallback, ExecExit, ExecOutcome, ExecTransport, OutputSink};
+use super::executor::{
+    deliver, flush_decoders, ChunkCallback, ExecExit, ExecOutcome, ExecTransport, OutputSink,
+};
 use super::ticket::{CancelReason, CommandTicket};
 
 /// 单次读取的缓冲大小（一个 chunk 对应一次 read）。
@@ -257,47 +260,6 @@ fn signal_name(signal: i32) -> String {
     }
 }
 
-/// 跨读取块的 UTF-8 解码器。
-///
-/// 一次 `read` 可能恰好把一个多字节字符切成两半（大块输出 / 块边界），两边
-/// 各自 `from_utf8_lossy` 就都解成 U+FFFD，中文输出中间冒出「�」。这里把末尾
-/// 那段「合法的、还没读完的前缀」（最多 3 字节）留到下一块一起解。
-///
-/// **每个流各持一份**：stdout 与 stderr 是两股独立字节流，交错时共用会把
-/// stdout 的半截序列粘到 stderr 的开头上。
-///
-/// 真·非法字节（不是合法前缀的残缺）不跨块保留，直接交给
-/// `String::from_utf8_lossy`——与远端逐 chunk 解码的行为一致。
-#[derive(Default)]
-struct Utf8Carry {
-    pending: Vec<u8>,
-}
-
-impl Utf8Carry {
-    /// 解码一块字节，返回本次可以交付的文本（可能为空）。
-    fn decode(&mut self, bytes: &[u8]) -> String {
-        let mut buf = std::mem::take(&mut self.pending);
-        buf.extend_from_slice(bytes);
-        match std::str::from_utf8(&buf) {
-            Ok(text) => text.to_string(),
-            Err(error) if error.error_len().is_none() => {
-                // 末尾是一段合法的完整前缀（序列还没写完）：留给下一块。
-                // 前半段是合法的，lossy 不会产生替换字符。
-                let split = error.valid_up_to();
-                let (text, tail) = buf.split_at(split);
-                self.pending.extend_from_slice(tail);
-                String::from_utf8_lossy(text).into_owned()
-            }
-            Err(_) => String::from_utf8_lossy(&buf).into_owned(),
-        }
-    }
-
-    /// 流结束时取走尾巴：此刻留着的就是真·残缺数据，按 lossy 交付，不吞掉。
-    fn flush(&mut self) -> String {
-        String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned()
-    }
-}
-
 /// 读循环的一步。
 enum ReadStep {
     /// 某个流读到 n 字节（n = 0 表示该流到达 EOF）。
@@ -349,42 +311,6 @@ async fn cancelled(cancel: Option<&watch::Receiver<CancelReason>>) {
 /// 取消信号对应的终止来源（与远端同构：拿不到就按 User，不编来源）。
 fn cancel_reason(cancel: Option<&watch::Receiver<CancelReason>>) -> CancelReason {
     cancel.map(|rx| *rx.borrow()).unwrap_or(CancelReason::User)
-}
-
-/// 交付一个 chunk：进 sink（前台收集 / 后台沉淀），并在声明了流式目标时发
-/// `{type:"toolOutput", toolCallId, chunk}` 事件（与远端逐字节同协议）。
-fn deliver<O: OutputSink>(
-    output: &mut O,
-    chunk: &str,
-    streaming: Option<(&AppHandle, &str, &str)>,
-) {
-    if chunk.is_empty() {
-        return;
-    }
-    output.push(chunk);
-    if let Some((app, event_name, stream_id)) = streaming {
-        emit_event(
-            app,
-            event_name,
-            &serde_json::json!({
-                "type": "toolOutput",
-                "toolCallId": stream_id,
-                "chunk": chunk,
-            }),
-        );
-    }
-}
-
-/// 两个解码器的尾巴一并交付（超时 / 取消 / 正常结束都要做，否则末尾最多 3
-/// 字节被吞）。
-fn flush_decoders<O: OutputSink>(
-    output: &mut O,
-    stdout: &mut Utf8Carry,
-    stderr: &mut Utf8Carry,
-    streaming: Option<(&AppHandle, &str, &str)>,
-) {
-    deliver(output, &stdout.flush(), streaming);
-    deliver(output, &stderr.flush(), streaming);
 }
 
 /// 生产入口：按平台形态起 shell，再把余下的事交给 [`read_child`]。
@@ -941,24 +867,6 @@ mod tests {
         assert_eq!(text, "\u{fffd}", "取消也要 flush 解码器尾巴：{text:?}");
     }
 
-    /// 「尾巴不吞」这条保证的纯函数版本：定时相关的端到端用例偶尔会抢在子进程
-    /// 写出之前取消（那时 sink 合法地为空），这条不受调度影响。
-    #[test]
-    fn a_partial_multibyte_tail_survives_flush() {
-        let mut carry = Utf8Carry::default();
-        // 「你」的前两字节：合法前缀，暂不交付。
-        assert_eq!(carry.decode(&[0xE4, 0xBD]), "");
-        // 流结束时必须把残缺尾巴按 lossy 交出来，而不是吞掉。
-        assert_eq!(carry.flush(), "\u{fffd}");
-        // flush 之后 carry 清空，不会把尾巴带到下一次解码。
-        assert_eq!(carry.flush(), "");
-
-        // 完整字符照常直通，不受 carry 影响。
-        let mut carry = Utf8Carry::default();
-        assert_eq!(carry.decode("你".as_bytes()), "你");
-        assert_eq!(carry.flush(), "");
-    }
-
     #[tokio::test]
     async fn observable_delivers_chunks_to_the_sink() {
         let received = Arc::new(parking_lot::Mutex::new(String::new()));
@@ -978,27 +886,6 @@ mod tests {
             }
         ));
         assert!(received.lock().contains("stream-me"));
-    }
-
-    #[test]
-    fn decode_carries_multibyte_chars_split_across_reads() {
-        let mut carry = Utf8Carry::default();
-        let mut decoded = String::new();
-        // 逐字节喂：每一块都是「还没读完的合法前缀」，只有补全后才解得出字符。
-        for byte in "你好a".as_bytes() {
-            decoded.push_str(&carry.decode(&[*byte]));
-        }
-        decoded.push_str(&carry.flush());
-        assert_eq!(decoded, "你好a");
-        assert!(!decoded.contains('\u{fffd}'));
-    }
-
-    #[test]
-    fn decode_treats_invalid_bytes_as_lossy_without_carrying_them() {
-        let mut carry = Utf8Carry::default();
-        assert_eq!(carry.decode(b"a\xffb"), "a\u{fffd}b");
-        // 真·非法字节不跨块保留（否则会把后面的内容一起粘成乱码）。
-        assert_eq!(carry.flush(), "");
     }
 
     #[test]

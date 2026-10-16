@@ -21,6 +21,9 @@ pub mod notification;
 pub mod plugins;
 pub mod skills;
 pub mod ssh;
+// 跨读取块的 UTF-8 解码器：终端 / 远端命令通道 / 本机命令管道共用，
+// 避免多字节字符被包边界切开后变成 U+FFFD。
+pub(crate) mod utf8_carry;
 pub mod util;
 // 无感更新器：桌面 Windows 走 NSIS「退出即静默安装」，Android 走 APK
 // 「后台下载 + 一键拉起系统安装器」，其他桌面平台只检查提示。

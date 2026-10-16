@@ -7,6 +7,8 @@ pub(crate) mod sftp_extract;
 mod client;
 mod manager;
 mod session;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub mod connection {
     pub use super::manager::{ConnectionConfig, SessionInfo, SshManager, SshStatus};

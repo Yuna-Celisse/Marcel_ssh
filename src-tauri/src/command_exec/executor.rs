@@ -41,6 +41,7 @@ use tokio::sync::watch;
 use crate::emit_event;
 use crate::error::AppError;
 use crate::ssh::connection::SshManager;
+use crate::utf8_carry::Utf8Carry;
 
 use super::ticket::{CancelReason, CommandTicket};
 
@@ -323,6 +324,10 @@ where
     // 远端回报的退出事实。OpenSSH 在 EOF / close 之前先发 exit-status，
     // 所以我们在这条通道关掉之前就能拿到它（没拿到就是 None，如实上报）。
     let mut exit = ExecExit::default();
+    // 跨数据包的 UTF-8 解码：一个汉字被包边界切开时，两半各自 lossy 解码会变成
+    // 两个 U+FFFD（连模型看到的命令输出都是坏的）。stdout 与 stderr 各持一份。
+    let mut stdout_decoder = Utf8Carry::default();
+    let mut stderr_decoder = Utf8Carry::default();
 
     loop {
         tokio::select! {
@@ -338,25 +343,19 @@ where
                 let reason = cancel
                     .map(|rx| *rx.borrow())
                     .unwrap_or(CancelReason::User);
+                // 与本机传输同口径：取消可能正好落在多字节字符中间，先把已收到的
+                // 半截前缀交付，免得悄悄吞掉。
+                flush_decoders(&mut output, &mut stdout_decoder, &mut stderr_decoder, streaming);
                 graceful_close(channel).await;
                 return Ok(ExecOutcome::Cancelled { reason });
             }
             msg = channel.wait() => {
                 match msg {
-                    Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => {
-                        let chunk = String::from_utf8_lossy(&data);
-                        output.push(&chunk);
-                        if let Some((app, event_name, stream_id)) = streaming {
-                            emit_event(
-                                app,
-                                event_name,
-                                &serde_json::json!({
-                                    "type": "toolOutput",
-                                    "toolCallId": stream_id,
-                                    "chunk": chunk,
-                                }),
-                            );
-                        }
+                    Some(ChannelMsg::Data { data }) => {
+                        deliver(&mut output, &stdout_decoder.decode(&data), streaming);
+                    }
+                    Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        deliver(&mut output, &stderr_decoder.decode(&data), streaming);
                     }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => {
                         break;
@@ -377,6 +376,7 @@ where
             _ = &mut deadline => {
                 // 停止等待并显式关闭通道：不杀远端进程（见模块注释），
                 // 静默 / 重定向了输出 / 已脱离会话的命令会继续在远端跑。
+                flush_decoders(&mut output, &mut stdout_decoder, &mut stderr_decoder, streaming);
                 graceful_close(channel).await;
                 return Ok(ExecOutcome::TimedOut { output: output.finish() });
             }
@@ -387,10 +387,54 @@ where
         return Err(err);
     }
 
+    // 正常收尾：流在多字节字符中间结束时，残缺尾巴按 lossy 交付而不是吞掉。
+    flush_decoders(
+        &mut output,
+        &mut stdout_decoder,
+        &mut stderr_decoder,
+        streaming,
+    );
     Ok(ExecOutcome::Completed {
         output: output.finish(),
         exit,
     })
+}
+
+/// 交付一个 chunk：进 sink（前台收集 / 后台沉淀），并在声明了流式目标时发
+/// `{type:"toolOutput", toolCallId, chunk}` 事件。远端通道与本机传输共用这一份，
+/// 两条路径的事件协议因此不会漂移。
+pub(super) fn deliver<O: OutputSink>(
+    output: &mut O,
+    chunk: &str,
+    streaming: Option<(&AppHandle, &str, &str)>,
+) {
+    if chunk.is_empty() {
+        return;
+    }
+    output.push(chunk);
+    if let Some((app, event_name, stream_id)) = streaming {
+        emit_event(
+            app,
+            event_name,
+            &serde_json::json!({
+                "type": "toolOutput",
+                "toolCallId": stream_id,
+                "chunk": chunk,
+            }),
+        );
+    }
+}
+
+/// 两个解码器的尾巴一并交付（超时 / 取消 / 正常结束都要做，否则末尾最多 3
+/// 字节被吞）。
+pub(super) fn flush_decoders<O: OutputSink>(
+    output: &mut O,
+    stdout: &mut Utf8Carry,
+    stderr: &mut Utf8Carry,
+    streaming: Option<(&AppHandle, &str, &str)>,
+) {
+    deliver(output, &stdout.flush(), streaming);
+    deliver(output, &stderr.flush(), streaming);
 }
 
 /// channel 以 `None` 结束（没有 Eof / Close）时的收尾判据：**一律断连**，
@@ -501,74 +545,7 @@ mod tests {
         (output, peak, total)
     }
 
-    struct TestPeer {
-        channels: tokio::sync::mpsc::UnboundedSender<Channel<russh::server::Msg>>,
-    }
-
-    impl russh::server::Handler for TestPeer {
-        type Error = russh::Error;
-
-        async fn auth_none(&mut self, _: &str) -> Result<russh::server::Auth, Self::Error> {
-            Ok(russh::server::Auth::Accept)
-        }
-
-        async fn channel_open_session(
-            &mut self,
-            channel: Channel<russh::server::Msg>,
-            _: &mut russh::server::Session,
-        ) -> Result<bool, Self::Error> {
-            self.channels.send(channel).unwrap();
-            Ok(true)
-        }
-    }
-
-    struct TestClient;
-
-    impl russh::client::Handler for TestClient {
-        type Error = russh::Error;
-
-        async fn check_server_key(
-            &mut self,
-            _: &russh::keys::PublicKey,
-        ) -> Result<bool, Self::Error> {
-            Ok(true)
-        }
-    }
-
-    async fn test_channels() -> (
-        russh::client::Handle<TestClient>,
-        Channel<russh::client::Msg>,
-        Channel<russh::server::Msg>,
-    ) {
-        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let key = russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[7; 32]);
-        let config = russh::server::Config {
-            keys: vec![key.into()],
-            ..Default::default()
-        };
-        let server = tokio::spawn(async move {
-            russh::server::run_stream(Arc::new(config), server_io, TestPeer { channels: tx })
-                .await
-                .unwrap()
-        });
-        let mut client = russh::client::connect_stream(
-            Arc::new(russh::client::Config::default()),
-            client_io,
-            TestClient,
-        )
-        .await
-        .unwrap();
-        let _session = server.await.unwrap();
-        assert!(client
-            .authenticate_none("synthetic-test")
-            .await
-            .unwrap()
-            .success());
-        let channel = client.channel_open_session().await.unwrap();
-        let peer = rx.recv().await.unwrap();
-        (client, channel, peer)
-    }
+    use crate::ssh::test_support::test_channels;
 
     #[tokio::test]
     async fn observable_output_does_not_retain_a_second_copy() {
@@ -644,6 +621,66 @@ mod tests {
                 assert_eq!(output, "开始\n警告\n\u{fffd}done");
                 assert_eq!(exit.code, Some(7));
             }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
+
+    /// 回归：汉字被 SSH 数据包边界切开时，两半各自 lossy 解码会变成两个 U+FFFD
+    /// ——连交给模型的命令输出都是坏的。stdout / stderr 各持一份解码器，交错到达
+    /// 时也不能互相粘连。
+    #[tokio::test]
+    async fn multibyte_chars_split_across_packets_are_reassembled_per_stream() {
+        let (_client, mut channel, peer) = test_channels().await;
+        let you = "你".as_bytes();
+        let hao = "好".as_bytes();
+        let sender = tokio::spawn(async move {
+            // stdout 的「你」与 stderr 的「好」都被切开，且两股流交错到达。
+            peer.data(&[b"a", &you[..1]].concat()[..]).await.unwrap();
+            peer.extended_data(1, &hao[..2]).await.unwrap();
+            peer.data(&[&you[1..], b"b"].concat()[..]).await.unwrap();
+            peer.extended_data(1, &hao[2..]).await.unwrap();
+            peer.exit_status(0).await.unwrap();
+            peer.eof().await.unwrap();
+        });
+        let outcome = read_channel(
+            &mut channel,
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            None,
+            String::new(),
+            None,
+        )
+        .await
+        .unwrap();
+        sender.await.unwrap();
+        match outcome {
+            ExecOutcome::Completed { output, .. } => assert_eq!(output, "a你b好"),
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+    }
+
+    /// 流在多字节字符中间结束：残缺尾巴按 lossy 交付，不能被吞掉（否则调用方
+    /// 看不出输出被截断过）。
+    #[tokio::test]
+    async fn a_stream_ending_mid_character_delivers_the_tail_lossily() {
+        let (_client, mut channel, peer) = test_channels().await;
+        let sender = tokio::spawn(async move {
+            peer.data(&b"ok "[..]).await.unwrap();
+            peer.data(&"你".as_bytes()[..2]).await.unwrap();
+            peer.exit_status(0).await.unwrap();
+            peer.eof().await.unwrap();
+        });
+        let outcome = read_channel(
+            &mut channel,
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            None,
+            String::new(),
+            None,
+        )
+        .await
+        .unwrap();
+        sender.await.unwrap();
+        match outcome {
+            ExecOutcome::Completed { output, .. } => assert_eq!(output, "ok \u{fffd}"),
             other => panic!("unexpected outcome: {other:?}"),
         }
     }
