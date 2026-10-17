@@ -1005,6 +1005,70 @@ fn map_target_err(e: AppError, host: &str, via_jump: bool) -> AppError {
     }
 }
 
+#[cfg(test)]
+impl SshManager {
+    /// 测试专用：把 `session_id` 登记成"已连接"。背后是一条内存回环到最小 sshd
+    /// 的真实 russh 连接，让需要"会话在册"的上层流程（比如主任务的"出生即孤儿"
+    /// 检查）不依赖网络也能跑通。连接上不开任何通道，也不会真的执行命令。
+    pub(crate) async fn register_loopback_session(&self, session_id: &str) {
+        struct MinimalSshd;
+        impl russh::server::Handler for MinimalSshd {
+            type Error = russh::Error;
+
+            async fn auth_none(&mut self, _: &str) -> Result<russh::server::Auth, Self::Error> {
+                Ok(russh::server::Auth::Accept)
+            }
+        }
+
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let key = russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[11; 32]);
+        let config = russh::server::Config {
+            keys: vec![key.into()],
+            ..Default::default()
+        };
+        tokio::spawn(async move {
+            if let Ok(session) =
+                russh::server::run_stream(Arc::new(config), server_io, MinimalSshd).await
+            {
+                let _ = session.await;
+            }
+        });
+        let client = Client {
+            host: "127.0.0.1".into(),
+            port: 22,
+            store: KnownHostsStore::in_memory(),
+            trust_new: true,
+            verdict: Arc::new(TokioMutex::new(None)),
+            tofu_record_error: Arc::new(TokioMutex::new(None)),
+        };
+        let mut handle =
+            client::connect_stream(Arc::new(client::Config::default()), client_io, client)
+                .await
+                .expect("loopback sshd handshake");
+        assert!(handle
+            .authenticate_none("tester")
+            .await
+            .expect("loopback auth")
+            .success());
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        self.connections.write().await.insert(
+            session_id.to_string(),
+            Arc::new(SshConnection {
+                id: session_id.to_string(),
+                host: "127.0.0.1".into(),
+                port: 22,
+                username: "tester".into(),
+                connection_id: None,
+                generation: 1,
+                cmd_tx,
+                handle: Arc::new(TokioMutex::new(handle)),
+                jump_handle: None,
+                sftp_meta: SharedSlot::new(),
+            }),
+        );
+    }
+}
+
 /// `with_shared_sftp` 的端到端测试：回环 sshd（支持 `sftp` 子系统）+ 真实的
 /// `SshManager` / `SshConnection`，数服务器上实际开了几条 SFTP 通道。
 #[cfg(test)]

@@ -2609,3 +2609,187 @@ fn scripted_production_loop_subagent_parent_window_excludes_archived() {
     drop(app);
     dir.close().expect("remove the isolated scenario directory");
 }
+
+/// 真实计时：一个永远不应答的 MCP 服务器，不能拖住主任务的启动，也不能连带
+/// 卡住插件注册表的写者。
+///
+/// 全程真实：真实 `AgentManager::spawn`、真实 `McpClient`（reqwest）对着一个
+/// 接受连接却从不回话的本机 TCP 端口、真实 SQLite；模型端是脚本。
+/// 因为要等真实的 30 秒 MCP 请求超时，耗时约 40 秒，默认 `#[ignore]`。
+/// 运行：`cargo test --lib hanging_mcp_server -- --ignored --nocapture`。
+#[test]
+#[ignore = "real wall-clock (~40s): waits out the real 30s MCP request timeout"]
+fn hanging_mcp_server_does_not_delay_task_start() {
+    use crate::mcp::store::{McpServerConfig, McpServerInput};
+    use std::time::Instant;
+
+    let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scratch");
+    std::fs::create_dir_all(&scratch).expect("scratch directory");
+    let dir = tempfile::Builder::new()
+        .prefix("agent-mcp-hang-")
+        .tempdir_in(scratch)
+        .expect("isolated scenario directory");
+    let app = tauri::Builder::default()
+        .any_thread()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .expect("windowless Tauri host");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        // 挂死的 MCP 服务器：接受连接，但既不读也不写，连接一直攥在手里。
+        let hang_listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let mcp_url = format!("http://{}/mcp", hang_listener.local_addr().unwrap());
+        let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = connections.clone();
+        let hang = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = hang_listener.accept().await {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                held.push(stream);
+            }
+        });
+
+        // 脚本模型：只记录每次请求到达的时刻，回一句话。
+        let arrivals: Arc<Mutex<Vec<Instant>>> = Arc::default();
+        let step = |label: &'static str| {
+            let arrivals = arrivals.clone();
+            ModelStep {
+                label,
+                check: Box::new(move |_| {
+                    arrivals.lock().push(Instant::now());
+                    Ok(())
+                }),
+                frames: text_frames("好的。"),
+                error_status: None,
+                abort_stream: false,
+            }
+        };
+        let model = ScriptedModel::start(vec![step("first task"), step("second task")]).await;
+        let exec = Arc::new(ScriptedExec::default());
+        let state = isolated_state(dir.path(), &model.base_url, exec);
+        app.manage(state.clone());
+        let server = McpServerConfig::new(McpServerInput {
+            name: "hang".into(),
+            url: mcp_url,
+            headers: HashMap::new(),
+            enabled: true,
+            trusted: false,
+        })
+        .expect("valid MCP server config");
+        state.mcp_store.write().await.add(server);
+        // 主任务要有一条在册的 SSH 会话，否则会按"出生即孤儿"当场收场。
+        state
+            .ssh_manager
+            .register_loopback_session("fixture-session")
+            .await;
+
+        let manager = AgentManager::new(state.clone());
+        let main_spec = |task_id: &str, conversation_id: &str| AgentSpec {
+            task_id: task_id.into(),
+            mode: AgentMode::Auto,
+            role: AgentRole::Main,
+            session_id: "fixture-session".into(),
+            conversation_id: conversation_id.into(),
+            prompt: "你好".into(),
+            history: Vec::new(),
+            model_override: Some(MODEL_ID.into()),
+            prompt_extra: Vec::new(),
+            prompt_origin: PromptOrigin::User,
+            user_input: None,
+            approval_mode: None,
+        };
+
+        // ── 第一个任务：这台服务器从没被发现过，最多等约定的 3 秒 ──
+        let conv1 = state
+            .conversation_db
+            .create_conversation("scripted-connection", "first")
+            .unwrap();
+        let t0 = Instant::now();
+        // 同时探测插件注册表：任务启动期间，安装 / 启停这类写者能不能拿到锁。
+        let probe = async {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let asked = Instant::now();
+            let got = tokio::time::timeout(Duration::from_secs(45), state.plugin_registry.write())
+                .await
+                .is_ok();
+            (got, asked.elapsed())
+        };
+        let (spawned, (lock_got, lock_wait)) =
+            tokio::join!(manager.spawn(app.handle(), main_spec("hang-first", &conv1.id)), probe);
+        let handle = spawned.expect("spawn");
+        let spawn_returned = t0.elapsed();
+        let result = tokio::time::timeout(Duration::from_secs(60), handle.join())
+            .await
+            .expect("first task finishes");
+        let first_request = arrivals.lock().first().map(|t| t.duration_since(t0));
+        println!("【第一个任务·从没发现过的挂死服务器】");
+        println!("  spawn 返回耗时        : {:?}", spawn_returned);
+        println!("  模型收到第一次请求    : {:?}", first_request);
+        println!(
+            "  插件注册表写锁等待    : {:?}（拿到={}）",
+            lock_wait, lock_got
+        );
+        println!("  任务结果              : {:?}", result);
+        println!("  MCP 服务器收到的连接数: {}", connections.load(std::sync::atomic::Ordering::SeqCst));
+
+        // 等真实的 30 秒 MCP 请求超时过去，失败原因写进缓存。
+        tokio::time::sleep(Duration::from_secs(32).saturating_sub(t0.elapsed())).await;
+
+        // ── 第二个任务：已知这台刚失败过，一秒都不该等 ──
+        let conv2 = state
+            .conversation_db
+            .create_conversation("scripted-connection", "second")
+            .unwrap();
+        let t1 = Instant::now();
+        let handle = manager
+            .spawn(app.handle(), main_spec("hang-second", &conv2.id))
+            .await
+            .expect("spawn");
+        let spawn2_returned = t1.elapsed();
+        let result2 = tokio::time::timeout(Duration::from_secs(60), handle.join())
+            .await
+            .expect("second task finishes");
+        let second_request = arrivals.lock().get(1).map(|t| t.duration_since(t1));
+        println!("【第二个任务·服务器已记为失败】");
+        println!("  spawn 返回耗时        : {:?}", spawn2_returned);
+        println!("  模型收到第一次请求    : {:?}", second_request);
+        println!("  任务结果              : {:?}", result2);
+        println!(
+            "  MCP 服务器收到的连接数: {}（后台重试一次）",
+            connections.load(std::sync::atomic::Ordering::SeqCst)
+        );
+
+        assert!(
+            spawn_returned < Duration::from_secs(8),
+            "挂死的 MCP 服务器把任务启动拖住了 {:?}",
+            spawn_returned
+        );
+        assert!(
+            lock_got && lock_wait < Duration::from_secs(1),
+            "任务启动期间插件注册表写锁被占了 {:?}",
+            lock_wait
+        );
+        assert!(
+            spawn2_returned < Duration::from_secs(1),
+            "已知失败的服务器仍拖慢了启动: {:?}",
+            spawn2_returned
+        );
+        assert_eq!(result.as_deref(), Some("好的。"));
+        assert_eq!(result2.as_deref(), Some("好的。"));
+        model.assert_consumed();
+        hang.abort();
+    });
+    drop(runtime);
+    #[allow(deprecated)]
+    let managed_state = app
+        .unmanage::<AppState>()
+        .expect("unmanage isolated AppState");
+    drop(managed_state);
+    drop(app);
+    dir.close().expect("remove the isolated scenario directory");
+}
