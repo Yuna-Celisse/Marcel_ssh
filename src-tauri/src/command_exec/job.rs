@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -184,11 +184,79 @@ pub struct JobOutputResult {
     /// 文件在用户本机（应用私有目录），模型读不到，只用于告知与排障。
     #[serde(default)]
     pub spill_path: Option<String>,
+    /// Agent 对这条作业**连续空手而归**的非等待轮询次数（含本次；本次拿到内容、
+    /// 作业已结算、或用了 `wait` 都归零）。非 Agent 调用方恒为 0。
+    #[serde(default)]
+    pub idle_polls: u32,
+    /// 本次是否被系统**代等**过（见 [`PollPacer`]）：Agent 没传 `wait`，但它已在
+    /// 空转轮询，管理器替它等了 [`IDLE_POLL_AUTO_WAIT`]。必须告诉模型，否则它会
+    /// 把这次的耗时当成故障。
+    #[serde(default)]
+    pub auto_waited: bool,
 }
 
 impl JobOutputResult {
     /// 单页显示文本的 UTF-8 字节上限。工具和存储共用，禁止读取全量后再截断。
     pub const MAX_READ_BYTES: usize = 32_000;
+}
+
+/// Agent 连续多少次空手而归的非等待轮询之内不干预；之后每次轮询先替它等一会儿。
+pub(crate) const FREE_IDLE_POLLS: u32 = 2;
+
+/// 代等时长（与工具层 `wait` 的默认时长同量级）。到点仍无新输出就返回，
+/// 所以最坏情况是「每 30 秒一次空轮询」，而不是「每秒几次」。
+pub(crate) const IDLE_POLL_AUTO_WAIT: Duration = Duration::from_secs(30);
+
+/// 一次 Agent 轮询的结果（交给 [`PollPacer::record`] 记账）。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PollOutcome {
+    /// Agent 自己传了 `wait=true`（它在自己控制节奏，不算空转）。
+    pub explicit_wait: bool,
+    /// 交付时作业仍在运行（已结算就没有「再等等」这回事了）。
+    pub running: bool,
+    /// 本次返回的续读游标（[`JobOutputResult::offset`]）。
+    pub next_offset: usize,
+}
+
+/// Agent 轮询节奏器（**纯功能**：只记两个数，决策是纯函数，见单测）。
+///
+/// 解决的事：模型会不带 `wait` 地一遍遍 `job_output`，没有新输出时每次都立刻返回
+/// 「(无新输出)」，每一圈都白花一轮 token。节奏器不禁止轮询，而是在 Agent **已经
+/// 连续空转** [`FREE_IDLE_POLLS`] 次之后，让下一次轮询先等新输出到来（或作业结算）
+/// 再返回——把「每秒几次」压成「每 [`IDLE_POLL_AUTO_WAIT`] 一次」，且一有新输出
+/// 立即返回，不会让模型错过任何东西。
+///
+/// **「有没有新东西」看续读游标有没有前进**，不看返回文本是否为空：模型传着旧
+/// offset 反复读同一段旧输出，文本不空却什么新东西也没有；反过来，分页续读一大段
+/// 已有输出时游标在前进，是正当读取，不能误伤。
+///
+/// 状态跟着作业实例走（作业没了它就没了），只对 Agent 调用方生效；界面读取不记账。
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct PollPacer {
+    /// 连续空手而归的非等待轮询次数。
+    idle_streak: u32,
+    /// 至今交付过的最远游标：`total_bytes_written` 不超过它 = 已读完、没有新输出。
+    delivered_to: usize,
+}
+
+impl PollPacer {
+    /// 这次（未传 `wait`）的轮询要不要替模型等：已连续空转足够多次，**并且**
+    /// 作业此刻确实没有未交付的输出（有就直接给它，不等）。
+    pub(crate) fn should_auto_wait(&self, total_bytes_written: usize) -> bool {
+        self.idle_streak >= FREE_IDLE_POLLS && total_bytes_written <= self.delivered_to
+    }
+
+    /// 记一次轮询的结果，返回记账后的连续空转次数。
+    pub(crate) fn record(&mut self, outcome: PollOutcome) -> u32 {
+        let advanced = outcome.next_offset > self.delivered_to;
+        self.delivered_to = self.delivered_to.max(outcome.next_offset);
+        self.idle_streak = if outcome.explicit_wait || advanced || !outcome.running {
+            0
+        } else {
+            self.idle_streak.saturating_add(1)
+        };
+        self.idle_streak
+    }
 }
 
 /// UTF-8 最多四字节；额外三字节仅用于确认分页切点处的完整字符。
@@ -300,6 +368,8 @@ pub(crate) struct JobInstance {
     /// 置位后该作业不再产生新的「已完成」通知；`job_output(wait=true)`
     /// 等到结算与 agent 循环挂起消费都会置位，防重复注入。
     pub(crate) settled_notified: bool,
+    /// Agent 轮询节奏器（见 [`PollPacer`]）。
+    pub(crate) poll_pacer: PollPacer,
     /// 测试慢盘/并发时只截住本实例的一次读取，不影响并行运行的其它测试。
     #[cfg(test)]
     pub(crate) before_spill_read: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
@@ -345,6 +415,7 @@ impl JobInstance {
             cancel_reason: None,
             notify_tx,
             settled_notified: false,
+            poll_pacer: PollPacer::default(),
             #[cfg(test)]
             before_spill_read: None,
         }
@@ -379,6 +450,7 @@ impl JobInstance {
             cancel_reason,
             notify_tx,
             settled_notified: true,
+            poll_pacer: PollPacer::default(),
             #[cfg(test)]
             before_spill_read: None,
         }
@@ -1163,6 +1235,96 @@ mod tests {
         assert_eq!(JobStatus::parse_filter("running"), Some(JobStatus::Running));
         assert_eq!(JobStatus::parse_filter("killed"), Some(JobStatus::Killed));
         assert_eq!(JobStatus::parse_filter("bogus"), None);
+    }
+
+    /// 一次非等待轮询：作业仍在跑，续读游标停在 `next_offset`。
+    fn poll(next_offset: usize) -> PollOutcome {
+        PollOutcome {
+            explicit_wait: false,
+            running: true,
+            next_offset,
+        }
+    }
+
+    #[test]
+    fn pacer_leaves_the_first_empty_polls_alone_then_starts_waiting() {
+        let mut pacer = PollPacer::default();
+        // 作业还没产生任何输出：前 FREE_IDLE_POLLS 次空转照常立即返回
+        assert!(!pacer.should_auto_wait(0));
+        assert_eq!(pacer.record(poll(0)), 1);
+        assert!(!pacer.should_auto_wait(0));
+        assert_eq!(pacer.record(poll(0)), 2);
+        // 第三次起替它等；等完还是空，就继续等（节奏被压成每次一个等待时长）
+        assert!(pacer.should_auto_wait(0));
+        assert_eq!(pacer.record(poll(0)), 3);
+        assert!(pacer.should_auto_wait(0));
+    }
+
+    #[test]
+    fn pacer_counts_polls_that_find_nothing_after_the_output_was_read() {
+        let mut pacer = PollPacer::default();
+        // 先读到了 100 字节（游标前进，不算空转），之后游标不再前进
+        assert_eq!(pacer.record(poll(100)), 0);
+        assert_eq!(pacer.record(poll(100)), 1);
+        assert_eq!(pacer.record(poll(100)), 2);
+        assert!(pacer.should_auto_wait(100));
+    }
+
+    #[test]
+    fn pacer_never_waits_when_there_is_unread_output() {
+        let mut pacer = PollPacer::default();
+        pacer.record(poll(100));
+        pacer.record(poll(100));
+        pacer.record(poll(100));
+        assert!(pacer.should_auto_wait(100));
+        // 空转够多次，但作业这时有了新输出（总字节数超过已交付位置）：直接给，不等
+        assert!(!pacer.should_auto_wait(101));
+    }
+
+    #[test]
+    fn pacer_does_not_punish_paging_through_existing_output() {
+        // 一大段已有输出分页续读：每次游标都在前进，是正当读取
+        let mut pacer = PollPacer::default();
+        for page in 1..=10 {
+            assert_eq!(pacer.record(poll(page * 32_000)), 0);
+            assert!(!pacer.should_auto_wait(10 * 32_000 + 1));
+        }
+    }
+
+    #[test]
+    fn pacer_treats_re_reading_old_output_with_a_stale_offset_as_idle() {
+        // 模型每次都传 offset=0：返回文本不空（旧输出被重读），但游标没有超过已
+        // 交付位置——什么新东西也没有，照样记为空转。
+        let mut pacer = PollPacer::default();
+        assert_eq!(pacer.record(poll(500)), 0); // 第一次读到 500 字节，是新东西
+        assert_eq!(pacer.record(poll(500)), 1); // 之后每次都读回同样的 500 字节
+        assert_eq!(pacer.record(poll(500)), 2);
+        assert!(pacer.should_auto_wait(500));
+    }
+
+    #[test]
+    fn pacer_resets_on_explicit_wait_settlement_or_new_output() {
+        let explicit = PollOutcome {
+            explicit_wait: true,
+            ..poll(50)
+        };
+        let settled = PollOutcome {
+            running: false,
+            ..poll(50)
+        };
+        let advanced = poll(80);
+        for reset in [explicit, settled, advanced] {
+            let mut pacer = PollPacer::default();
+            pacer.record(poll(50));
+            pacer.record(poll(50));
+            pacer.record(poll(50));
+            assert!(pacer.should_auto_wait(50));
+            assert_eq!(pacer.record(reset), 0, "{reset:?}");
+            assert!(
+                !pacer.should_auto_wait(80),
+                "{reset:?} 之后必须重新给免费轮询"
+            );
+        }
     }
 
     #[test]

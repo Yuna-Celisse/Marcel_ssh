@@ -33,7 +33,7 @@ use crate::agent::risk::Disposition;
 use crate::agent::tools::{AgentTool, ToolContext, ToolOutput};
 use crate::command_exec::{
     CancelReason, CommandExecutionManager, JobCaller, JobFilter, JobInfo, JobOutputResult,
-    JobStatus,
+    JobStatus, IDLE_POLL_AUTO_WAIT,
 };
 use crate::error::AppError;
 
@@ -306,6 +306,33 @@ fn continuation_notice(next_offset: usize, snapshot_end: usize) -> Option<String
     ))
 }
 
+/// 空转轮询的提醒：作业仍在跑、已经不止一次读不到新输出时，直说「别再这样等」
+/// 以及该怎么办。`auto_waited` = 这次是系统替模型等的（必须说，否则模型会把
+/// 这次多出来的耗时当成故障）。
+///
+/// 措辞刻意不假定调用方是谁：根 agent 是被系统叫醒，子 agent 的作业结局则交给
+/// 派发它的那条对话——两边都成立的说法只有「结算时系统会自动通知，不用盯着」。
+fn idle_poll_notice(idle_polls: u32, auto_waited: bool, status: JobStatus) -> Option<String> {
+    if status != JobStatus::Running || idle_polls == 0 {
+        return None;
+    }
+    Some(if auto_waited {
+        format!(
+            "[提醒：这条作业已连续 {} 次读不到新输出；这次系统替你等了 {} 秒，仍然没有。\
+             继续轮询只是白花 token：作业结算时系统会自动通知，不用盯着它。没有别的事可做，\
+             就直接结束这一轮；下一步确实依赖它的结果，用 job_output(wait=true) 一次等够\
+             （单次最长 10 分钟）。]",
+            idle_polls,
+            IDLE_POLL_AUTO_WAIT.as_secs()
+        )
+    } else {
+        "[提醒：作业仍在运行，没有新输出。不要靠不带 wait 的反复轮询来等它——连续几次读不到\
+         新输出后，系统会开始替你等待。作业结算时系统会自动通知，不用盯着它；没有别的事可做\
+         就结束这一轮，下一步确实依赖它的结果再用 job_output(wait=true)。]"
+            .to_string()
+    })
+}
+
 // ───────────────────────── job_output ─────────────────────────
 
 pub struct JobOutputTool;
@@ -341,7 +368,9 @@ impl AgentTool for JobOutputTool {
          Reads are incremental via `offset` (pass back the offset from the previous read); \
          set `wait: true` to block until new output arrives or the job settles (only when \
          your next step genuinely depends on it; the wait is capped at 10 minutes, and a \
-         timed-out wait returns `[status: running]`). \
+         timed-out wait returns `[status: running]`). A read without `wait` returns at once \
+         even when nothing is new; after a few such empty reads in a row on the same running \
+         job, the tool starts waiting for new output on your behalf (up to 30 s) and says so. \
          Every response ends with `[status: ...]` (plus the exit fact, e.g. \
          `[status: completed, exit code: 3]`). If output was dropped or clipped, the \
          response says so explicitly — read it."
@@ -426,6 +455,9 @@ impl AgentTool for JobOutputTool {
         if let Some(note) = continuation_notice(result.offset, result.snapshot_end) {
             notes.push(note);
         }
+        if let Some(note) = idle_poll_notice(result.idle_polls, result.auto_waited, result.status) {
+            notes.push(note);
+        }
 
         let status_suffix = job_status_suffix(
             result.status,
@@ -467,6 +499,8 @@ impl AgentTool for JobOutputTool {
             "lossy": result.lossy,
             "skipped_bytes": result.skipped_bytes,
             "spill_path": result.spill_path,
+            "idle_polls": result.idle_polls,
+            "auto_waited": result.auto_waited,
         })))
     }
 }
@@ -734,9 +768,9 @@ impl AgentTool for JobListTool {
 #[cfg(test)]
 mod tests {
     use super::{
-        continuation_notice, is_local_job_id, job_status_suffix, lossy_notice, merge_job_lists,
-        remote_job_on_local_side_message, resolve_job_side, termination_message, JobListFilters,
-        JobScopeFilter, JobSide,
+        continuation_notice, idle_poll_notice, is_local_job_id, job_status_suffix, lossy_notice,
+        merge_job_lists, remote_job_on_local_side_message, resolve_job_side, termination_message,
+        JobListFilters, JobScopeFilter, JobSide,
     };
     use crate::command_exec::{CancelReason, JobInfo, JobStatus};
 
@@ -939,6 +973,31 @@ mod tests {
         assert!(!note.contains("内容不会丢"));
         assert!(continuation_notice(200_000, 200_000).is_none());
         assert!(continuation_notice(200_001, 200_000).is_none());
+    }
+
+    #[test]
+    fn idle_poll_notice_only_speaks_for_a_running_job_with_empty_polls() {
+        // 第一次读、读到了东西、作业已结算：都不该多嘴
+        assert!(idle_poll_notice(0, false, JobStatus::Running).is_none());
+        assert!(idle_poll_notice(3, true, JobStatus::Completed).is_none());
+        assert!(idle_poll_notice(2, false, JobStatus::Failed).is_none());
+    }
+
+    #[test]
+    fn idle_poll_notice_tells_the_model_what_to_do_instead() {
+        let soft = idle_poll_notice(1, false, JobStatus::Running).unwrap();
+        assert!(soft.contains("wait"), "{soft}");
+        assert!(soft.contains("结束这一轮"), "{soft}");
+        // 没代等过就不能说代等过
+        assert!(!soft.contains("替你等了"), "{soft}");
+
+        // 代等过：必须如实说（否则模型会把多出来的耗时当成故障），并带上连续次数
+        let waited = idle_poll_notice(3, true, JobStatus::Running).unwrap();
+        assert!(waited.contains("替你等了 30 秒"), "{waited}");
+        assert!(waited.contains("连续 3 次"), "{waited}");
+        assert!(waited.contains("job_output(wait=true)"), "{waited}");
+        // 措辞不能假定调用方是根 agent（子 agent 的作业结局交给派它的对话）
+        assert!(!waited.contains("唤醒你"), "{waited}");
     }
 
     #[test]

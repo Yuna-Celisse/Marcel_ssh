@@ -38,6 +38,7 @@ mod manager;
 mod ticket;
 
 pub use executor::ExecExit;
+pub(crate) use job::IDLE_POLL_AUTO_WAIT;
 pub use job::{JobInfo, JobOutputResult, JobStatus};
 pub use ledger::LEDGER_FILE_NAME;
 pub use local_transport::LocalExecTransport;

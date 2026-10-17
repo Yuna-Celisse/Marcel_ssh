@@ -610,6 +610,38 @@ mod tests {
         assert!(!mobile.contains("upload_file / download_file / web_search"));
     }
 
+    /// 子 agent 的后台作业约束必须与「回合不被作业持住」一致。
+    ///
+    /// 旧文案要求「不要带着未完成作业离开」并承诺「系统会在作业结算后把通知发回给你」：
+    /// 可子 agent 一给出结论子任务就结束了，根本不会被再叫醒——它没有别的办法「留下来
+    /// 等」，只剩一遍遍不带 wait 地轮询 `job_output`，每一圈白花一轮 token。
+    /// 这里钉住：要给出唯一正确的等法（`wait=true` 一次等够），并明说别轮询、别指望被叫醒。
+    #[test]
+    fn subagent_fragments_teach_wait_instead_of_polling() {
+        let read_only = TemplateManager.render_fragment("子agent_只读", &json!({}));
+        let execute =
+            TemplateManager.render_fragment("子agent_执行", &json!({ "can_transfer": true }));
+        for (name, text) in [("只读", read_only), ("执行", execute)] {
+            assert!(
+                text.contains("wait=true"),
+                "{name}: 要教它用 wait=true 一次等够"
+            );
+            assert!(text.contains("不要"), "{name}");
+            assert!(
+                text.contains("反复调用 job_output 轮询"),
+                "{name}: 要明说别不带 wait 地反复轮询"
+            );
+            assert!(
+                !text.contains("通知发回给你"),
+                "{name}: 子任务结束后不会再被作业结算叫醒，不能再这样承诺"
+            );
+            assert!(
+                !text.contains("带着未完成作业离开"),
+                "{name}: 它没有别的办法留下来等，这条只会逼它轮询"
+            );
+        }
+    }
+
     /// 本机子 agent 的环境段：它必须交代「跑在哪台机器」「Windows 的 shell 事实」
     /// 与「残余进程怎么收尾」。
     ///
