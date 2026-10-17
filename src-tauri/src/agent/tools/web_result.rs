@@ -12,6 +12,7 @@
 /// never spelled out twice.
 pub const BROWSER_BACKEND: &str = "browser";
 pub const HTML_BACKEND: &str = "html";
+pub const DEEPSEEK_BACKEND: &str = "deepseek";
 
 /// A bot-verification / anti-bot interstitial standing in for the real page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +164,8 @@ pub enum WebBackend {
     Html,
     /// Search-engine HTTP API.
     Api,
+    /// DeepSeek's server-side page fetch (`/v1/tools/fetch`).
+    Deepseek,
     /// More than one backend served the same batched request.
     Mixed,
 }
@@ -173,8 +176,22 @@ impl WebBackend {
             Self::Browser => BROWSER_BACKEND,
             Self::Html => HTML_BACKEND,
             Self::Api => "api",
+            Self::Deepseek => DEEPSEEK_BACKEND,
             Self::Mixed => "mixed",
         }
+    }
+}
+
+/// An error body clipped to a length that fits in a tool result.
+///
+/// Cuts on a char boundary: provider error bodies can be Chinese, and a byte slice
+/// that lands inside a multi-byte character panics.
+pub fn truncate_error_body(body: &str) -> String {
+    const MAX_CHARS: usize = 240;
+    let t = body.trim();
+    match t.char_indices().nth(MAX_CHARS) {
+        Some((byte_idx, _)) => format!("{}…", &t[..byte_idx]),
+        None => t.to_string(),
     }
 }
 
@@ -394,6 +411,16 @@ mod tests {
         assert_eq!(WebBackend::Browser.label(), BROWSER_BACKEND);
         assert_eq!(WebBackend::Html.label(), HTML_BACKEND);
         assert_eq!(WebBackend::Api.label(), "api");
+        assert_eq!(WebBackend::Deepseek.label(), "deepseek");
         assert_eq!(WebBackend::Mixed.label(), "mixed");
+    }
+
+    #[test]
+    fn truncate_error_body_does_not_split_a_multibyte_char() {
+        let body = "错".repeat(500);
+        let out = truncate_error_body(&body);
+        assert!(out.ends_with('…'));
+        assert_eq!(out.chars().count(), 241);
+        assert_eq!(truncate_error_body("  short  "), "short");
     }
 }

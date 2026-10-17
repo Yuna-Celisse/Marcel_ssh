@@ -137,6 +137,21 @@ pub async fn config_delete_web_search_api_key() -> Result<(), AppError> {
     Ok(())
 }
 
+/// Save the DeepSeek tools API key (web search + web fetch) to the system keychain.
+/// 原始 Key 永不回传 WebView，前端只通过 `hasDeepseekToolsApiKey` 知道配没配。
+#[tauri::command]
+pub async fn config_save_deepseek_tools_api_key(api_key: String) -> Result<(), AppError> {
+    keychain::save_deepseek_tools_api_key(&api_key)?;
+    Ok(())
+}
+
+/// Remove the DeepSeek tools API key from the system keychain.
+#[tauri::command]
+pub async fn config_delete_deepseek_tools_api_key() -> Result<(), AppError> {
+    keychain::delete_deepseek_tools_api_key()?;
+    Ok(())
+}
+
 /// Save the TypeSafe (Jev) API key to the system keychain.
 ///
 /// 供「命令审批引擎 = Jev」使用。与渠道密钥一样，原始 Key 永不回传 WebView——

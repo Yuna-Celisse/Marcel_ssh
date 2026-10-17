@@ -29,6 +29,7 @@ pub mod base64;
 pub mod bash;
 pub mod browser_cdp;
 pub mod connection_info;
+pub mod deepseek_api;
 pub mod file_ops;
 pub mod history;
 pub mod http_get;

@@ -279,6 +279,10 @@ pub enum HttpFetchMode {
     Browser,
     /// Bare HTTP GET via reqwest.
     Html,
+    /// DeepSeek's server-side fetch (`/v1/tools/fetch`): returns clean Markdown,
+    /// including JS-rendered pages, and works on mobile. The page is fetched from
+    /// DeepSeek's servers, so private/LAN addresses are always read locally instead.
+    Deepseek,
 }
 
 /// Which Bing host `web_search` uses for browser/html modes.
@@ -1104,6 +1108,18 @@ mod tests {
         assert_eq!(parsed.web_search_mode, WebSearchMode::Api);
         assert_eq!(parsed.web_search_api_provider, WebSearchApiProvider::Tavily);
         assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Html);
+    }
+
+    #[test]
+    fn experimental_settings_deepseek_fetch_mode_wire_name() {
+        let s = ExperimentalSettings {
+            http_fetch_mode: HttpFetchMode::Deepseek,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"httpFetchMode\":\"deepseek\""), "{json}");
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Deepseek);
     }
 
     #[test]

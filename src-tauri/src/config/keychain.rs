@@ -182,6 +182,37 @@ pub fn save_web_search_api_key(api_key: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Store the DeepSeek tools API key (web search + web fetch) in the system keychain.
+///
+/// 独立槽位，**不要**并进 `web_search_api_key`：那一份由 Brave/Tavily 按用户当前选的提供商
+/// 轮流占用，而「搜索提供商」与「网页获取方式」是两个互不相干的设置——共用的话，选了
+/// Brave 搜索 + DeepSeek 获取的人，Brave 的 Key 会被原样发给 DeepSeek。也不复用 LLM 渠道
+/// Key：渠道 Key 绑定在某个渠道上，随渠道增删，工具类接口不属于任何渠道。
+pub fn save_deepseek_tools_api_key(api_key: &str) -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "deepseek_tools_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    entry
+        .set_password(api_key)
+        .map_err(|e| AppError::Config(format!("保存 DeepSeek API Key 到密钥链失败：{}", e)))?;
+    Ok(())
+}
+
+/// Retrieve the DeepSeek tools API key. Returns `Ok(None)` if not found.
+pub fn get_deepseek_tools_api_key() -> Result<Option<String>, AppError> {
+    let entry = store_impl::entry(SERVICE, "deepseek_tools_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::get_optional_password(&entry)
+        .map_err(|e| AppError::Config(format!("读取 DeepSeek API Key 失败：{}", e)))
+}
+
+/// Remove the DeepSeek tools API key. Missing entries are treated as success.
+pub fn delete_deepseek_tools_api_key() -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "deepseek_tools_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::delete_if_exists(&entry)
+        .map_err(|e| AppError::Config(format!("删除 DeepSeek API Key 失败：{}", e)))
+}
+
 /// Store the TypeSafe (Jev) API key in the system keychain.
 ///
 /// 全局一份凭据（不像 LLM 渠道按 `channel_id` 分）：命令审批引擎只有一个，
