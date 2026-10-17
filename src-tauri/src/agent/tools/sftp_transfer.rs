@@ -186,6 +186,32 @@ impl LocalPathPolicy {
     }
 }
 
+/// Test-only：返回一个路径已是「规范长名」的 `TempDir`。
+///
+/// `TempDir::new()` 的路径取自 `%TEMP%`，其形态不受我们控制：GitHub Actions 的 Windows
+/// 机器上用户名 `runneradmin` 超过 8 个字符，`%TEMP%` 是 8.3 短名 `C:\Users\RUNNER~1\…`
+/// （用户名长于 8 个字符的贡献者本地也一样）；macOS 上是 `/var/…`，canonicalize 后是
+/// `/private/var/…`。而被测的路径校验会先把待检路径 canonicalize 成长名再比黑名单——测试
+/// 若直接拿 `td.path()` 当黑名单条目，两边形态不同，黑名单就静默不命中，测的变成了临时目录
+/// 的形态而不是黑名单本身。
+///
+/// 这里先把临时目录的父目录 canonicalize（展开 8.3 短名 / 符号链接），再去掉 Windows 的
+/// `\\?\` verbatim 前缀：返回的路径既是规范形态，又保持「普通路径」的样子（`..` 组件测试、
+/// 「回显调用方路径不带 verbatim 前缀」的断言都依赖后者）。
+#[cfg(test)]
+pub(crate) fn canonical_tempdir() -> tempfile::TempDir {
+    let base = std::fs::canonicalize(std::env::temp_dir()).expect("临时目录必须存在");
+    #[cfg(windows)]
+    let base = {
+        let s = base.as_os_str().to_string_lossy().into_owned();
+        match s.strip_prefix(r"\\?\") {
+            Some(rest) if !rest.starts_with(r"UNC\") => PathBuf::from(rest),
+            _ => base,
+        }
+    };
+    tempfile::TempDir::new_in(base).expect("创建临时目录失败")
+}
+
 /// 取路径的规范形态；路径不存在（`~/.ssh`、`~/.aws` 等在本机可能根本没有）
 /// 或 canonicalize 失败时**原样返回**。
 ///
@@ -1974,7 +2000,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_canonical_form_needs_normalization_to_match_plain_path() {
-        let td = TempDir::new().unwrap();
+        // 规范长名临时目录：否则 %TEMP% 是 8.3 短名时，两边只差在短名 / 长名上。
+        let td = canonical_tempdir();
         let canon = std::fs::canonicalize(td.path()).unwrap();
         let s = canon.as_os_str().to_string_lossy().to_string();
         assert!(
@@ -2016,7 +2043,8 @@ mod tests {
 
     #[tokio::test]
     async fn download_into_missing_blacklisted_dir_rejected() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         // 黑名单条目是「本机还不存在」的目录（identity 形态，非 canonical，
         // 与 TempDir 的真实路径无 verbatim 前缀可比性）——它必须仍然生效。
         let protected = td.path().join("protected-not-created");

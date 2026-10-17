@@ -578,6 +578,7 @@ fn mode_of(_meta: &std::fs::Metadata) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::tools::sftp_transfer::canonical_tempdir;
     use tempfile::TempDir;
 
     /// TempDir 在 Windows 落在 %LOCALAPPDATA% 下（默认黑名单内），成功路径必须
@@ -704,7 +705,8 @@ mod tests {
     /// `canonicalize` 的 `\\?\C:\...` 形态模型会照抄进 PowerShell，打不开。
     #[tokio::test]
     async fn read_error_messages_show_caller_path_without_verbatim_prefix() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let big = td.path().join("big.bin");
         std::fs::write(&big, vec![b'x'; (MAX_READ_FILE_BYTES + 1) as usize]).unwrap();
         let err = read_with_policy(big.to_str().unwrap(), &no_bl())
@@ -785,7 +787,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_rejects_blacklisted_directory() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let protected = td.path().join("protected");
         std::fs::create_dir_all(&protected).unwrap();
         let secret = protected.join("id_rsa");
@@ -976,7 +979,8 @@ mod tests {
     /// 既不能写进去，也不能经由链接在受保护目录里建出新目录/文件。
     #[tokio::test]
     async fn write_rejects_symlinked_parent_into_blacklist() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let protected = td.path().join("protected-dir");
         std::fs::create_dir_all(&protected).unwrap();
         let sneaky = td.path().join("sneaky");
@@ -1065,7 +1069,8 @@ mod tests {
 
     #[tokio::test]
     async fn write_rejects_blacklisted_directory_without_creating_it() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let protected = td.path().join("protected-not-created");
         assert!(!protected.exists());
         let policy = LocalPathPolicy::from_blacklist(vec![protected.clone()]);
@@ -1128,7 +1133,8 @@ mod tests {
 
     #[tokio::test]
     async fn list_rejects_blacklisted_directory() {
-        let td = TempDir::new().unwrap();
+        // 黑名单条目取自 td.path()：必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let protected = td.path().join("protected");
         std::fs::create_dir_all(&protected).unwrap();
         let policy = LocalPathPolicy::from_blacklist(vec![protected.clone()]);
@@ -1162,7 +1168,9 @@ mod tests {
     /// 绕过 `~/.ssh` 这类保护。旁系目录不得误命中。
     #[test]
     fn blacklist_prefix_matches_across_canonical_forms() {
-        let td = TempDir::new().unwrap();
+        // 待检路径取自 td.path()（普通形态），黑名单取其 canonical 形态：两边只能差在
+        // verbatim 前缀与大小写上，所以临时目录本身必须是规范长名，见 canonical_tempdir。
+        let td = canonical_tempdir();
         let protected = td.path().join("protected");
         std::fs::create_dir_all(&protected).unwrap();
         let canon = std::fs::canonicalize(&protected).unwrap();
