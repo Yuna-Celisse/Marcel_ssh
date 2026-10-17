@@ -1,6 +1,5 @@
-# Dependencies
+# Dependencies（pnpm-lock.yaml 必须入库：CI 用 --frozen-lockfile 校验，发版构建也靠它复现）
 node_modules/
-pnpm-lock.yaml
 
 # Build outputs
 dist/
