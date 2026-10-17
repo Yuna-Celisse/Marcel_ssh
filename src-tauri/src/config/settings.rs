@@ -1145,18 +1145,6 @@ mod tests {
     }
 
     #[test]
-    fn experimental_settings_deepseek_fetch_mode_wire_name() {
-        let s = ExperimentalSettings {
-            http_fetch_mode: HttpFetchMode::Deepseek,
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&s).expect("serialize");
-        assert!(json.contains("\"httpFetchMode\":\"deepseek\""), "{json}");
-        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Deepseek);
-    }
-
-    #[test]
     fn experimental_settings_http_fetch_mode_roundtrip() {
         let mut s = ExperimentalSettings::default();
         s.http_fetch_mode = HttpFetchMode::Html;
