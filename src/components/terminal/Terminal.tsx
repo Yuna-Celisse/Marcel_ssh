@@ -102,7 +102,8 @@ export default function Terminal() {
       const instanceId = activeInstanceIdRef.current;
       if (!instanceId) return;
       const instance = terminalInstanceManager.get(instanceId);
-      if (!instance) return;
+      // 休眠中的终端没有 xterm 可 fit；唤醒后的 fit 由同步 effect 负责。
+      if (!instance?.fitAddon) return;
       instance.fitAddon.fit();
       terminalInstanceManager.resizeRemoteIfChanged(instance);
     });
@@ -153,16 +154,21 @@ export default function Terminal() {
       }
     }
 
-    // Focus active terminal
+    // Focus active terminal。后台久了的终端会被休眠成内存快照，先等它还原完
+    // 再 fit / 聚焦（setVisible 已经触发了唤醒，这里只是等它落定）。
     if (activeSessionId) {
-      const instance = terminalInstanceManager.get(activeSessionId);
-      if (instance) {
+      const focusId = activeSessionId;
+      void terminalInstanceManager.wake(focusId).then(() => {
         requestAnimationFrame(() => {
+          // 等待期间用户可能又切走了，别把焦点抢回已经不在前台的终端。
+          if (useSessionStore.getState().activeSessionId !== focusId) return;
+          const instance = terminalInstanceManager.get(focusId);
+          if (!instance?.terminal || !instance.fitAddon) return;
           instance.fitAddon.fit();
           instance.terminal.focus();
           terminalInstanceManager.resizeRemoteIfChanged(instance);
         });
-      }
+      });
     }
 
     setActiveInstanceId(activeSessionId);
@@ -197,12 +203,17 @@ export default function Terminal() {
   // Apply settings changes
   useEffect(() => {
     const appliedFontFamily = buildTerminalFontFamily(fontFamily);
+    // 外观交给管理器记下来：休眠后重建的终端要用最终生效的字体 / 配色，
+    // 而不是只读设置存档（预览与调试主题不在存档里）。
+    terminalInstanceManager.applyAppearance({
+      fontSize,
+      fontFamily: appliedFontFamily,
+      theme: terminalColors,
+    });
     for (const [, instance] of terminalInstanceManager.getAll()) {
-      instance.terminal.options.fontSize = fontSize;
-      instance.terminal.options.fontFamily = appliedFontFamily;
-      instance.terminal.options.theme = terminalColors;
+      if (!instance.terminal) continue;
       requestAnimationFrame(() => {
-        instance.fitAddon.fit();
+        instance.fitAddon?.fit();
         if (instance.id === activeInstanceId) {
           terminalInstanceManager.resizeRemoteIfChanged(instance);
         }
