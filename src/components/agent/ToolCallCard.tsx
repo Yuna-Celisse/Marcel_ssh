@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import type { AgentMessage } from '@/lib/types';
 import FileChangeView from './FileChangeView';
+import LiveToolOutput from './LiveToolOutput';
 import { useConversationStore } from '@/stores/conversationStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
@@ -390,7 +391,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
               onScroll={onOutputScroll}
               className="text-xs text-zinc-400 whitespace-pre max-h-[120px] max-w-full overflow-x-auto overflow-y-auto font-mono leading-relaxed"
             >
-              {tr.result || ''}
+              {isExecuting ? <LiveToolOutput text={tr.result || ''} /> : tr.result || ''}
             </pre>
           </div>
         )}
