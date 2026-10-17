@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef } from 'react';
 import type { AgentMessage } from '@/lib/types';
-import { summarizeToolCalls, toolCallSummaryLabel } from '@/lib/toolCallSummary';
+import { summarizeToolCalls, toolCallCountSuffix, toolCallSummaryLabel } from '@/lib/toolCallSummary';
 import './toolCallSummary.css';
 import { summarizeWebToolGroup } from '@/lib/webToolStatus';
 
@@ -17,7 +17,8 @@ function ToolCallSummary({ messages }: { messages: readonly AgentMessage[] }) {
   ));
   const root = useRef<HTMLSpanElement>(null);
   const positions = useRef(new Map<string, { x: number; y: number }>());
-  const signature = JSON.stringify(counts.map(({ toolName }) => toolName));
+  // 次数也进签名：`bash*9` → `bash*10` 会让后面的名字整体右移，要和增删名字一样做位移动画。
+  const signature = JSON.stringify(counts.map(({ toolName, count }) => [toolName, toolCallCountSuffix(count)]));
 
   useClientLayoutEffect(() => {
     if (!root.current) return;
@@ -53,12 +54,16 @@ function ToolCallSummary({ messages }: { messages: readonly AgentMessage[] }) {
     <span ref={root} className="tool-call-summary">
       <span className="tool-call-summary-text" title={label} aria-label={label}>
         <span aria-hidden="true">执行</span>
-        {counts.map(({ toolName }, index) => (
-          <span aria-hidden="true" className="tool-call-summary-item" data-tool-summary-name={toolName} key={toolName}>
-            {index > 0 && <span>,</span>}
-            <span className="tool-call-summary-name" title={toolName}>{toolName}</span>
-          </span>
-        ))}
+        {counts.map(({ toolName, count }, index) => {
+          const times = toolCallCountSuffix(count);
+          return (
+            <span aria-hidden="true" className="tool-call-summary-item" data-tool-summary-name={toolName} key={toolName}>
+              {index > 0 && <span>,</span>}
+              <span className="tool-call-summary-name" title={toolName}>{toolName}</span>
+              {times && <span className="tool-call-summary-count">{times}</span>}
+            </span>
+          );
+        })}
       </span>
       {webSummary.blocked > 0 && (
         <span className="ml-1 shrink-0 whitespace-nowrap rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-300"

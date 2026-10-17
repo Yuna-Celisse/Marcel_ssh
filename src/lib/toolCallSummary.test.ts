@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from './types';
-import { summarizeToolCalls, toolCallSummaryLabel } from './toolCallSummary';
+import { summarizeToolCalls, toolCallCountSuffix, toolCallSummaryLabel } from './toolCallSummary';
 
 function tool(toolName: string, extra: Partial<AgentMessage> = {}): AgentMessage {
   return { id: toolName, role: 'tool', content: '', timestamp: '',
@@ -8,11 +8,25 @@ function tool(toolName: string, extra: Partial<AgentMessage> = {}): AgentMessage
 }
 
 describe('tool call summaries', () => {
-  it('lists distinct tool names in first-seen order with compact ASCII separators', () => {
+  it('lists distinct tool names in first-seen order, with *n after names that ran more than once', () => {
     expect(toolCallSummaryLabel([
       tool('edit'), tool('write'), tool('edit'), tool('bash'), tool('write'),
       tool('edit'), tool('write'), tool('write'), tool('bash'),
-    ])).toBe('执行edit,write,bash');
+    ])).toBe('执行edit*3,write*4,bash*2');
+  });
+
+  it('writes no count for a tool that ran once', () => {
+    expect(toolCallCountSuffix(1)).toBe('');
+    expect(toolCallCountSuffix(0)).toBe('');
+    expect(toolCallCountSuffix(2)).toBe('*2');
+    expect(toolCallCountSuffix(12)).toBe('*12');
+    expect(toolCallSummaryLabel([tool('bash'), tool('write'), tool('bash')])).toBe('执行bash*2,write');
+  });
+
+  it('does not count calls that are still running', () => {
+    expect(toolCallSummaryLabel([
+      tool('bash'), tool('bash', { isExecuting: true }), tool('write'),
+    ])).toBe('执行bash,write');
   });
 
   it('keeps running calls and successful deliverables out of the summary', () => {

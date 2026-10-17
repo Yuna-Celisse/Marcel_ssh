@@ -32,6 +32,12 @@
   white-space: nowrap;
 }
 
+/* 次数是名字的兄弟节点而不是名字的一部分：名字超长被省略号截断时，*n 仍然完整可见。 */
+.tool-call-summary-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
 .tool-summary-toggle {
   min-height: 28px;
   touch-action: manipulation;

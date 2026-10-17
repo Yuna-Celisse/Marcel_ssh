@@ -28,9 +28,17 @@ export function summarizeToolCalls(messages: readonly AgentMessage[]): ToolCallC
   return Array.from(counts, ([toolName, count]) => ({ toolName, count }));
 }
 
+/**
+ * 工具名后的执行次数标记：重复执行（≥2 次）才写 `*n`，只执行一次的保持干净
+ * （`write*1` 只是噪音）。可见文字与 title / aria-label 共用它，两边不会各写各的。
+ */
+export function toolCallCountSuffix(count: number): string {
+  return count >= 2 ? `*${count}` : '';
+}
+
 export function toolCallSummaryLabel(messages: readonly AgentMessage[]): string {
   const counts = summarizeToolCalls(messages);
   return counts.length
-    ? `执行${counts.map(({ toolName }) => toolName).join(',')}`
+    ? `执行${counts.map(({ toolName, count }) => `${toolName}${toolCallCountSuffix(count)}`).join(',')}`
     : '已执行工具';
 }
