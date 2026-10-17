@@ -39,9 +39,7 @@ use crate::error::AppError;
 use crate::ssh::connection::SshManager;
 
 use super::executor::{timeout_preview, ExecExit, ExecOutcome, ExecTransport, SshExecTransport};
-use super::job::{
-    JobInfo, JobInstance, JobOutputResult, JobStatus, PollOutcome, IDLE_POLL_AUTO_WAIT,
-};
+use super::job::{next_unwaited_polls, JobInfo, JobInstance, JobOutputResult, JobStatus};
 use super::ledger::{JobLedgerStore, LedgerJob, LEDGER_FILE_NAME, RETENTION_MILLIS};
 use super::ticket::{
     truncate_display, CancelReason, CommandSource, CommandTicket, ExecutionSnapshot,
@@ -843,11 +841,10 @@ impl CommandExecutionManager {
     /// 内存腾出的作业在保留期内照样读得到。这类回退没有活着的通道，
     /// `wait` 对它不生效，立即返回当前能读到的部分。
     ///
-    /// **空转轮询的代等**（只对 [`JobCaller::Agent`]）：模型不传 `wait`、却一遍遍
-    /// 读一条没有新输出的运行中作业时，每一圈都是白花的一轮 token。连续空转
-    /// [`FREE_IDLE_POLLS`](super::job::FREE_IDLE_POLLS) 次之后，管理器替它等新输出 /
-    /// 结算（最长 [`IDLE_POLL_AUTO_WAIT`]），结果里的 `auto_waited` / `idle_polls`
-    /// 让工具层如实告诉模型。判据与状态见 [`super::job::PollPacer`]。
+    /// **轮询计数**（只对 [`JobCaller::Agent`]）：模型不传 `wait`、对同一条运行中的
+    /// 作业一遍遍读，每一圈都是白花的一轮 token。这里只数连续不带 `wait` 的读取次数
+    /// （`JobOutputResult::unwaited_polls`，规则见 [`next_unwaited_polls`]），次数够多时
+    /// 由工具层在结果里提醒模型——**不替它等、不改读取语义**。
     pub async fn job_output(
         &self,
         job_id: &str,
@@ -880,45 +877,34 @@ impl CommandExecutionManager {
         .await
         .map_err(|error| AppError::Agent(format!("作业定位失败: {error}")))??;
 
-        // 空转轮询的**代等**：Agent 没传 `wait`，却已连续多次拿不到新输出（见
-        // `PollPacer`）。此时这次轮询按「等新输出 / 等结算」处理，等多久由
-        // `IDLE_POLL_AUTO_WAIT` 定；等的判据是「自上次交付以来有没有新输出」，
-        // 而不是 `offset`——模型传回旧 offset 时，旧内容不算新东西。
-        let (notify_rx, auto_waited) = {
+        let notify_rx = {
             let inst = instance.lock();
-            let terminal = inst.info.status.is_terminal();
-            let auto = paced
-                && !wait
-                && !from_ledger
-                && !terminal
-                && inst.poll_pacer.should_auto_wait(inst.total_bytes_written);
-            let nothing_to_read = auto || inst.total_bytes_written <= offset;
-            if from_ledger || !(wait || auto) || terminal || !nothing_to_read {
-                (None, false)
+            if from_ledger
+                || !wait
+                || inst.info.status.is_terminal()
+                || inst.total_bytes_written > offset
+            {
+                None
             } else {
                 // 检查与订阅在同一把锁内：不会漏掉两者之间到达的输出/结算。
-                (Some(inst.notify_tx.subscribe()), auto)
+                Some(inst.notify_tx.subscribe())
             }
         };
         if let Some(mut notify_rx) = notify_rx {
-            let limit = if auto_waited {
-                IDLE_POLL_AUTO_WAIT
-            } else {
-                timeout
-            };
             tokio::select! {
-                _ = tokio::time::sleep(limit) => {}
+                _ = tokio::time::sleep(timeout) => {}
                 _ = notify_rx.changed() => {}
             }
         }
         let mut result = Self::job_output_snapshot(instance.clone(), offset, budget).await?;
         if paced && !from_ledger {
-            result.idle_polls = instance.lock().poll_pacer.record(PollOutcome {
-                explicit_wait: wait,
-                running: result.status == JobStatus::Running,
-                next_offset: result.offset,
-            });
-            result.auto_waited = auto_waited;
+            let mut inst = instance.lock();
+            inst.unwaited_polls = next_unwaited_polls(
+                inst.unwaited_polls,
+                wait,
+                result.status == JobStatus::Running,
+            );
+            result.unwaited_polls = inst.unwaited_polls;
         }
         Ok(result)
     }
@@ -1061,9 +1047,8 @@ impl CommandExecutionManager {
                 lossy: read.lossy,
                 skipped_bytes: read.skipped_bytes,
                 spill_path,
-                // 轮询节奏由 `job_output` 在快照之后填（只有 Agent 调用方记账）
-                idle_polls: 0,
-                auto_waited: false,
+                // 轮询计数由 `job_output` 在快照之后填（只有 Agent 调用方记账）
+                unwaited_polls: 0,
             }
         })
         .await
@@ -3148,147 +3133,104 @@ mod tests {
         .job_id
     }
 
-    /// Agent 视角的一次不带 wait 的读取（offset 0）。
-    async fn agent_poll(mgr: &CommandExecutionManager, job_id: &str) -> JobOutputResult {
+    /// 一次读取（offset 0），`caller` 与 `wait` 由调用方定。
+    async fn read_job(
+        mgr: &CommandExecutionManager,
+        job_id: &str,
+        wait: bool,
+        caller: JobCaller<'_>,
+    ) -> JobOutputResult {
         mgr.job_output(
             job_id,
             0,
             JobOutputResult::MAX_READ_BYTES,
-            false,
-            Duration::ZERO,
-            JobCaller::Agent {
-                owner_conversation_id: None,
-            },
+            wait,
+            Duration::from_millis(20),
+            caller,
         )
         .await
         .unwrap()
     }
 
-    #[tokio::test]
-    async fn idle_agent_polls_get_an_automatic_wait_that_wakes_on_new_output() {
-        // 模型不传 wait、对一条没有输出的运行中作业空转轮询：前两次照常立即返回；
-        // 第三次起系统替它等，直到新输出到来才返回（而不是再回一个「无新输出」）。
-        let mgr = manager(MockBehavior::Hang);
-        let job_id = submit_idle_job(&mgr, "agent-task-idle-1").await;
+    const AGENT: JobCaller<'static> = JobCaller::Agent {
+        owner_conversation_id: None,
+    };
 
-        for n in 1..=2 {
-            let r = tokio::time::timeout(Duration::from_secs(2), agent_poll(&mgr, &job_id))
-                .await
-                .expect("免费的空轮询必须立即返回");
-            assert_eq!(r.idle_polls, n);
-            assert!(!r.auto_waited);
-            assert!(r.delta.is_empty());
+    #[tokio::test]
+    async fn agent_reads_without_wait_are_counted_per_job_even_when_output_keeps_coming() {
+        let mgr = manager(MockBehavior::Hang);
+        let job_id = submit_idle_job(&mgr, "agent-task-poll-1").await;
+        let other_id = submit_idle_job(&mgr, "agent-task-poll-1").await;
+        let instance = mgr.inner.jobs.lock().get(&job_id).cloned().unwrap();
+
+        for expected in 1..=5 {
+            // 输出一直在滚：照样算「靠轮询等它」，不因为读到新东西就归零
+            instance
+                .lock()
+                .append_output(format!("line {expected}\n").as_bytes(), &mgr.inner.temp_dir);
+            let r = read_job(&mgr, &job_id, false, AGENT).await;
+            assert_eq!(r.unwaited_polls, expected);
         }
 
-        let waiting = {
-            let mgr = mgr.clone();
-            let job_id = job_id.clone();
-            tokio::spawn(async move { agent_poll(&mgr, &job_id).await })
-        };
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(
-            !waiting.is_finished(),
-            "第三次空轮询应该被系统代等，而不是立即返回"
-        );
+        // 计数跟着作业走：另一条作业不受牵连
+        let other = read_job(&mgr, &other_id, false, AGENT).await;
+        assert_eq!(other.unwaited_polls, 1);
 
-        let instance = mgr.inner.jobs.lock().get(&job_id).cloned().unwrap();
-        instance
-            .lock()
-            .append_output(b"progress\n", &mgr.inner.temp_dir);
-        let r = tokio::time::timeout(Duration::from_secs(2), waiting)
-            .await
-            .expect("新输出到来必须叫醒代等")
-            .unwrap();
-        assert!(r.auto_waited, "代等过就必须如实标出来");
-        assert_eq!(r.delta, "progress\n");
-        assert_eq!(r.idle_polls, 0, "读到新内容后重新给免费轮询");
-
-        mgr.cancel_task_jobs("agent-task-idle-1").await;
+        mgr.cancel_task_jobs("agent-task-poll-1").await;
     }
 
     #[tokio::test]
-    async fn idle_agent_poll_does_not_wait_when_output_is_unread() {
-        // 空转够多次之后，作业恰好有了新输出：直接给，不等。
+    async fn explicit_wait_resets_the_count() {
         let mgr = manager(MockBehavior::Hang);
-        let job_id = submit_idle_job(&mgr, "agent-task-idle-2").await;
-        for _ in 0..2 {
-            agent_poll(&mgr, &job_id).await;
+        let job_id = submit_idle_job(&mgr, "agent-task-poll-2").await;
+
+        for _ in 0..3 {
+            read_job(&mgr, &job_id, false, AGENT).await;
         }
-        let instance = mgr.inner.jobs.lock().get(&job_id).cloned().unwrap();
-        instance
-            .lock()
-            .append_output(b"fresh\n", &mgr.inner.temp_dir);
+        let waited = read_job(&mgr, &job_id, true, AGENT).await;
+        assert_eq!(waited.unwaited_polls, 0, "自己传了 wait：归零");
+        let next = read_job(&mgr, &job_id, false, AGENT).await;
+        assert_eq!(next.unwaited_polls, 1, "归零后重新数");
 
-        let r = tokio::time::timeout(Duration::from_secs(2), agent_poll(&mgr, &job_id))
-            .await
-            .expect("有未读输出时不该等");
-        assert_eq!(r.delta, "fresh\n");
-        assert!(!r.auto_waited);
-
-        mgr.cancel_task_jobs("agent-task-idle-2").await;
+        mgr.cancel_task_jobs("agent-task-poll-2").await;
     }
 
     #[tokio::test]
-    async fn unscoped_and_explicit_wait_reads_are_never_paced() {
-        // 界面读取（Unscoped）既不记账也不被代等；Agent 自己传了 wait 也不算空转。
+    async fn unscoped_reads_are_never_counted_and_never_delayed() {
+        // 界面读取（Unscoped）不记账，也不会因为别人在轮询而变慢。
         let mgr = manager(MockBehavior::Hang);
-        let job_id = submit_idle_job(&mgr, "agent-task-idle-3").await;
+        let job_id = submit_idle_job(&mgr, "agent-task-poll-3").await;
 
-        for _ in 0..5 {
+        for _ in 0..6 {
             let r = tokio::time::timeout(
                 Duration::from_secs(2),
-                mgr.job_output(
-                    &job_id,
-                    0,
-                    JobOutputResult::MAX_READ_BYTES,
-                    false,
-                    Duration::ZERO,
-                    JobCaller::Unscoped,
-                ),
+                read_job(&mgr, &job_id, false, JobCaller::Unscoped),
             )
             .await
-            .expect("界面读取不该被代等")
-            .unwrap();
-            assert_eq!(r.idle_polls, 0);
-            assert!(!r.auto_waited);
+            .expect("读取不该被拖慢");
+            assert_eq!(r.unwaited_polls, 0);
         }
+        // 界面读取也不会打断 Agent 的计数
+        read_job(&mgr, &job_id, false, AGENT).await;
+        read_job(&mgr, &job_id, false, JobCaller::Unscoped).await;
+        let r = read_job(&mgr, &job_id, false, AGENT).await;
+        assert_eq!(r.unwaited_polls, 2);
 
-        for _ in 0..4 {
-            let r = mgr
-                .job_output(
-                    &job_id,
-                    0,
-                    JobOutputResult::MAX_READ_BYTES,
-                    true,
-                    Duration::from_millis(20),
-                    JobCaller::Agent {
-                        owner_conversation_id: None,
-                    },
-                )
-                .await
-                .unwrap();
-            assert_eq!(r.idle_polls, 0, "自己传了 wait 的读取不算空转");
-            assert!(!r.auto_waited);
-        }
-
-        mgr.cancel_task_jobs("agent-task-idle-3").await;
+        mgr.cancel_task_jobs("agent-task-poll-3").await;
     }
 
     #[tokio::test]
-    async fn settled_job_is_never_waited_on_and_resets_the_streak() {
-        // 作业已经结算：没有「再等等」这回事，立即返回终态，idle_polls 归零。
+    async fn settled_job_reports_zero_unwaited_polls() {
+        // 作业已结算：没有「别再轮询」可说，计数归零。
         let mgr = manager(MockBehavior::Return("done", false));
-        let job_id = submit_idle_job(&mgr, "agent-task-idle-4").await;
+        let job_id = submit_idle_job(&mgr, "agent-task-poll-4").await;
         let settled = wait_for_job_settlement(&mgr, &job_id, "s1").await;
         assert_eq!(settled, JobStatus::Completed);
 
         for _ in 0..4 {
-            let r = tokio::time::timeout(Duration::from_secs(2), agent_poll(&mgr, &job_id))
-                .await
-                .expect("已结算的作业不该被代等");
+            let r = read_job(&mgr, &job_id, false, AGENT).await;
             assert_eq!(r.status, JobStatus::Completed);
-            assert_eq!(r.idle_polls, 0);
-            assert!(!r.auto_waited);
+            assert_eq!(r.unwaited_polls, 0);
         }
     }
 

@@ -33,7 +33,7 @@ use crate::agent::risk::Disposition;
 use crate::agent::tools::{AgentTool, ToolContext, ToolOutput};
 use crate::command_exec::{
     CancelReason, CommandExecutionManager, JobCaller, JobFilter, JobInfo, JobOutputResult,
-    JobStatus, IDLE_POLL_AUTO_WAIT,
+    JobStatus,
 };
 use crate::error::AppError;
 
@@ -306,31 +306,26 @@ fn continuation_notice(next_offset: usize, snapshot_end: usize) -> Option<String
     ))
 }
 
-/// 空转轮询的提醒：作业仍在跑、已经不止一次读不到新输出时，直说「别再这样等」
-/// 以及该怎么办。`auto_waited` = 这次是系统替模型等的（必须说，否则模型会把
-/// 这次多出来的耗时当成故障）。
+/// 对同一条作业连续不带 `wait` 读到第几次开始提醒模型别再轮询。
+const UNWAITED_POLL_REMINDER_AT: u32 = 4;
+
+/// 轮询提醒：对同一条仍在运行的作业连续不带 `wait` 读了 [`UNWAITED_POLL_REMINDER_AT`] 次
+/// 及以上，就在结果末尾直说「别再这样等」以及该怎么办（此后每次读取都会带上，直到它
+/// 传 `wait` 或作业结算）。
 ///
-/// 措辞刻意不假定调用方是谁：根 agent 是被系统叫醒，子 agent 的作业结局则交给
-/// 派发它的那条对话——两边都成立的说法只有「结算时系统会自动通知，不用盯着」。
-fn idle_poll_notice(idle_polls: u32, auto_waited: bool, status: JobStatus) -> Option<String> {
-    if status != JobStatus::Running || idle_polls == 0 {
+/// 只提醒，不替模型等、不改读取语义。措辞刻意不假定调用方是谁：根 agent 是被系统叫醒，
+/// 子 agent 的作业结局则交给派发它的那条对话——两边都成立的说法只有「结算时系统会自动
+/// 通知，不用盯着」。
+fn unwaited_poll_notice(unwaited_polls: u32, status: JobStatus) -> Option<String> {
+    if status != JobStatus::Running || unwaited_polls < UNWAITED_POLL_REMINDER_AT {
         return None;
     }
-    Some(if auto_waited {
-        format!(
-            "[提醒：这条作业已连续 {} 次读不到新输出；这次系统替你等了 {} 秒，仍然没有。\
-             继续轮询只是白花 token：作业结算时系统会自动通知，不用盯着它。没有别的事可做，\
-             就直接结束这一轮；下一步确实依赖它的结果，用 job_output(wait=true) 一次等够\
-             （单次最长 10 分钟）。]",
-            idle_polls,
-            IDLE_POLL_AUTO_WAIT.as_secs()
-        )
-    } else {
-        "[提醒：作业仍在运行，没有新输出。不要靠不带 wait 的反复轮询来等它——连续几次读不到\
-         新输出后，系统会开始替你等待。作业结算时系统会自动通知，不用盯着它；没有别的事可做\
-         就结束这一轮，下一步确实依赖它的结果再用 job_output(wait=true)。]"
-            .to_string()
-    })
+    Some(format!(
+        "[提醒：你已对这条作业连续 {} 次不带 wait 地读取。反复轮询只是白花 token：作业结算时\
+         系统会自动通知，不用盯着它。没有别的事可做，就结束这一轮；下一步确实依赖它的结果，\
+         用 job_output(wait=true) 一次等够（单次最长 10 分钟）。]",
+        unwaited_polls
+    ))
 }
 
 // ───────────────────────── job_output ─────────────────────────
@@ -368,9 +363,7 @@ impl AgentTool for JobOutputTool {
          Reads are incremental via `offset` (pass back the offset from the previous read); \
          set `wait: true` to block until new output arrives or the job settles (only when \
          your next step genuinely depends on it; the wait is capped at 10 minutes, and a \
-         timed-out wait returns `[status: running]`). A read without `wait` returns at once \
-         even when nothing is new; after a few such empty reads in a row on the same running \
-         job, the tool starts waiting for new output on your behalf (up to 30 s) and says so. \
+         timed-out wait returns `[status: running]`). \
          Every response ends with `[status: ...]` (plus the exit fact, e.g. \
          `[status: completed, exit code: 3]`). If output was dropped or clipped, the \
          response says so explicitly — read it."
@@ -455,7 +448,7 @@ impl AgentTool for JobOutputTool {
         if let Some(note) = continuation_notice(result.offset, result.snapshot_end) {
             notes.push(note);
         }
-        if let Some(note) = idle_poll_notice(result.idle_polls, result.auto_waited, result.status) {
+        if let Some(note) = unwaited_poll_notice(result.unwaited_polls, result.status) {
             notes.push(note);
         }
 
@@ -499,8 +492,7 @@ impl AgentTool for JobOutputTool {
             "lossy": result.lossy,
             "skipped_bytes": result.skipped_bytes,
             "spill_path": result.spill_path,
-            "idle_polls": result.idle_polls,
-            "auto_waited": result.auto_waited,
+            "unwaited_polls": result.unwaited_polls,
         })))
     }
 }
@@ -768,9 +760,9 @@ impl AgentTool for JobListTool {
 #[cfg(test)]
 mod tests {
     use super::{
-        continuation_notice, idle_poll_notice, is_local_job_id, job_status_suffix, lossy_notice,
-        merge_job_lists, remote_job_on_local_side_message, resolve_job_side, termination_message,
-        JobListFilters, JobScopeFilter, JobSide,
+        continuation_notice, is_local_job_id, job_status_suffix, lossy_notice, merge_job_lists,
+        remote_job_on_local_side_message, resolve_job_side, termination_message,
+        unwaited_poll_notice, JobListFilters, JobScopeFilter, JobSide, UNWAITED_POLL_REMINDER_AT,
     };
     use crate::command_exec::{CancelReason, JobInfo, JobStatus};
 
@@ -976,28 +968,37 @@ mod tests {
     }
 
     #[test]
-    fn idle_poll_notice_only_speaks_for_a_running_job_with_empty_polls() {
-        // 第一次读、读到了东西、作业已结算：都不该多嘴
-        assert!(idle_poll_notice(0, false, JobStatus::Running).is_none());
-        assert!(idle_poll_notice(3, true, JobStatus::Completed).is_none());
-        assert!(idle_poll_notice(2, false, JobStatus::Failed).is_none());
+    fn poll_reminder_starts_at_the_fourth_unwaited_read_and_keeps_going() {
+        assert_eq!(UNWAITED_POLL_REMINDER_AT, 4, "产品约定：连续第 4 次起提醒");
+        for n in 0..4 {
+            assert!(
+                unwaited_poll_notice(n, JobStatus::Running).is_none(),
+                "第 {n} 次不该提醒"
+            );
+        }
+        // 第 4 次起每次都提醒（只提醒一次的话，模型第 5 次就又忘了）
+        for n in 4..=9 {
+            let notice = unwaited_poll_notice(n, JobStatus::Running).expect("该提醒");
+            assert!(notice.contains(&format!("连续 {n} 次")), "{notice}");
+        }
     }
 
     #[test]
-    fn idle_poll_notice_tells_the_model_what_to_do_instead() {
-        let soft = idle_poll_notice(1, false, JobStatus::Running).unwrap();
-        assert!(soft.contains("wait"), "{soft}");
-        assert!(soft.contains("结束这一轮"), "{soft}");
-        // 没代等过就不能说代等过
-        assert!(!soft.contains("替你等了"), "{soft}");
-
-        // 代等过：必须如实说（否则模型会把多出来的耗时当成故障），并带上连续次数
-        let waited = idle_poll_notice(3, true, JobStatus::Running).unwrap();
-        assert!(waited.contains("替你等了 30 秒"), "{waited}");
-        assert!(waited.contains("连续 3 次"), "{waited}");
-        assert!(waited.contains("job_output(wait=true)"), "{waited}");
+    fn poll_reminder_tells_the_model_what_to_do_instead() {
+        let notice = unwaited_poll_notice(4, JobStatus::Running).unwrap();
+        assert!(notice.contains("job_output(wait=true)"), "{notice}");
+        assert!(notice.contains("结束这一轮"), "{notice}");
         // 措辞不能假定调用方是根 agent（子 agent 的作业结局交给派它的对话）
-        assert!(!waited.contains("唤醒你"), "{waited}");
+        assert!(!notice.contains("唤醒你"), "{notice}");
+        // 只提醒，不谎称系统替它做过什么
+        assert!(!notice.contains("替你等"), "{notice}");
+    }
+
+    #[test]
+    fn poll_reminder_is_silent_once_the_job_is_no_longer_running() {
+        for status in [JobStatus::Completed, JobStatus::Failed, JobStatus::Killed] {
+            assert!(unwaited_poll_notice(9, status).is_none(), "{status:?}");
+        }
     }
 
     #[test]
