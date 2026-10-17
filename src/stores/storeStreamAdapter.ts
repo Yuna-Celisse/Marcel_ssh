@@ -1,5 +1,6 @@
 import type { AgentMode, AgentStatus } from '@/lib/types';
-import { useTaskStore } from './taskStore';
+import { isTaskBusy } from '@/lib/agentStatus';
+import { newTaskOutputEntry, useTaskStore } from './taskStore';
 import { useConversationStore } from './conversationStore';
 import type { StreamHandler } from './agentStreamHandlers';
 
@@ -48,6 +49,11 @@ export function createDefaultStreamHandler(): StreamHandler {
             parentTaskId: task.parentTaskId,
           },
         },
+        // 子 agent 与主任务一样是「一个在跑的任务」：要有自己的输出计数条目，
+        // 否则它的状态条永远是 0。已是终态的（重启恢复兜底登记）不会再有流，不建。
+        taskOutputByConversation: isTaskBusy(task.status as AgentStatus)
+          ? { ...s.taskOutputByConversation, [task.conversationId]: newTaskOutputEntry(task.conversationId) }
+          : s.taskOutputByConversation,
       }));
     },
     registerSubConversation(args) {

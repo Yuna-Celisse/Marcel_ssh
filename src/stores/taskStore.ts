@@ -42,6 +42,29 @@ export interface ConversationUsageEntry {
   windowTokens: number;
 }
 
+/** 一个运行中任务的输出 token 计数（见 `TaskState.taskOutputByConversation`）。 */
+export interface TaskOutputEntry {
+  base: number;
+  settled: number;
+  live: number;
+}
+
+/**
+ * 新任务的输出计数初值：`base` = 此刻会话累计的 completionTokens（事件值优先、落库兜底，
+ * 与 `contextUsage` 事件同口径），`settled` / `live` 从 0 起。
+ *
+ * **所有「开始一个任务」的入口都必须经它建条目**（主任务 `startTask`、子 agent 的
+ * `registerSubTask`）：没有条目，`recordOutputDelta` / `recordContextUsage` 一律当无事发生，
+ * 状态条会永远停在 0。
+ */
+export function newTaskOutputEntry(conversationId: string): TaskOutputEntry {
+  const base =
+    useTaskStore.getState().usageByConversation[conversationId]?.usage.completionTokens ??
+    useConversationStore.getState().conversations[conversationId]?.usage?.completionTokens ??
+    0;
+  return { base, settled: 0, live: 0 };
+}
+
 export interface TaskState {
   tasks: Record<string, AgentTask>;
   activeTaskId: string | null;
@@ -70,7 +93,7 @@ export interface TaskState {
    * `live` = 当前轮流式文本的本地估算（该轮 `contextUsage` 到达时被精确值取代）。
    * 显示值 = `settled + live`。
    */
-  taskOutputByConversation: Record<string, { base: number; settled: number; live: number }>;
+  taskOutputByConversation: Record<string, TaskOutputEntry>;
   unreadCompletedConversations: string[];
   /**
    * 正在手动压缩上下文的会话（key = conversationId；在册即为进行中）。
@@ -439,15 +462,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // 困惑）。给当前会话开轮（用户自己发消息）照旧占槽。
     const conversationIsActive =
       useConversationStore.getState().activeConversationId === conversationId;
-    const outputBase =
-      get().usageByConversation[conversationId]?.usage.completionTokens ??
-      useConversationStore.getState().conversations[conversationId]?.usage?.completionTokens ??
-      0;
     set((state) => ({
       tasks: { ...state.tasks, [taskId]: task },
       taskOutputByConversation: {
         ...state.taskOutputByConversation,
-        [conversationId]: { base: outputBase, settled: 0, live: 0 },
+        [conversationId]: newTaskOutputEntry(conversationId),
       },
       activeTaskId: conversationIsActive ? taskId : state.activeTaskId,
       // 用量读数**不在这里清**：它是按会话累计的落库值（跨任务接着算），
