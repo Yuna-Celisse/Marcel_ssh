@@ -54,6 +54,7 @@ pub fn parse_bing_results(html: &str, max: usize) -> Vec<SearchResult> {
             title,
             url: final_url,
             snippet,
+            date: None,
         });
     }
 

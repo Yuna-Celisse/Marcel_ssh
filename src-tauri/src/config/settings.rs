@@ -264,7 +264,7 @@ pub enum WebSearchMode {
     /// Local headless Chrome/Edge via CDP (best quality, default).
     #[default]
     Browser,
-    /// Independent search-engine HTTP API (Brave / Tavily).
+    /// Independent search-engine HTTP API (Brave / Tavily / DeepSeek).
     Api,
     /// Bare Bing HTML scrape (zero config, lower quality).
     Html,
@@ -302,6 +302,8 @@ pub enum WebSearchApiProvider {
     #[default]
     Brave,
     Tavily,
+    /// DeepSeek 官方搜索（`POST /v1/tools/search`），Key 即 DeepSeek API Key。
+    Deepseek,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1108,6 +1110,38 @@ mod tests {
         assert_eq!(parsed.web_search_mode, WebSearchMode::Api);
         assert_eq!(parsed.web_search_api_provider, WebSearchApiProvider::Tavily);
         assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Html);
+    }
+
+    /// The frontend's `WebSearchApiProvider` union spells this `'deepseek'`;
+    /// a variant named `DeepSeek` would silently become `"deepSeek"` on the wire.
+    #[test]
+    fn experimental_settings_deepseek_search_provider_wire_name() {
+        let s = ExperimentalSettings {
+            web_search_api_provider: WebSearchApiProvider::Deepseek,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(
+            json.contains("\"webSearchApiProvider\":\"deepseek\""),
+            "{json}"
+        );
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(
+            parsed.web_search_api_provider,
+            WebSearchApiProvider::Deepseek
+        );
+    }
+
+    #[test]
+    fn experimental_settings_deepseek_fetch_mode_wire_name() {
+        let s = ExperimentalSettings {
+            http_fetch_mode: HttpFetchMode::Deepseek,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"httpFetchMode\":\"deepseek\""), "{json}");
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Deepseek);
     }
 
     #[test]

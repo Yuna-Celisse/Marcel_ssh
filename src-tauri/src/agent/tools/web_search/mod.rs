@@ -2,7 +2,7 @@
 //!
 //! Modes (settings → experimentalSettings.webSearchMode):
 //! - `browser` (default): local headless Chrome/Edge via CDP
-//! - `api`: Brave / Tavily search HTTP APIs
+//! - `api`: Brave / Tavily / DeepSeek search HTTP APIs
 //! - `html`: bare Bing HTML scrape
 //!
 //! Does NOT return full page content — use `http_get` for that.
@@ -221,7 +221,7 @@ async fn resolve_search_config(
 ) -> (WebSearchMode, WebSearchApiProvider, WebSearchEndpoint) {
     // Mobile (Android) 无法启动本地 Chrome/Edge 走 CDP：Browser 模式必然失败，
     // 因此按用户设置解析后把 Browser 降级为裸 Bing HTML 抓取（html）模式；
-    // Api 模式（Brave/Tavily 纯 HTTP）在手机上完全可用，直接生效。
+    // Api 模式（Brave/Tavily/DeepSeek 纯 HTTP）在手机上完全可用，直接生效。
     #[cfg(mobile)]
     {
         if let Some(state) = ctx.app_handle.try_state::<crate::AppState>() {
@@ -274,15 +274,29 @@ async fn run_search(
             .map(SearchAttempt::direct)
             .map_err(|e| e.to_string()),
         WebSearchMode::Api => {
-            let key = keychain::get_web_search_api_key()
-                .map_err(|e| e.to_string())?
-                .unwrap_or_default();
+            let key = search_api_key(api_provider).map_err(|e| e.to_string())?;
             api::search(api_provider, &key, query, max_results)
                 .await
                 .map(SearchAttempt::direct)
                 .map_err(|e| e.to_string())
         }
     }
+}
+
+/// The stored key that belongs to `provider`; empty when none is saved (the API
+/// layer turns that into a "not configured" error).
+///
+/// DeepSeek has its own slot, shared with its `http_get` fetch. Brave and Tavily
+/// share the legacy one, so a key is only ever sent to the vendor the user
+/// currently has selected — never DeepSeek's key to Brave or the reverse.
+fn search_api_key(provider: WebSearchApiProvider) -> Result<String, AppError> {
+    let stored = match provider {
+        WebSearchApiProvider::Deepseek => keychain::get_deepseek_tools_api_key()?,
+        WebSearchApiProvider::Brave | WebSearchApiProvider::Tavily => {
+            keychain::get_web_search_api_key()?
+        }
+    };
+    Ok(stored.unwrap_or_default())
 }
 
 /// Browser search with one bounded retry, then an HTML fallback.
@@ -575,15 +589,16 @@ fn format_results_for_query(query: &str, results: &[SearchResult]) -> String {
     let mut out = format!("## Query: {}\n\n", query);
 
     for (i, r) in results.iter().enumerate() {
+        out.push_str(&format!("{}. **{}**\n   URL: {}\n", i + 1, r.title, r.url));
+        if let Some(date) = &r.date {
+            out.push_str(&format!("   Date: {}\n", date));
+        }
         out.push_str(&format!(
-            "{}. **{}**\n   URL: {}\n   Snippet: {}\n\n",
-            i + 1,
-            r.title,
-            r.url,
+            "   Snippet: {}\n\n",
             if r.snippet.is_empty() {
-                "(no snippet)".to_string()
+                "(no snippet)"
             } else {
-                r.snippet.clone()
+                &r.snippet
             }
         ));
     }
@@ -599,7 +614,8 @@ fn search_result_metadata(query: &str, results: &[SearchResult]) -> Vec<serde_js
                 "query": query,
                 "title": &r.title,
                 "url": &r.url,
-                "snippet": &r.snippet
+                "snippet": &r.snippet,
+                "date": &r.date
             })
         })
         .collect()
@@ -615,6 +631,7 @@ mod tests {
             title: title.to_string(),
             url: "https://example.com/".to_string(),
             snippet: "s".to_string(),
+            date: None,
         }
     }
 
@@ -648,6 +665,7 @@ mod tests {
             title: "Async Rust Guide".to_string(),
             url: "https://example.com/rust".to_string(),
             snippet: "Learn async Rust.".to_string(),
+            date: None,
         }];
 
         let output = format_results_for_query("Rust async", &results);
@@ -659,11 +677,25 @@ mod tests {
     }
 
     #[test]
+    fn format_results_shows_a_date_line_only_when_the_backend_gave_one() {
+        let mut dated = result("Dated");
+        dated.date = Some("2026-06-01".to_string());
+        let output = format_results_for_query("q", &[dated, result("Undated")]);
+
+        assert!(
+            output.contains("   Date: 2026-06-01\n   Snippet: s"),
+            "{output}"
+        );
+        assert_eq!(output.matches("Date:").count(), 1, "{output}");
+    }
+
+    #[test]
     fn search_result_metadata_includes_query_for_each_result() {
         let results = vec![SearchResult {
             title: "Tokio Tutorial".to_string(),
             url: "https://tokio.rs".to_string(),
             snippet: "Runtime tutorial.".to_string(),
+            date: None,
         }];
 
         let metadata = search_result_metadata("Rust runtime", &results);
@@ -931,8 +963,8 @@ mod tests {
         assert_eq!(browser_outcome.provider, "browser");
         assert_eq!(browser_outcome.results.len(), 1);
 
-        // API modes: mapping layer produces api:brave / api:tavily labels.
-        for provider in ["browser", "html", "api:brave", "api:tavily"] {
+        // API modes: mapping layer produces api:brave / api:tavily / api:deepseek labels.
+        for provider in ["browser", "html", "api:brave", "api:tavily", "api:deepseek"] {
             let out = format_outcome(
                 "q",
                 WebSearchMode::Api,

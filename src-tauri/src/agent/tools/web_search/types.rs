@@ -7,6 +7,10 @@ pub struct SearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    /// Publication date (`YYYY-MM-DD`) when the backend reports one. Lets the
+    /// model judge recency, which a bare snippet cannot convey.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
 }
 
 /// Why a search produced no results even though the request "succeeded".
