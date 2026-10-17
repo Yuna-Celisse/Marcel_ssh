@@ -77,6 +77,8 @@ const BACKEND_LABELS: Record<string, string> = {
   mixed: '混合后端',
   'api:brave': 'Brave 搜索 API',
   'api:tavily': 'Tavily 搜索 API',
+  'api:deepseek': 'DeepSeek 搜索 API',
+  deepseek: 'DeepSeek 抓取',
 };
 
 /** 后端展示名；未知取值原样返回（便于将来加后端时不会显示成空白）。 */

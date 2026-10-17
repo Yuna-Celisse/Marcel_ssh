@@ -14,6 +14,7 @@ describe('settingsStore', () => {
       loaded: false,
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
       preview: null,
     });
@@ -77,6 +78,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     const r = useSettingsStore.getState().settings.llmRegistry;
@@ -111,6 +113,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     const models = useSettingsStore.getState().settings.llmRegistry.models;
@@ -143,6 +146,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     expect(useSettingsStore.getState().settings.llmRegistry.lastUsedModelId).toBe('m-1');
@@ -173,6 +177,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     expect(useSettingsStore.getState().settings.llmRegistry.lastUsedModelId).toBeUndefined();
@@ -237,6 +242,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: true,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
       warning: 'test-warning',
     });
@@ -284,6 +290,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
 
@@ -311,6 +318,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     expect(
@@ -332,6 +340,7 @@ describe('settingsStore', () => {
       },
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: true,
     });
 
@@ -348,6 +357,7 @@ describe('settingsStore', () => {
       settings: useSettingsStore.getState().settings,
       hasApiKey: false,
       hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
       hasJevApiKey: false,
     });
     expect(useSettingsStore.getState().hasJevApiKey).toBe(false);

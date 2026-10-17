@@ -1,17 +1,30 @@
 import { useEffect, useState } from 'react';
 import type {
   ExperimentalSettings,
+  HttpFetchMode,
   WebSearchApiProvider,
   WebSearchEndpoint,
   WebSearchMode,
 } from '@/lib/types';
 import Toggle from '@/components/ui/Toggle';
 import { useSettingsActions } from '@/components/settings/SettingsActionsContext';
-import { useSettingsStore, DEFAULT_EXPERIMENTAL_SETTINGS } from '@/stores/settingsStore';
+import { DEFAULT_EXPERIMENTAL_SETTINGS } from '@/stores/settingsStore';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatConnLabel } from '@/lib/privacy';
-import * as tauri from '@/lib/tauri';
+import {
+  DEEPSEEK_FETCH_DESCRIPTION,
+  DEEPSEEK_KEY_SHARED_NOTE,
+  WEB_SEARCH_API_PROVIDERS,
+  searchKeyDescription,
+} from '@/lib/webSearchProviders';
+import {
+  clearToolApiKey,
+  saveToolApiKey,
+  searchProviderKeySlot,
+  useHasToolApiKey,
+  type ToolApiKeySlot,
+} from '@/lib/toolApiKeys';
 import { MobileChoiceGroup as ChoiceGroup } from '@/mobile/ui/MobileChoiceGroup';
 import { MobileSettingRow } from './MobileSettingRow';
 
@@ -22,11 +35,6 @@ const SEARCH_MODE_OPTIONS: readonly {
 }[] = [
   { value: 'html', label: '裸抓 Bing HTML', desc: '零配置，质量一般' },
   { value: 'api', label: '搜索 API', desc: '需自备 Key，质量好' },
-];
-
-const PROVIDER_OPTIONS: readonly { value: WebSearchApiProvider; label: string }[] = [
-  { value: 'brave', label: 'Brave Search' },
-  { value: 'tavily', label: 'Tavily' },
 ];
 
 const ENDPOINT_OPTIONS: readonly { value: WebSearchEndpoint; label: string; desc?: string }[] = [
@@ -61,11 +69,72 @@ export function selectMobileSearchMode(
   return {};
 }
 
+const FETCH_MODE_OPTIONS: readonly {
+  value: 'html' | 'deepseek';
+  label: string;
+  desc: string;
+}[] = [
+  { value: 'html', label: '裸 HTTP GET', desc: '零配置，易被站点拦截' },
+  { value: 'deepseek', label: 'DeepSeek 抓取', desc: '服务器代抓成 Markdown，需 DeepSeek Key' },
+];
+
+/** 手机端获取方式的 UI 归并：browser（本机不可用的 CDP 模式，可能来自旧版桌面端配置）在 UI 上视为裸 HTTP。 */
+export function resolveMobileFetchMode(stored: HttpFetchMode | undefined): 'html' | 'deepseek' {
+  return stored === 'deepseek' ? 'deepseek' : 'html';
+}
+
+/**
+ * 计算选择获取方式后应写入的配置 patch，规则同 {@link selectMobileSearchMode}：
+ * - 选择「DeepSeek 抓取」→ 直接写 deepseek
+ * - 选择「裸 HTTP」→ 仅当原值是 deepseek 时才写 html；
+ *   原值是 browser（桌面端遗留，手机不可用）时保持原样，避免覆盖桌面端的选择
+ */
+export function selectMobileFetchMode(
+  stored: HttpFetchMode | undefined,
+  next: 'html' | 'deepseek',
+): Partial<ExperimentalSettings> {
+  if (next === 'deepseek') return { httpFetchMode: 'deepseek' };
+  if (stored === 'deepseek') return { httpFetchMode: 'html' };
+  return {};
+}
+
+const KEY_INPUT_CLASS =
+  'flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+
+/** 联网工具的 API Key 输入框。已存时回显掩码；失焦即保存；Key 永不回传前端。 */
+function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placeholder: string }) {
+  const hasKey = useHasToolApiKey(slot);
+  const [draft, setDraft] = useState('');
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <input
+        type="password"
+        value={draft || (hasKey ? '********' : '')}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          void saveToolApiKey(slot, draft).then((saved) => saved && setDraft(''));
+        }}
+        placeholder={hasKey ? '已保存，输入新 Key 可覆盖' : placeholder}
+        autoComplete="off"
+        className={KEY_INPUT_CLASS}
+      />
+      {hasKey && (
+        <button
+          type="button"
+          onClick={() => void clearToolApiKey(slot).then((cleared) => cleared && setDraft(''))}
+          className="flex-shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
+        >
+          清除
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Agent 工具能力（联网搜索 / 网页抓取 / 多机目标）——与桌面 ToolCapabilitiesSection 对齐的移动端版。 */
 export function MobileAgentToolsSection() {
   const { settings, update } = useSettingsActions();
-  const hasWebSearchApiKey = useSettingsStore((s) => s.hasWebSearchApiKey);
-  const [searchKeyDraft, setSearchKeyDraft] = useState('');
   const connections = useConnectionStore((s) => s.connections);
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   // 隐私模式：机器清单里的 user@host:port 也要脱敏（与连接列表同一口径）
@@ -87,6 +156,7 @@ export function MobileAgentToolsSection() {
   // 在 UI 上归并为「裸抓」展示，但保持已保存的配置值不变，避免覆盖。
   const storedMode: WebSearchMode = experimental.webSearchMode ?? 'browser';
   const isApiMode = resolveMobileSearchMode(storedMode) === 'api';
+  const apiProvider: WebSearchApiProvider = experimental.webSearchApiProvider ?? 'brave';
   const syncedBrowser = isSyncedBrowserMode(storedMode);
 
   const selectSearchMode = (mode: 'html' | 'api') => {
@@ -94,30 +164,14 @@ export function MobileAgentToolsSection() {
     if (Object.keys(patch).length > 0) updateExperimental(patch);
   };
 
-  const persistSearchKey = async (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed || trimmed.includes('******') || trimmed === '********') return;
-    try {
-      await tauri.saveWebSearchApiKey(trimmed);
-      useSettingsStore.setState({ hasWebSearchApiKey: true });
-      setSearchKeyDraft('');
-    } catch (err) {
-      console.error('保存搜索 API Key 失败:', err);
-    }
-  };
+  const searchKeySlot = searchProviderKeySlot(apiProvider);
 
-  const clearSearchKey = async () => {
-    try {
-      await tauri.deleteWebSearchApiKey();
-      useSettingsStore.setState({ hasWebSearchApiKey: false });
-      setSearchKeyDraft('');
-    } catch (err) {
-      console.error('清除搜索 API Key 失败:', err);
-    }
+  // 获取方式同理：browser（桌面端遗留）在 UI 上归并为裸 HTTP，保存的配置值不动。
+  const fetchMode = resolveMobileFetchMode(experimental.httpFetchMode);
+  const selectFetchMode = (mode: 'html' | 'deepseek') => {
+    const patch = selectMobileFetchMode(experimental.httpFetchMode, mode);
+    if (Object.keys(patch).length > 0) updateExperimental(patch);
   };
-
-  const inputClass =
-    'flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
   // 多机白名单（与桌面 / Agent 顶栏 Sheet 同一份数据）
   const multiHostIds = experimental.multiHostConnectionIds ?? [];
@@ -179,8 +233,8 @@ export function MobileAgentToolsSection() {
         <>
           <MobileSettingRow label="搜索 API 提供商" description="独立搜索引擎 HTTP API（非 OpenAI 格式）">
             <ChoiceGroup
-              options={PROVIDER_OPTIONS}
-              value={experimental.webSearchApiProvider ?? 'brave'}
+              options={WEB_SEARCH_API_PROVIDERS}
+              value={apiProvider}
               onChange={(v) =>
                 updateExperimental({ webSearchApiProvider: v as WebSearchApiProvider })
               }
@@ -188,38 +242,22 @@ export function MobileAgentToolsSection() {
           </MobileSettingRow>
 
           <MobileSettingRow
-            label="搜索 API Key"
-            description="加密保存在本设备，不会写入配置文件"
+            label={apiProvider === 'deepseek' ? 'DeepSeek API Key' : '搜索 API Key'}
+            description={searchKeyDescription(apiProvider)}
           >
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="password"
-                value={searchKeyDraft || (hasWebSearchApiKey ? '********' : '')}
-                onChange={(e) => setSearchKeyDraft(e.target.value)}
-                onBlur={() => {
-                  void persistSearchKey(searchKeyDraft);
-                }}
-                placeholder={hasWebSearchApiKey ? '已保存，输入新 Key 可覆盖' : '输入搜索 API Key'}
-                autoComplete="off"
-                className={inputClass}
-              />
-              {hasWebSearchApiKey && (
-                <button
-                  type="button"
-                  onClick={() => void clearSearchKey()}
-                  className="flex-shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
-                >
-                  清除
-                </button>
-              )}
-            </div>
+            {/* key = 槽位：切换提供商时各用各的草稿，不把上一个提供商的输入带过去 */}
+            <ToolApiKeyInput
+              key={searchKeySlot}
+              slot={searchKeySlot}
+              placeholder={apiProvider === 'deepseek' ? '输入 DeepSeek API Key' : '输入搜索 API Key'}
+            />
           </MobileSettingRow>
         </>
       )}
 
       <MobileSettingRow
         label="网页获取"
-        description="允许 Agent 使用 http_get 工具获取网页内容；手机端固定使用裸 HTTP 抓取"
+        description="允许 Agent 使用 http_get 工具获取网页内容；手机端没有本机浏览器，默认用裸 HTTP 抓取"
         trailing={
           <Toggle
             checked={experimental.enableHttpFetch}
@@ -227,6 +265,26 @@ export function MobileAgentToolsSection() {
           />
         }
       />
+
+      {experimental.enableHttpFetch && (
+        <>
+          <MobileSettingRow
+            label="获取方式"
+            description="DeepSeek 抓取失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
+          >
+            <ChoiceGroup options={FETCH_MODE_OPTIONS} value={fetchMode} onChange={selectFetchMode} />
+          </MobileSettingRow>
+
+          {fetchMode === 'deepseek' && (
+            <MobileSettingRow
+              label="DeepSeek API Key"
+              description={`${DEEPSEEK_FETCH_DESCRIPTION}${DEEPSEEK_KEY_SHARED_NOTE}`}
+            >
+              <ToolApiKeyInput slot="deepseek" placeholder="输入 DeepSeek API Key" />
+            </MobileSettingRow>
+          )}
+        </>
+      )}
 
       <MobileSettingRow
         label="多机操控目标"

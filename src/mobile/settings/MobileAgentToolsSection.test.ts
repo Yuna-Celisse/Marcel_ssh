@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSyncedBrowserMode,
+  resolveMobileFetchMode,
   resolveMobileSearchMode,
+  selectMobileFetchMode,
   selectMobileSearchMode,
 } from './MobileAgentToolsSection';
 
@@ -41,5 +43,35 @@ describe('selectMobileSearchMode', () => {
     expect(selectMobileSearchMode('browser', 'html')).toEqual({});
     expect(selectMobileSearchMode('html', 'html')).toEqual({});
     expect(selectMobileSearchMode(undefined, 'html')).toEqual({});
+  });
+});
+
+describe('resolveMobileFetchMode', () => {
+  it('treats browser（桌面同步而来，本机不可用）as html', () => {
+    expect(resolveMobileFetchMode('browser')).toBe('html');
+    expect(resolveMobileFetchMode('html')).toBe('html');
+    expect(resolveMobileFetchMode(undefined)).toBe('html');
+  });
+
+  it('keeps deepseek, which is plain HTTP and works on a phone', () => {
+    expect(resolveMobileFetchMode('deepseek')).toBe('deepseek');
+  });
+});
+
+describe('selectMobileFetchMode', () => {
+  it('selecting deepseek always writes deepseek', () => {
+    expect(selectMobileFetchMode('browser', 'deepseek')).toEqual({ httpFetchMode: 'deepseek' });
+    expect(selectMobileFetchMode('html', 'deepseek')).toEqual({ httpFetchMode: 'deepseek' });
+    expect(selectMobileFetchMode(undefined, 'deepseek')).toEqual({ httpFetchMode: 'deepseek' });
+  });
+
+  it('selecting html only rewrites when stored is deepseek', () => {
+    expect(selectMobileFetchMode('deepseek', 'html')).toEqual({ httpFetchMode: 'html' });
+  });
+
+  it('selecting html keeps a synced browser value untouched (no cloud overwrite)', () => {
+    expect(selectMobileFetchMode('browser', 'html')).toEqual({});
+    expect(selectMobileFetchMode('html', 'html')).toEqual({});
+    expect(selectMobileFetchMode(undefined, 'html')).toEqual({});
   });
 });

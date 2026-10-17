@@ -34,6 +34,8 @@ describe('backendLabel', () => {
     expect(backendLabel('html')).toBe('裸抓 HTML');
     expect(backendLabel('api:brave')).toBe('Brave 搜索 API');
     expect(backendLabel('api:tavily')).toBe('Tavily 搜索 API');
+    expect(backendLabel('api:deepseek')).toBe('DeepSeek 搜索 API');
+    expect(backendLabel('deepseek')).toBe('DeepSeek 抓取');
   });
 
   it('passes unknown backends through rather than showing nothing', () => {

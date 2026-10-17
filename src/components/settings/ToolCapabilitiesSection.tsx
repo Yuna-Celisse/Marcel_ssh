@@ -11,11 +11,23 @@ import Toggle from '@/components/ui/Toggle';
 import Select from '@/components/ui/Select';
 import { Card, SettingItem } from './helpers';
 import { useSettingsActions } from './SettingsActionsContext';
-import { useSettingsStore, DEFAULT_EXPERIMENTAL_SETTINGS } from '@/stores/settingsStore';
+import { DEFAULT_EXPERIMENTAL_SETTINGS } from '@/stores/settingsStore';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatConnLabel } from '@/lib/privacy';
-import * as tauri from '@/lib/tauri';
+import {
+  DEEPSEEK_FETCH_DESCRIPTION,
+  DEEPSEEK_KEY_SHARED_NOTE,
+  WEB_SEARCH_API_PROVIDERS,
+  searchKeyDescription,
+} from '@/lib/webSearchProviders';
+import {
+  clearToolApiKey,
+  saveToolApiKey,
+  searchProviderKeySlot,
+  useHasToolApiKey,
+  type ToolApiKeySlot,
+} from '@/lib/toolApiKeys';
 
 /** 多机操控的机器集合复选。数据源 = 已保存连接；勾选结果直接进
  *  `experimentalSettings.multiHostConnectionIds`（与后端白名单同一份）。 */
@@ -93,10 +105,39 @@ function MachinePicker({
   );
 }
 
+/** 联网工具的 API Key 输入框。已存时回显掩码；失焦即保存；Key 永不回传前端。 */
+function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placeholder: string }) {
+  const hasKey = useHasToolApiKey(slot);
+  const [draft, setDraft] = useState('');
+
+  return (
+    <div className="flex-1 flex gap-2 items-center">
+      <input
+        type="password"
+        value={draft || (hasKey ? '********' : '')}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          void saveToolApiKey(slot, draft).then((saved) => saved && setDraft(''));
+        }}
+        placeholder={hasKey ? '已保存，输入新 Key 可覆盖' : placeholder}
+        autoComplete="off"
+        className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+      />
+      {hasKey && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void clearToolApiKey(slot).then((cleared) => cleared && setDraft(''))}
+        >
+          清除
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function ToolCapabilitiesSection() {
   const { settings, update } = useSettingsActions();
-  const hasWebSearchApiKey = useSettingsStore((s) => s.hasWebSearchApiKey);
-  const [searchKeyDraft, setSearchKeyDraft] = useState('');
 
   const experimental: ExperimentalSettings = {
     ...DEFAULT_EXPERIMENTAL_SETTINGS,
@@ -112,27 +153,7 @@ export function ToolCapabilitiesSection() {
   const searchEndpoint = experimental.webSearchEndpoint ?? 'cn';
   const httpFetchMode = experimental.httpFetchMode ?? 'browser';
 
-  const persistSearchKey = async (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed || trimmed.includes('******') || trimmed === '********') return;
-    try {
-      await tauri.saveWebSearchApiKey(trimmed);
-      useSettingsStore.setState({ hasWebSearchApiKey: true });
-      setSearchKeyDraft('');
-    } catch (err) {
-      console.error('保存搜索 API Key 失败:', err);
-    }
-  };
-
-  const clearSearchKey = async () => {
-    try {
-      await tauri.deleteWebSearchApiKey();
-      useSettingsStore.setState({ hasWebSearchApiKey: false });
-      setSearchKeyDraft('');
-    } catch (err) {
-      console.error('清除搜索 API Key 失败:', err);
-    }
-  };
+  const searchKeySlot = searchProviderKeySlot(apiProvider);
 
   return (
     <Card id="settings-experimental" title="Agent 工具" description="控制 Agent 可调用的工具能力和系统集成">
@@ -197,43 +218,28 @@ export function ToolCapabilitiesSection() {
                 label="搜索 API 提供商"
                 description="独立搜索引擎 HTTP API（非 OpenAI 格式）"
                 sectionId="settings-experimental"
-                keywords={['brave', 'tavily', 'serpapi', '搜索 API']}
+                keywords={['brave', 'tavily', 'deepseek', 'serpapi', '搜索 API']}
               >
                 <Select
                   value={apiProvider}
                   onChange={(v) => updateExperimental({ webSearchApiProvider: v as WebSearchApiProvider })}
-                  options={[
-                    { value: 'brave', label: 'Brave Search' },
-                    { value: 'tavily', label: 'Tavily' },
-                  ]}
+                  options={[...WEB_SEARCH_API_PROVIDERS]}
                   className="w-52"
                 />
               </SettingItem>
               <SettingItem
                 id="exp-websearch-api-key"
-                label="搜索 API Key"
-                description="加密保存在本设备，不会写入配置文件"
+                label={apiProvider === 'deepseek' ? 'DeepSeek API Key' : '搜索 API Key'}
+                description={searchKeyDescription(apiProvider)}
                 sectionId="settings-experimental"
-                keywords={['key', '密钥', 'brave', 'tavily']}
+                keywords={['key', '密钥', 'brave', 'tavily', 'deepseek']}
               >
-                <div className="flex-1 flex gap-2 items-center">
-                  <input
-                    type="password"
-                    value={searchKeyDraft || (hasWebSearchApiKey ? '********' : '')}
-                    onChange={(e) => setSearchKeyDraft(e.target.value)}
-                    onBlur={() => {
-                      void persistSearchKey(searchKeyDraft);
-                    }}
-                    placeholder={hasWebSearchApiKey ? '已保存，输入新 Key 可覆盖' : '输入搜索 API Key'}
-                    autoComplete="off"
-                    className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
-                  />
-                  {hasWebSearchApiKey && (
-                    <Button variant="secondary" size="sm" onClick={() => void clearSearchKey()}>
-                      清除
-                    </Button>
-                  )}
-                </div>
+                {/* key = 槽位：切换提供商时各用各的草稿，不把上一个提供商的输入带过去 */}
+                <ToolApiKeyInput
+                  key={searchKeySlot}
+                  slot={searchKeySlot}
+                  placeholder={apiProvider === 'deepseek' ? '输入 DeepSeek API Key' : '输入搜索 API Key'}
+                />
               </SettingItem>
             </>
           )}
@@ -254,23 +260,38 @@ export function ToolCapabilitiesSection() {
       </SettingItem>
 
       {experimental.enableHttpFetch && (
-        <SettingItem
-          id="exp-httpfetch-mode"
-          label="获取方式"
-          description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截。本机浏览器失败时会自动降级为裸 HTTP GET，并在结果中标注「已降级」"
-          sectionId="settings-experimental"
-          keywords={['http', 'fetch', 'browser', 'html', '网页获取', '浏览器', '降级']}
-        >
-          <Select
-            value={httpFetchMode}
-            onChange={(v) => updateExperimental({ httpFetchMode: v as HttpFetchMode })}
-            options={[
-              { value: 'browser', label: '本机浏览器（推荐）' },
-              { value: 'html', label: '裸 HTTP GET' },
-            ]}
-            className="w-52"
-          />
-        </SettingItem>
+        <>
+          <SettingItem
+            id="exp-httpfetch-mode"
+            label="获取方式"
+            description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截；DeepSeek 抓取由 DeepSeek 服务器代抓并转成 Markdown。浏览器或 DeepSeek 失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
+            sectionId="settings-experimental"
+            keywords={['http', 'fetch', 'browser', 'html', 'deepseek', '网页获取', '浏览器', '降级']}
+          >
+            <Select
+              value={httpFetchMode}
+              onChange={(v) => updateExperimental({ httpFetchMode: v as HttpFetchMode })}
+              options={[
+                { value: 'browser', label: '本机浏览器（推荐）' },
+                { value: 'html', label: '裸 HTTP GET' },
+                { value: 'deepseek', label: 'DeepSeek 抓取' },
+              ]}
+              className="w-52"
+            />
+          </SettingItem>
+
+          {httpFetchMode === 'deepseek' && (
+            <SettingItem
+              id="exp-httpfetch-deepseek-key"
+              label="DeepSeek API Key"
+              description={`${DEEPSEEK_FETCH_DESCRIPTION}${DEEPSEEK_KEY_SHARED_NOTE}`}
+              sectionId="settings-experimental"
+              keywords={['key', '密钥', 'deepseek', '网页获取']}
+            >
+              <ToolApiKeyInput slot="deepseek" placeholder="输入 DeepSeek API Key" />
+            </SettingItem>
+          )}
+        </>
       )}
 
       <SettingItem

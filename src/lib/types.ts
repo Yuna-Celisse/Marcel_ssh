@@ -828,8 +828,8 @@ export interface TerminalColors {
 }
 
 export type WebSearchMode = 'browser' | 'api' | 'html';
-export type HttpFetchMode = 'browser' | 'html';
-export type WebSearchApiProvider = 'brave' | 'tavily';
+export type HttpFetchMode = 'browser' | 'html' | 'deepseek';
+export type WebSearchApiProvider = 'brave' | 'tavily' | 'deepseek';
 /** Bing host used by web_search browser/html modes; default cn */
 export type WebSearchEndpoint = 'cn' | 'www';
 
@@ -1485,6 +1485,11 @@ export interface AppBootstrapData {
   settings: AppSettings;
   hasApiKey: boolean;
   hasWebSearchApiKey: boolean;
+  /**
+   * 密钥链里是否已有 DeepSeek 工具类 API Key（网页搜索 + 网页获取共用）。
+   * 与 `hasJevApiKey` 同理必填：启动快照是本会话读到真值的唯一路径。
+   */
+  hasDeepseekToolsApiKey: boolean;
   /**
    * 密钥链里是否已有 TypeSafe（Jev）API Key。
    *
