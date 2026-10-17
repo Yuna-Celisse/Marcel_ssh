@@ -37,7 +37,7 @@ export default function Toggle({ checked, onChange, disabled = false, label, siz
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            !disabled && onChange(!checked);
+            if (!disabled) onChange(!checked);
           }
         }}
         className={`

@@ -53,6 +53,9 @@ pub(crate) async fn test_channels() -> (
         keys: vec![key.into()],
         ..Default::default()
     };
+    // `run_stream(..).await.unwrap()` 得到的 `RunningSession` 本身还可以 await；这里让 spawn 的
+    // 任务把它原样交出来，由下面的 `_session` 持有到函数结束，所以不是漏了一次 `.await`。
+    #[allow(clippy::async_yields_async)]
     let server = tokio::spawn(async move {
         russh::server::run_stream(Arc::new(config), server_io, TestPeer { channels: tx })
             .await
