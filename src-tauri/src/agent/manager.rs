@@ -1637,12 +1637,18 @@ mod tests {
     #[test]
     fn expired_pending_cancel_is_dropped() {
         let id = unique_id("expired");
+        // `Instant` 的起点是开机时刻（Windows 上尤其如此）：刚启动的机器（例如 CI 的
+        // 全新 runner）上 `Instant::now() - TTL` 会直接溢出 panic，所以只能 `checked_sub`。
+        // 减不动就说明此刻没法伪造出「已过期」的时间点，跳过并明说，不假装通过。
+        let Some(expired_at) =
+            Instant::now().checked_sub(PENDING_CANCEL_TTL + std::time::Duration::from_secs(1))
+        else {
+            eprintln!("skip: 本机 Instant 起点距今不足一个墓碑 TTL（刚开机），造不出过期时间点");
+            return;
+        };
         {
             let mut table = pending_cancels().lock().unwrap_or_else(|e| e.into_inner());
-            table.push_back((
-                id.clone(),
-                Instant::now() - PENDING_CANCEL_TTL - std::time::Duration::from_secs(1),
-            ));
+            table.push_back((id.clone(), expired_at));
         }
         assert!(!take_pending_cancel(&id), "过期墓碑不该再被认领");
         assert!(

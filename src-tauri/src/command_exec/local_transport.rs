@@ -624,12 +624,12 @@ mod tests {
             format!(
                 "$out = [Console]::OpenStandardOutput(); \
                  $out.Write([byte[]](0xE4, 0xBD), 0, 2); $out.Flush(); \
-                 [System.IO.File]::WriteAllText('{marker}', 'x'); Start-Sleep -Seconds 4"
+                 [System.IO.File]::WriteAllText('{marker}', 'x'); Start-Sleep -Seconds 8"
             )
         }
         #[cfg(not(windows))]
         {
-            format!("printf '\\344\\275'; : > '{marker}'; sleep 4")
+            format!("printf '\\344\\275'; : > '{marker}'; sleep 8")
         }
     }
 
@@ -836,14 +836,21 @@ mod tests {
         let child = ShellSpec::for_tests()
             .spawn(&partial_multibyte_then_signal(&marker))
             .expect("测试用 shell 必须能起来");
+        // 等标记的上限给足：负载高的 CI 机器上冷启动一个 PowerShell 可以很慢。到点没等到
+        // 也照样发取消（否则 read_child 会一直挂着），但会把「标记到底出现没有」交给下面
+        // 断言——没出现就是环境慢，不能再被误读成「产品把半截字节吞了」。
         let sender = tokio::spawn(async move {
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
             while !marker.exists() && tokio::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
+            let seen = marker.exists();
             // 标记已出现 ⇒ 两字节已在管道里；再给读循环一拍把它们收进 carry。
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            // 子进程写完标记后还会睡 8 秒（见 partial_multibyte_then_signal），这一拍
+            // 在其内留足余量。
+            tokio::time::sleep(Duration::from_millis(1000)).await;
             let _ = cancel_tx.send(CancelReason::Task);
+            seen
         });
         let outcome = read_child(
             child,
@@ -854,7 +861,11 @@ mod tests {
         )
         .await
         .unwrap();
-        sender.await.unwrap();
+        let marker_seen = sender.await.unwrap();
+        assert!(
+            marker_seen,
+            "子进程 60 秒内没写出标记：这是测试环境太慢（shell 没起来），不是取消路径吞了字节"
+        );
         assert!(matches!(
             outcome,
             ExecOutcome::Cancelled {
