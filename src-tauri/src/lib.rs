@@ -787,11 +787,12 @@ pub fn run() {
                 for server in enabled {
                     let mgr = mcp_manager.clone();
                     set.spawn(async move {
-                        match mgr.refresh_tools(&server).await {
+                        // 与任务启动共用同一次在途发现：预热没回来时就开任务，不会再发一遍。
+                        match mgr.ensure_refresh(&server).await {
                             Ok(tools) => {
                                 log::info!("MCP [{}] 发现 {} 个工具", server.name, tools.len())
                             }
-                            Err(err) => log::warn!("MCP [{}] 刷新失败: {}", err, server.name),
+                            Err(err) => log::warn!("MCP [{}] 刷新失败: {}", server.name, err),
                         }
                     });
                 }

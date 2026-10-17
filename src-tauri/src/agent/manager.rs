@@ -38,11 +38,17 @@ use crate::llm::jev::JevConfig;
 use crate::llm::manager::LlmManager;
 use crate::llm::provider::{LlmConfig, LlmMessage, LlmRole, ToolDefinition};
 use crate::llm::registry::LlmRegistry;
+use crate::mcp::manager::StartupTools;
 use crate::mcp::store::McpServerConfig;
 use crate::plugins::context::{apply_to_string, SessionContext};
+use crate::plugins::manifest::PluginManifest;
 use crate::plugins::registry::PluginRegistry;
 use crate::ssh::connection::SessionInfo;
 use crate::AppState;
+
+/// 任务启动时，对"从没发现过工具"的 MCP 服务器最多等多久。已有缓存（成功或失败）
+/// 的服务器一律不等。
+const MCP_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// 单个插件贡献的 system prompt 段的最大字符数。
 const PLUGIN_SECTION_MAX_CHARS: usize = 2000;
@@ -464,7 +470,7 @@ impl AgentManager {
                 settings.llm_registry.clone(),
             )
         };
-        let plugin_registry_guard = self.state.plugin_registry.read().await;
+        let plugin_manifests = self.state.plugin_registry.read().await.enabled_manifests();
         let registry = self
             .build_registry(
                 &AgentRole::Main,
@@ -472,7 +478,7 @@ impl AgentManager {
                 &enabled_skills,
                 &enabled_mcp_servers,
                 &experimental_settings,
-                &plugin_registry_guard,
+                &plugin_manifests,
                 &llm_registry,
             )
             .await;
@@ -650,7 +656,20 @@ impl AgentManager {
         } else {
             None
         };
-        let plugin_registry_guard = self.state.plugin_registry.read().await;
+        // 插件注册表的读锁只覆盖"取快照"这一小段：下面组装工具集要等 MCP 服务器，
+        // 那是网络往返，不能拿着锁等（异步读写锁里，排队的写者会把后来的读者也
+        // 一并挡住，插件安装 / 启停会跟着卡）。
+        let (plugin_manifests, plugin_sections) = {
+            let guard = self.state.plugin_registry.read().await;
+            let sections = collect_plugin_sections(
+                &guard,
+                &self.state.ssh_manager,
+                &spec.session_id,
+                &spec.mode,
+            )
+            .await;
+            (guard.enabled_manifests(), sections)
+        };
         let registry = self
             .build_registry(
                 &spec.role,
@@ -658,19 +677,11 @@ impl AgentManager {
                 &enabled_skills,
                 &enabled_mcp_servers,
                 &experimental_settings,
-                &plugin_registry_guard,
+                &plugin_manifests,
                 &llm_registry,
             )
             .await;
         let tools = build_definitions(&registry, &spec.mode);
-        let plugin_sections = collect_plugin_sections(
-            &plugin_registry_guard,
-            &self.state.ssh_manager,
-            &spec.session_id,
-            &spec.mode,
-        )
-        .await;
-        drop(plugin_registry_guard);
 
         // ── 4.5 多机操控：主任务注入机器清单段（子任务不注入——它们的
         //     目标机器由父任务经 subagent(host=...) 显式指定，系统提示已含约束）──
@@ -871,7 +882,7 @@ impl AgentManager {
         enabled_skills: &[crate::skills::store::Skill],
         enabled_mcp_servers: &[McpServerConfig],
         experimental_settings: &ExperimentalSettings,
-        plugin_registry: &PluginRegistry,
+        plugin_manifests: &[PluginManifest],
         llm_registry: &LlmRegistry,
     ) -> Arc<ToolRegistry> {
         let mut registry = build_role_registry(
@@ -892,24 +903,27 @@ impl AgentManager {
         // 它由工具声明表的 `ToolRoles::MainOnly` 表达，见
         // `tools/mod.rs` 的 `BUILTIN_TOOLS_COMMON`。
         if !role.is_subtask() {
-            let manifests = plugin_registry.enabled_manifests();
-            for m in &manifests {
+            for m in plugin_manifests {
                 register_plugin_tools(&mut registry, &m.id, &m.agent_tools);
             }
+            // MCP 工具：用上次发现的缓存，不为慢 / 连不上的服务器拖住任务启动
+            // （详见 `McpManager::tools_for_startup`）。各服务器并行问，互不拖累。
             let mut set = tokio::task::JoinSet::new();
             for server in enabled_mcp_servers {
                 let mgr = self.state.mcp_manager.clone();
                 let server = server.clone();
                 set.spawn(async move {
-                    let result = mgr.refresh_tools(&server).await;
-                    (server, result)
+                    let tools = mgr.tools_for_startup(&server, MCP_STARTUP_WAIT).await;
+                    (server, tools)
                 });
             }
             while let Some(result) = set.join_next().await {
                 match result {
-                    Ok((server, Ok(tools))) => register_mcp_tools(&mut registry, &server, tools),
-                    Ok((server, Err(err))) => {
-                        log::warn!("刷新 MCP tools 失败 [{}]: {}", server.name, err)
+                    Ok((server, StartupTools::Unavailable(reason))) => {
+                        log::warn!("MCP [{}] 本次任务未带上其工具: {}", server.name, reason)
+                    }
+                    Ok((server, found)) => {
+                        register_mcp_tools(&mut registry, &server, found.into_tools())
                     }
                     Err(join_err) => log::warn!("MCP 刷新任务 panic: {}", join_err),
                 }

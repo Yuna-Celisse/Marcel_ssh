@@ -195,6 +195,8 @@ pub struct SpyClient {
     pub tools_to_return: std::sync::Arc<tokio::sync::Mutex<Vec<McpToolInfo>>>,
     pub init_error: std::sync::Arc<tokio::sync::Mutex<Option<String>>>,
     pub list_error: std::sync::Arc<tokio::sync::Mutex<Option<String>>>,
+    /// 模拟慢服务器：`list_tools` 记完调用后先睡这么久再返回。
+    pub list_delay: std::sync::Arc<tokio::sync::Mutex<Option<Duration>>>,
 }
 
 #[cfg(test)]
@@ -206,6 +208,7 @@ impl SpyClient {
             tools_to_return: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             init_error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
             list_error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            list_delay: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 }
@@ -231,6 +234,10 @@ impl McpClientLike for SpyClient {
         _headers: &HashMap<String, String>,
     ) -> Result<Vec<McpToolInfo>, AppError> {
         self.list_calls.lock().await.push(url.to_string());
+        let delay = *self.list_delay.lock().await;
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
         if let Some(ref msg) = *self.list_error.lock().await {
             return Err(AppError::Config(msg.clone()));
         }
