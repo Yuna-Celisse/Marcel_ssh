@@ -706,6 +706,8 @@ impl AgentManager {
             matches!(spec.mode, AgentMode::Plan),
             audience_of(&spec.role),
             &prompt_extra,
+            // 手机端的 Browser 会在搜索时降级成 Html，同样属于噪音档，所以只认「不是 Api」。
+            experimental_settings.web_search_mode != crate::config::settings::WebSearchMode::Api,
         )?;
 
         // 子任务：冻结"父会话回读窗口"的上界 —— 派发这一刻父会话最后一条已落库
@@ -1253,13 +1255,17 @@ fn build_agent_messages(
     plan_mode: bool,
     audience: crate::agent::tools::ToolAudience,
     extra_sections: &[String],
+    web_search_noisy: bool,
 ) -> Result<Vec<LlmMessage>, AppError> {
     // 提示词段由「已注册工具的声明」推导，不按工具名 hardcode：
     // 声明表里给工具写了 `prompt_section`，它出现在本次注册里就会带上对应段落。
-    let tool_sections: std::collections::BTreeSet<crate::agent::tools::PromptSection> = tools
+    let mut tool_sections: std::collections::BTreeSet<crate::agent::tools::PromptSection> = tools
         .iter()
         .filter_map(|t| crate::agent::tools::prompt_section_of(&t.name))
         .collect();
+    if web_search_noisy {
+        tool_sections.insert(crate::agent::tools::PromptSection::WebSearchNoisy);
+    }
     // skills 是动态注册的工具（`skill_<id>`），不在声明表里，只能按前缀判断。
     let has_skills = tools.iter().any(|t| {
         t.name

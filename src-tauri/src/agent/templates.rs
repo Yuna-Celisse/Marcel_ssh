@@ -14,7 +14,7 @@
 //! | 会话 | `templates/agent/会话.hbs` | 无条件 | system prompt |
 //! | 技能 | `templates/agent/技能.hbs` | 注册了 `skill_*` | system prompt |
 //! | 规划模式 | `templates/agent/规划模式.hbs` | Plan 模式 | system prompt |
-//! | 子agent 派发 | `templates/agent/子agent.hbs` | 注册了声明 `Subagent` 段的工具（当前是 `subagent`） | system prompt |
+//! | 子agent 派发 | `templates/agent/子agent.hbs` | 注册了声明 `Subagent` 段的工具（当前是 `subagent`）；其中「web_search 噪音大、默认派子agent」一段另需 `WebSearch` 在册且搜索方式非 API（`WebSearchNoisy` 标记，`manager` 按设置插入） | system prompt |
 //! | 用户附加指令 | `templates/agent/用户指令.hbs` | 设置为非空（上限 2000 字） | system prompt |
 //! | 插件扩展指令 | `templates/agent/插件指令.hbs` | 有插件 `systemPromptSection` | system prompt |
 //! | 压缩前言 / 压缩指令 | `templates/context/压缩前言.hbs`、`压缩指令.hbs` | 每次上下文压缩 | 摘要专用 LLM 调用（带常规请求同一份 tools schema） |
@@ -202,6 +202,9 @@ impl TemplateManager {
             "session_id": &vars.session_id,
             "user_prompt": &vars.user_prompt,
             "plugin_sections": plugin_joined,
+            // 仅当 web_search 真的注册、且走的是浏览器/裸抓（非 API）时才提醒质量有限。
+            "web_search_noisy": tool_sections.contains(&PromptSection::WebSearch)
+                && tool_sections.contains(&PromptSection::WebSearchNoisy),
         });
 
         let render = |name: &str| -> String {
@@ -720,12 +723,48 @@ mod tests {
             user_prompt: String::new(),
             plugin_sections: vec![],
         };
-        let prompt = build(&vars, false, &[PromptSection::Subagent], false);
+        let prompt = build(
+            &vars,
+            false,
+            &[
+                PromptSection::Subagent,
+                PromptSection::WebSearch,
+                PromptSection::WebSearchNoisy,
+            ],
+            false,
+        );
         assert!(prompt.contains("子agent 派发"));
         assert!(prompt.contains("subagent"));
         // 联网搜集信息默认派发子agent 的引导（web_search 质量低/token 消耗/会话时长）
         assert!(prompt.contains("联网搜集信息"));
         assert!(prompt.contains("token"));
+    }
+
+    /// 搜索走 API、或根本没有 web_search 时，不该提醒「web_search 质量有限」。
+    #[test]
+    fn prompt_subagent_section_omits_noise_warning_unless_browser_or_html_search() {
+        let vars = AgentPromptVars {
+            session_id: "s1".into(),
+            user_prompt: String::new(),
+            plugin_sections: vec![],
+        };
+        // API 模式：有 web_search，但没有噪音标记。
+        let api = build(
+            &vars,
+            false,
+            &[PromptSection::Subagent, PromptSection::WebSearch],
+            false,
+        );
+        assert!(api.contains("子agent 派发"));
+        assert!(!api.contains("联网搜集信息"));
+        // 没注册 web_search：标记单独存在也不应出现提醒。
+        let no_tool = build(
+            &vars,
+            false,
+            &[PromptSection::Subagent, PromptSection::WebSearchNoisy],
+            false,
+        );
+        assert!(!no_tool.contains("联网搜集信息"));
     }
 
     #[test]

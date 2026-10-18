@@ -938,6 +938,10 @@ pub enum PromptSection {
     HttpFetch,
     /// 「子agent 派发」段。
     Subagent,
+    /// 不是某个工具的段，而是一个**模式标记**：当前联网搜索走的是本机浏览器或
+    /// 裸抓 HTML（结果噪音大），而不是搜索 API。由 `manager` 按设置插入，
+    /// 模板据此决定要不要提醒「web_search 质量有限，优先派子agent」。
+    WebSearchNoisy,
 }
 
 /// 工具作用在哪一侧。
