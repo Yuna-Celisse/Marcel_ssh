@@ -271,6 +271,36 @@ pub fn delete_custom_fetch_api_key() -> Result<(), AppError> {
         .map_err(|e| AppError::Config(format!("删除自定义抓取 API Key 失败：{}", e)))
 }
 
+/// Store the Tavily Extract key (the "Tavily" page-fetch mode) in the system keychain.
+///
+/// 与 Brave/Tavily 搜索共用的 `web_search_api_key` 分开：那个槽位可能装着 Brave 的 Key，
+/// 选了 Brave 搜索 + Tavily 抓取的人，借它就会把 Brave 的 Key 发给 Tavily。
+/// 抓取时优先用这里；留空且搜索提供商恰好是 Tavily 才沿用搜索那把（见 `http_get`）。
+pub fn save_tavily_fetch_api_key(api_key: &str) -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "tavily_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    entry
+        .set_password(api_key)
+        .map_err(|e| AppError::Config(format!("保存 Tavily 抓取 API Key 到密钥链失败：{}", e)))?;
+    Ok(())
+}
+
+/// Retrieve the Tavily fetch API key. Returns `Ok(None)` if not found.
+pub fn get_tavily_fetch_api_key() -> Result<Option<String>, AppError> {
+    let entry = store_impl::entry(SERVICE, "tavily_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::get_optional_password(&entry)
+        .map_err(|e| AppError::Config(format!("读取 Tavily 抓取 API Key 失败：{}", e)))
+}
+
+/// Remove the Tavily fetch API key. Missing entries are treated as success.
+pub fn delete_tavily_fetch_api_key() -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "tavily_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::delete_if_exists(&entry)
+        .map_err(|e| AppError::Config(format!("删除 Tavily 抓取 API Key 失败：{}", e)))
+}
+
 /// Store the TypeSafe (Jev) API key in the system keychain.
 ///
 /// 全局一份凭据（不像 LLM 渠道按 `channel_id` 分）：命令审批引擎只有一个，

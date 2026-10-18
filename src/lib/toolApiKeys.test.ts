@@ -9,6 +9,8 @@ const tauriMock = vi.hoisted(() => ({
   deleteCustomSearchApiKey: vi.fn(),
   saveCustomFetchApiKey: vi.fn(),
   deleteCustomFetchApiKey: vi.fn(),
+  saveTavilyFetchApiKey: vi.fn(),
+  deleteTavilyFetchApiKey: vi.fn(),
 }));
 vi.mock('@/lib/tauri', () => tauriMock);
 
@@ -22,6 +24,7 @@ beforeEach(() => {
     hasDeepseekToolsApiKey: false,
     hasCustomSearchApiKey: false,
     hasCustomFetchApiKey: false,
+    hasTavilyFetchApiKey: false,
   });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -79,8 +82,20 @@ describe('saveToolApiKey', () => {
     expect(useSettingsStore.getState().hasCustomSearchApiKey).toBe(false);
   });
 
+  it('stores a Tavily fetch key in its own slot, never the shared search one that may hold a Brave key', async () => {
+    expect(await saveToolApiKey('tavilyFetch', ' tvly-key ')).toBe(true);
+
+    expect(tauriMock.saveTavilyFetchApiKey).toHaveBeenCalledWith('tvly-key');
+    expect(tauriMock.saveWebSearchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveCustomFetchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveDeepseekToolsApiKey).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().hasTavilyFetchApiKey).toBe(true);
+    expect(useSettingsStore.getState().hasWebSearchApiKey).toBe(false);
+    expect(useSettingsStore.getState().hasCustomFetchApiKey).toBe(false);
+  });
+
   it('ignores blanks and the masked placeholder, which blur events deliver untouched', async () => {
-    for (const slot of ['search', 'deepseek', 'custom', 'customFetch'] as const) {
+    for (const slot of ['search', 'deepseek', 'custom', 'customFetch', 'tavilyFetch'] as const) {
       expect(await saveToolApiKey(slot, '')).toBe(false);
       expect(await saveToolApiKey(slot, '   ')).toBe(false);
       expect(await saveToolApiKey(slot, '********')).toBe(false);
@@ -89,6 +104,7 @@ describe('saveToolApiKey', () => {
     expect(tauriMock.saveDeepseekToolsApiKey).not.toHaveBeenCalled();
     expect(tauriMock.saveCustomSearchApiKey).not.toHaveBeenCalled();
     expect(tauriMock.saveCustomFetchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveTavilyFetchApiKey).not.toHaveBeenCalled();
   });
 
   it('does not claim a key is saved when the backend refused it', async () => {
@@ -133,6 +149,7 @@ describe('clearToolApiKey', () => {
       hasCustomSearchApiKey: true,
       hasDeepseekToolsApiKey: true,
       hasCustomFetchApiKey: true,
+      hasTavilyFetchApiKey: false,
     });
 
     expect(await clearToolApiKey('customFetch')).toBe(true);
@@ -143,6 +160,23 @@ describe('clearToolApiKey', () => {
     expect(useSettingsStore.getState().hasCustomFetchApiKey).toBe(false);
     expect(useSettingsStore.getState().hasCustomSearchApiKey).toBe(true);
     expect(useSettingsStore.getState().hasDeepseekToolsApiKey).toBe(true);
+  });
+
+  it('clears the Tavily fetch slot without touching the shared search key', async () => {
+    useSettingsStore.setState({
+      hasWebSearchApiKey: true,
+      hasCustomFetchApiKey: true,
+      hasTavilyFetchApiKey: true,
+    });
+
+    expect(await clearToolApiKey('tavilyFetch')).toBe(true);
+
+    expect(tauriMock.deleteTavilyFetchApiKey).toHaveBeenCalledTimes(1);
+    expect(tauriMock.deleteWebSearchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.deleteCustomFetchApiKey).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().hasTavilyFetchApiKey).toBe(false);
+    expect(useSettingsStore.getState().hasWebSearchApiKey).toBe(true);
+    expect(useSettingsStore.getState().hasCustomFetchApiKey).toBe(true);
   });
 
   it('keeps the saved flag when the backend failed to delete', async () => {

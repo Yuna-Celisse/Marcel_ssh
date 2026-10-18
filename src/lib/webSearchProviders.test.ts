@@ -6,7 +6,10 @@ import {
   CUSTOM_KEY_DESCRIPTION,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_DESCRIPTION,
+  FETCH_API_PROTOCOLS,
   SEARCH_API_PROTOCOLS,
+  TAVILY_FETCH_DESCRIPTION,
+  TAVILY_FETCH_KEY_DESCRIPTION,
   WEB_SEARCH_API_PROVIDERS,
   checkCustomEndpointUrl,
   searchKeyDescription,
@@ -111,10 +114,26 @@ describe('checkCustomEndpointUrl', () => {
 });
 
 describe('custom fetch copy', () => {
-  it('says where URLs go, which wire format is expected, and that failure degrades locally', () => {
+  it('says where URLs go, that a protocol must be picked, and that failure degrades locally', () => {
     expect(CUSTOM_FETCH_DESCRIPTION).toContain('网址会发给这个服务');
-    expect(CUSTOM_FETCH_DESCRIPTION).toContain('content');
+    expect(CUSTOM_FETCH_DESCRIPTION).toContain('兼容哪家');
     expect(CUSTOM_FETCH_DESCRIPTION).toContain('降级');
+  });
+
+  it('offers exactly the wire formats the backend can speak, each described by its payload shape', () => {
+    expect(FETCH_API_PROTOCOLS.map((p) => p.value)).toEqual(['deepseek', 'tavily']);
+    const hints = Object.fromEntries(FETCH_API_PROTOCOLS.map((p) => [p.value, p.hint]));
+    expect(hints.deepseek).toContain('content');
+    expect(hints.tavily).toContain('raw_content');
+    expect(hints.tavily).toContain('failed_results');
+  });
+
+  it('states where Tavily fetch sends pages, and why the shared Brave key is never borrowed', () => {
+    expect(TAVILY_FETCH_DESCRIPTION).toContain('Tavily 服务器');
+    expect(TAVILY_FETCH_DESCRIPTION).toContain('计费');
+    expect(TAVILY_FETCH_DESCRIPTION).toContain('内网');
+    expect(TAVILY_FETCH_KEY_DESCRIPTION).toContain('留空');
+    expect(TAVILY_FETCH_KEY_DESCRIPTION).toContain('不会把 Brave 的 Key 发给 Tavily');
   });
 
   it('keeps the key optional and isolated, and the private-address opt-in off by default', () => {

@@ -60,6 +60,10 @@ describe('resolveMobileFetchMode', () => {
   it('keeps custom, which is plain HTTP too', () => {
     expect(resolveMobileFetchMode('custom')).toBe('custom');
   });
+
+  it('keeps tavily, which is plain HTTP too', () => {
+    expect(resolveMobileFetchMode('tavily')).toBe('tavily');
+  });
 });
 
 describe('selectMobileFetchMode', () => {
@@ -75,8 +79,15 @@ describe('selectMobileFetchMode', () => {
     expect(selectMobileFetchMode(undefined, 'custom')).toEqual({ httpFetchMode: 'custom' });
   });
 
-  it('selecting html only rewrites when stored is a server-side fetch (deepseek / custom)', () => {
+  it('selecting tavily always writes tavily', () => {
+    expect(selectMobileFetchMode('browser', 'tavily')).toEqual({ httpFetchMode: 'tavily' });
+    expect(selectMobileFetchMode('custom', 'tavily')).toEqual({ httpFetchMode: 'tavily' });
+    expect(selectMobileFetchMode(undefined, 'tavily')).toEqual({ httpFetchMode: 'tavily' });
+  });
+
+  it('selecting html only rewrites when stored is a server-side fetch (deepseek / tavily / custom)', () => {
     expect(selectMobileFetchMode('deepseek', 'html')).toEqual({ httpFetchMode: 'html' });
+    expect(selectMobileFetchMode('tavily', 'html')).toEqual({ httpFetchMode: 'html' });
     expect(selectMobileFetchMode('custom', 'html')).toEqual({ httpFetchMode: 'html' });
   });
 

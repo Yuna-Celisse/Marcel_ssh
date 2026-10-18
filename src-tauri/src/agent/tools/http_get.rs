@@ -3,13 +3,14 @@
 //! Backend follows settings → experimentalSettings.httpFetchMode:
 //! - `browser`: local headless Chrome/Edge via CDP (rendered DOM)
 //! - `html`: bare HTTP GET via reqwest
-//! - `custom`: the user's own fetch service, speaking the same wire format as
-//!   `deepseek`; internal addresses stay local unless the user opted in.
-//! - `deepseek`: DeepSeek's server-side fetch (`/v1/tools/fetch`), which returns
-//!   Markdown directly. Only **public** URLs are sent to it; private/LAN/loopback
-//!   addresses and URLs carrying credentials are read locally (see
-//!   [`is_private_target`]), and a DeepSeek failure degrades to a local HTTP GET
-//!   with the reason stated in the result.
+//! - `custom`: the user's own fetch service, speaking either DeepSeek's or
+//!   Tavily's wire format (their choice); internal addresses stay local unless
+//!   the user opted in.
+//! - `deepseek` / `tavily`: DeepSeek's (`/v1/tools/fetch`) or Tavily's (`/extract`)
+//!   server-side fetch, which return Markdown directly. Only **public** URLs are
+//!   sent to them; private/LAN/loopback addresses and URLs carrying credentials
+//!   are read locally (see [`is_private_target`]), and a failure degrades to a
+//!   local HTTP GET with the reason stated in the result.
 //!
 //! Supports batch fetching: pass a single `url` or an array of `urls`.
 //! When multiple URLs are provided, they are fetched concurrently (HTTP)
@@ -33,10 +34,14 @@ use tauri::Manager;
 use crate::agent::risk::Disposition;
 use crate::agent::tools::browser_cdp;
 use crate::agent::tools::deepseek_api;
-use crate::agent::tools::web_result::{is_blank_content, is_bot_block, FallbackNote, WebBackend};
+use crate::agent::tools::web_result::{
+    is_blank_content, is_bot_block, truncate_error_body, FallbackNote, WebBackend,
+};
 use crate::agent::tools::{truncate_output, AgentTool, ToolContext, ToolOutput};
 use crate::config::keychain;
-use crate::config::settings::{CustomFetchApi, HttpFetchMode};
+use crate::config::settings::{
+    CustomFetchApi, FetchApiProtocol, HttpFetchMode, WebSearchApiProvider,
+};
 use crate::error::AppError;
 
 const MAX_OUTPUT_BYTES: usize = 24_000;
@@ -105,11 +110,11 @@ impl AgentTool for HttpGetTool {
          (HTTP mode is concurrent; browser mode reuses one local browser session). \
          Use this to read detailed content from URLs returned by the `web_search` tool. \
          Backend follows Settings → 网页获取方式: browser uses local Chrome/Edge, \
-         html uses bare HTTP GET, deepseek has DeepSeek's servers fetch public pages, custom uses the user's own \
-         fetch service (private/LAN/localhost addresses are fetched locally unless \
+         html uses bare HTTP GET, deepseek / tavily have DeepSeek's / Tavily's servers fetch public pages, custom \
+         uses the user's own fetch service (private/LAN/localhost addresses are fetched locally unless \
          the user opted in for their own service). \
          Requests are sent from this computer (where Marcel SSH runs), not from the \
-         remote server; in deepseek/custom mode pages are fetched by that remote service instead. \
+         remote server; in deepseek/tavily/custom mode pages are fetched by that remote service instead. \
          IMPORTANT: When you need to read multiple pages, ALWAYS use the `urls` array \
          instead of calling this tool repeatedly. Returns readable Markdown by default, \
          preserving headings, lists, code blocks, tables, links, and basic HTTP metadata. \
@@ -147,7 +152,7 @@ impl AgentTool for HttpGetTool {
                 "format": {
                     "type": "string",
                     "enum": ["markdown", "text"],
-                    "description": "Output format for HTML pages (default: markdown; the deepseek backend always returns markdown)",
+                    "description": "Output format for HTML pages (default: markdown; the deepseek backend always returns markdown, tavily/custom services may honour text)",
                     "default": "markdown"
                 },
                 "include_metadata": {
@@ -232,6 +237,10 @@ impl AgentTool for HttpGetTool {
         let batch = match mode {
             HttpFetchMode::Browser => fetch_all_browser(&owned, format).await,
             HttpFetchMode::Deepseek => fetch_all_deepseek(&owned, format).await,
+            HttpFetchMode::Tavily => {
+                let search_provider = resolve_search_provider(ctx).await;
+                fetch_all_tavily(&owned, format, search_provider).await
+            }
             HttpFetchMode::Custom => {
                 let config = resolve_custom_fetch(ctx).await;
                 fetch_all_custom(&owned, format, &config).await
@@ -342,6 +351,7 @@ impl AgentTool for HttpGetTool {
                 HttpFetchMode::Browser => WebBackend::Browser.label(),
                 HttpFetchMode::Html => WebBackend::Html.label(),
                 HttpFetchMode::Deepseek => WebBackend::Deepseek.label(),
+                HttpFetchMode::Tavily => WebBackend::Tavily.label(),
                 HttpFetchMode::Custom => WebBackend::Custom.label(),
             },
             "urls_fetched": urls_to_fetch.len(),
@@ -532,8 +542,17 @@ async fn finish_browser_batch(
 //   local HTTP GET with the reason in the result, the same contract as the
 //   browser backend.
 //
-// The custom service speaks DeepSeek's wire format (`{"url"}` in, `{"title",
-// "content"}` out) so there is exactly one parser for both.
+// There are two wire formats, and the custom service lets the user pick either:
+//
+// - DeepSeek: `{"url"}` in, `{"title","content"}` out.
+// - Tavily Extract (https://docs.tavily.com/documentation/api-reference/endpoint/extract):
+//   `{"urls":[..],"format"}` in, `{"results":[{"url","raw_content"}],
+//   "failed_results":[{"url","error"}]}` out. Pages still go one request each — the
+//   response order is not guaranteed, and a per-page request keeps the per-page
+//   budget, retry and local-fallback bookkeeping identical for every service.
+//
+// Both end in `remote_page`, so what a page looks like afterwards does not depend on
+// which service produced it.
 
 /// Pages in flight at once. Fetch is limited to 5 QPS per account (plus a
 /// per-target-domain limit); a wider fan-out only trades pages for 429s.
@@ -549,22 +568,39 @@ struct RemoteFetchResponse {
     content: Option<String>,
 }
 
+/// Tavily's page-extraction endpoint (the "Tavily" mode; "custom" brings its own address).
+const TAVILY_EXTRACT_URL: &str = "https://api.tavily.com/extract";
+
 /// The service the remote part of a batch goes to, with what it needs to be called.
 struct RemoteFetcher {
     backend: WebBackend,
-    /// `None` = DeepSeek's official endpoint; `Some` = the user's validated address.
+    /// How requests are shaped and responses read.
+    protocol: FetchApiProtocol,
+    /// `None` = DeepSeek's official endpoint; `Some` = Tavily's or the user's validated address.
     endpoint: Option<String>,
     /// May be empty for a custom service (then no `Authorization` header is sent).
     api_key: String,
+    /// What the model asked for; only the Tavily format can carry it.
+    format: OutputFormat,
 }
 
 impl RemoteFetcher {
-    /// How errors and notes refer to the service.
+    /// How request errors refer to the service.
     fn name(&self) -> &'static str {
         match self.backend {
             WebBackend::Custom => "custom fetch service",
+            WebBackend::Tavily => "Tavily extract",
             _ => "DeepSeek fetch",
         }
+    }
+}
+
+/// How the fallback note and parse errors refer to the service that served (or failed) a page.
+fn service_name(backend: WebBackend) -> &'static str {
+    match backend {
+        WebBackend::Custom => "the custom fetch service",
+        WebBackend::Tavily => "Tavily",
+        _ => "DeepSeek",
     }
 }
 
@@ -577,11 +613,71 @@ async fn fetch_all_deepseek(urls: &[String], format: OutputFormat) -> FetchBatch
     let fetcher = deepseek_api::load_api_key()
         .map(|api_key| RemoteFetcher {
             backend: WebBackend::Deepseek,
+            protocol: FetchApiProtocol::Deepseek,
             endpoint: None,
             api_key,
+            format,
         })
         .map_err(|e| e.to_string());
     fetch_all_remote(urls, format, WebBackend::Deepseek, remote, fetcher).await
+}
+
+/// Same, through Tavily Extract. Public URLs only; everything else is read locally.
+async fn fetch_all_tavily(
+    urls: &[String],
+    format: OutputFormat,
+    search_provider: WebSearchApiProvider,
+) -> FetchBatch {
+    let remote: Vec<usize> = (0..urls.len())
+        .filter(|&i| !is_private_target(&urls[i]))
+        .collect();
+    let fetcher = tavily_fetcher(format, search_provider).map_err(|e| e.to_string());
+    fetch_all_remote(urls, format, WebBackend::Tavily, remote, fetcher).await
+}
+
+fn tavily_fetcher(
+    format: OutputFormat,
+    search_provider: WebSearchApiProvider,
+) -> Result<RemoteFetcher, AppError> {
+    let own = keychain::get_tavily_fetch_api_key()?;
+    // Only worth reading when it could be used; never touch the shared slot for Brave.
+    let shared = if search_provider == WebSearchApiProvider::Tavily {
+        keychain::get_web_search_api_key()?
+    } else {
+        None
+    };
+    let api_key = pick_tavily_fetch_key(own, shared, search_provider).ok_or_else(|| {
+        AppError::Agent(
+            "Tavily API key is not configured for page fetch; set it in Settings → Agent tools"
+                .into(),
+        )
+    })?;
+    Ok(RemoteFetcher {
+        backend: WebBackend::Tavily,
+        protocol: FetchApiProtocol::Tavily,
+        endpoint: Some(TAVILY_EXTRACT_URL.to_string()),
+        api_key,
+        format,
+    })
+}
+
+/// The key Tavily Extract is called with: its own slot wins; otherwise the Tavily
+/// *search* key, but only while Tavily is the search provider. The shared search slot
+/// holds whichever vendor's key was saved last, so with Brave selected it is Brave's key
+/// and must never be sent to Tavily.
+fn pick_tavily_fetch_key(
+    own: Option<String>,
+    shared_search: Option<String>,
+    search_provider: WebSearchApiProvider,
+) -> Option<String> {
+    let usable = |key: Option<String>| key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    usable(own).or_else(|| {
+        if search_provider == WebSearchApiProvider::Tavily {
+            usable(shared_search)
+        } else {
+            None
+        }
+    })
 }
 
 /// Same, through the user's own service. A bad address or an unreadable key is a
@@ -595,11 +691,14 @@ async fn fetch_all_custom(
     let remote: Vec<usize> = (0..urls.len())
         .filter(|&i| !must_stay_local(&urls[i], config.send_private))
         .collect();
-    let fetcher = custom_fetcher(config).map_err(|e| e.to_string());
+    let fetcher = custom_fetcher(config, format).map_err(|e| e.to_string());
     fetch_all_remote(urls, format, WebBackend::Custom, remote, fetcher).await
 }
 
-fn custom_fetcher(config: &CustomFetchApi) -> Result<RemoteFetcher, AppError> {
+fn custom_fetcher(
+    config: &CustomFetchApi,
+    format: OutputFormat,
+) -> Result<RemoteFetcher, AppError> {
     let endpoint = deepseek_api::validate_endpoint_url(&config.url, "custom fetch API")?;
     // The key is optional: self-hosted services are often unauthenticated.
     let api_key = keychain::get_custom_fetch_api_key()?
@@ -607,8 +706,10 @@ fn custom_fetcher(config: &CustomFetchApi) -> Result<RemoteFetcher, AppError> {
         .unwrap_or_default();
     Ok(RemoteFetcher {
         backend: WebBackend::Custom,
+        protocol: config.protocol,
         endpoint: Some(endpoint),
         api_key,
+        format,
     })
 }
 
@@ -669,7 +770,19 @@ async fn fetch_page_remote_budgeted(
 }
 
 async fn fetch_page_remote(fetcher: &RemoteFetcher, url: &str) -> Result<FetchedPage, AppError> {
-    let payload = json!({ "url": url });
+    let payload = match fetcher.protocol {
+        FetchApiProtocol::Deepseek => json!({ "url": url }),
+        FetchApiProtocol::Tavily => json!({
+            "urls": [url],
+            "format": match fetcher.format {
+                OutputFormat::Markdown => "markdown",
+                OutputFormat::Text => "text",
+            },
+            // `advanced` costs twice the credits and more latency; a failed page falls
+            // back to a local read anyway.
+            "extract_depth": "basic",
+        }),
+    };
     let body = match &fetcher.endpoint {
         None => {
             deepseek_api::post_json("fetch", &fetcher.api_key, &payload, REMOTE_FETCH_TIMEOUT)
@@ -678,7 +791,7 @@ async fn fetch_page_remote(fetcher: &RemoteFetcher, url: &str) -> Result<Fetched
         Some(endpoint) => {
             deepseek_api::post_json_custom(
                 endpoint,
-                "custom fetch service",
+                fetcher.name(),
                 &fetcher.api_key,
                 &payload,
                 REMOTE_FETCH_TIMEOUT,
@@ -686,7 +799,10 @@ async fn fetch_page_remote(fetcher: &RemoteFetcher, url: &str) -> Result<Fetched
             .await?
         }
     };
-    let page = parse_remote_page(url, &body, fetcher.backend)?;
+    let page = match fetcher.protocol {
+        FetchApiProtocol::Deepseek => parse_remote_page(url, &body, fetcher.backend)?,
+        FetchApiProtocol::Tavily => parse_tavily_page(url, &body, fetcher.backend, fetcher.format)?,
+    };
     // A verification page or an empty body is a failed fetch, not a page: reporting
     // it as success would hide the local HTTP GET that may well get through.
     if let Some(vendor) = page.challenge {
@@ -704,35 +820,104 @@ async fn fetch_page_remote(fetcher: &RemoteFetcher, url: &str) -> Result<Fetched
     Ok(page)
 }
 
+/// Read a DeepSeek-format response (`{"title","content"}`).
 fn parse_remote_page(url: &str, body: &str, backend: WebBackend) -> Result<FetchedPage, AppError> {
     let parsed: RemoteFetchResponse = serde_json::from_str(body).map_err(|e| {
         AppError::Agent(format!(
             "invalid {} response: {}",
-            if backend == WebBackend::Custom {
-                "custom fetch service"
-            } else {
-                "DeepSeek"
-            },
+            service_name(backend).trim_start_matches("the "),
             e
         ))
     })?;
-    let content = cleanup_markdown(&parsed.content.unwrap_or_default());
-    let title = parsed
-        .title
+    Ok(remote_page(
+        url,
+        parsed.title,
+        parsed.content.unwrap_or_default(),
+        backend,
+        "text/markdown; charset=utf-8",
+    ))
+}
+
+/// Tavily Extract's answer to one requested URL.
+#[derive(Debug, Deserialize)]
+struct TavilyExtractResponse {
+    #[serde(default)]
+    results: Vec<TavilyExtractResult>,
+    #[serde(default)]
+    failed_results: Vec<TavilyExtractFailure>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TavilyExtractResult {
+    raw_content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TavilyExtractFailure {
+    error: Option<String>,
+}
+
+/// Read a Tavily-format response for the single URL that was requested. HTTP 200 does
+/// not mean the page came back: a URL Tavily could not extract is listed in
+/// `failed_results`, and that reason is what the user needs to see.
+fn parse_tavily_page(
+    url: &str,
+    body: &str,
+    backend: WebBackend,
+    format: OutputFormat,
+) -> Result<FetchedPage, AppError> {
+    let service = service_name(backend).trim_start_matches("the ");
+    let parsed: TavilyExtractResponse = serde_json::from_str(body)
+        .map_err(|e| AppError::Agent(format!("invalid {service} response: {e}")))?;
+    let Some(result) = parsed.results.into_iter().next() else {
+        let reason = parsed
+            .failed_results
+            .into_iter()
+            .find_map(|f| f.error.filter(|e| !e.trim().is_empty()))
+            .map(|e| truncate_error_body(&e))
+            .unwrap_or_else(|| "no result for the requested URL".to_string());
+        return Err(AppError::Agent(format!(
+            "{service} could not extract {}: {reason}",
+            extract_domain(url)
+        )));
+    };
+    // Tavily's extraction carries no page title.
+    Ok(remote_page(
+        url,
+        None,
+        result.raw_content.unwrap_or_default(),
+        backend,
+        match format {
+            OutputFormat::Markdown => "text/markdown; charset=utf-8",
+            OutputFormat::Text => "text/plain; charset=utf-8",
+        },
+    ))
+}
+
+/// What a page looks like once any remote service has delivered it.
+fn remote_page(
+    url: &str,
+    title: Option<String>,
+    content: String,
+    backend: WebBackend,
+    content_type: &str,
+) -> FetchedPage {
+    let content = cleanup_markdown(&content);
+    let title = title
         .map(|t| cleanup_whitespace(&t))
         .filter(|t| !t.is_empty());
     let markdown_bytes = content.len();
     let blank_content = is_blank_content(&content);
     let challenge = is_bot_block(&content, title.as_deref()).map(|c| c.vendor);
 
-    Ok(FetchedPage {
+    FetchedPage {
         requested_url: url.to_string(),
         // The service reports neither redirects nor the page's own status code, so
         // neither is invented here: `status: None` renders as "unknown".
         final_url: url.to_string(),
         status: None,
         status_text: status_text_for(None, backend),
-        content_type: "text/markdown; charset=utf-8".to_string(),
+        content_type: content_type.to_string(),
         title,
         content,
         // What we received is already the converted Markdown; the original HTML size
@@ -744,7 +929,7 @@ fn parse_remote_page(url: &str, body: &str, backend: WebBackend) -> Result<Fetch
         provider: backend.label(),
         challenge,
         blank_content,
-    })
+    }
 }
 
 /// `outcomes[i]`: `None` = never sent to the remote service (kept local), `Some(Ok)` =
@@ -764,11 +949,7 @@ async fn finish_remote_batch(
             _ => None,
         })
         .collect();
-    let service = if backend == WebBackend::Custom {
-        "the custom fetch service"
-    } else {
-        "DeepSeek"
-    };
+    let service = service_name(backend);
     let fallback = reasons.first().map(|first| {
         FallbackNote::new(
             backend.label(),
@@ -914,6 +1095,22 @@ async fn resolve_custom_fetch(ctx: &ToolContext) -> CustomFetchApi {
     }
 }
 
+/// The current search-API vendor: it decides whether the Tavily *search* key may also
+/// serve Tavily page fetch (see [`pick_tavily_fetch_key`]).
+async fn resolve_search_provider(ctx: &ToolContext) -> WebSearchApiProvider {
+    match ctx.app_handle.try_state::<crate::AppState>() {
+        Some(state) => {
+            state
+                .settings
+                .read()
+                .await
+                .experimental_settings
+                .web_search_api_provider
+        }
+        None => WebSearchApiProvider::default(),
+    }
+}
+
 async fn resolve_fetch_mode(ctx: &ToolContext) -> HttpFetchMode {
     // Mobile (Android) 无法启动本地 Chrome/Edge 走 CDP：browser 设置必然失败，
     // 一律落到裸 HTTP GET（html）。DeepSeek 获取是纯 HTTP，手机上完全可用，按设置生效。
@@ -921,9 +1118,12 @@ async fn resolve_fetch_mode(ctx: &ToolContext) -> HttpFetchMode {
     {
         if let Some(state) = ctx.app_handle.try_state::<crate::AppState>() {
             let settings = state.settings.read().await;
-            // 纯 HTTP 的两种服务端抓取手机上都能用，按设置生效。
+            // 纯 HTTP 的几种服务端抓取手机上都能用，按设置生效。
             let mode = settings.experimental_settings.http_fetch_mode;
-            if matches!(mode, HttpFetchMode::Deepseek | HttpFetchMode::Custom) {
+            if matches!(
+                mode,
+                HttpFetchMode::Deepseek | HttpFetchMode::Tavily | HttpFetchMode::Custom
+            ) {
                 return mode;
             }
         }
@@ -998,6 +1198,9 @@ fn status_text_for(status: Option<u16>, backend: WebBackend) -> String {
         // DeepSeek hands back extracted Markdown, never the page's own HTTP status.
         None if backend == WebBackend::Deepseek => {
             "page status not reported (fetched by DeepSeek)".to_string()
+        }
+        None if backend == WebBackend::Tavily => {
+            "page status not reported (fetched by Tavily)".to_string()
         }
         None if backend == WebBackend::Custom => {
             "page status not reported (fetched by the custom fetch service)".to_string()
@@ -2034,6 +2237,7 @@ mod tests {
             (HttpFetchMode::Browser, WebBackend::Browser.label()),
             (HttpFetchMode::Html, WebBackend::Html.label()),
             (HttpFetchMode::Deepseek, WebBackend::Deepseek.label()),
+            (HttpFetchMode::Tavily, WebBackend::Tavily.label()),
             (HttpFetchMode::Custom, WebBackend::Custom.label()),
         ] {
             assert_eq!(format!("{:?}", mode).to_ascii_lowercase(), expected);
@@ -2331,12 +2535,302 @@ mod tests {
         let config = CustomFetchApi {
             url: String::new(),
             send_private: true,
+            ..Default::default()
         };
         let batch = fetch_all_custom(&[url], OutputFormat::Markdown, &config).await;
 
         let note = batch.fallback.as_ref().expect("missing address is stated");
         assert!(note.reason.contains("not configured"), "{}", note.reason);
         assert!(batch.results[0].is_ok(), "the page was read locally");
+        handle.join().expect("server thread");
+    }
+
+    // ── Tavily Extract (official mode and the custom service's Tavily protocol) ──
+
+    const TAVILY_EXTRACT_SAMPLE: &str = r##"{"results":[{"url":"https://example.com/article","raw_content":"# Example article\n\nArticle content from Tavily."}],"failed_results":[],"response_time":0.4}"##;
+
+    #[test]
+    fn tavily_page_is_markdown_with_an_honest_unknown_status() {
+        let page = parse_tavily_page(
+            "https://example.com/article",
+            TAVILY_EXTRACT_SAMPLE,
+            WebBackend::Tavily,
+            OutputFormat::Markdown,
+        )
+        .unwrap();
+        assert_eq!(page.provider, "tavily");
+        assert_eq!(page.title, None, "Tavily extraction carries no title");
+        assert!(page.content.contains("Article content from Tavily."));
+        assert_eq!(page.status, None);
+        assert_eq!(page.content_type, "text/markdown; charset=utf-8");
+        assert!(!page.http_error && !page.redirected && !page.blank_content);
+
+        let chunk = make_chunk(&page.content, 0, 20_000);
+        let rendered = format_page_output(&page, &chunk, true);
+        assert!(
+            rendered.contains("page status not reported (fetched by Tavily)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("DeepSeek"), "{rendered}");
+
+        let text = parse_tavily_page(
+            "https://example.com/article",
+            TAVILY_EXTRACT_SAMPLE,
+            WebBackend::Tavily,
+            OutputFormat::Text,
+        )
+        .unwrap();
+        assert_eq!(text.content_type, "text/plain; charset=utf-8");
+    }
+
+    /// HTTP 200 with the URL listed under `failed_results` is a failed fetch whose
+    /// reason reaches the user, not an empty page.
+    #[test]
+    fn tavily_failed_results_surface_their_reason() {
+        let err = match parse_tavily_page(
+            "https://example.com/gone",
+            r#"{"results":[],"failed_results":[{"url":"https://example.com/gone","error":"Failed to fetch url"}]}"#,
+            WebBackend::Tavily,
+            OutputFormat::Markdown,
+        ) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("a failed extraction is not a page"),
+        };
+        assert!(
+            err.contains("Tavily could not extract example.com"),
+            "{err}"
+        );
+        assert!(err.contains("Failed to fetch url"), "{err}");
+
+        for body in [r#"{"results":[],"failed_results":[]}"#, "{}"] {
+            let err = match parse_tavily_page(
+                "https://example.com/",
+                body,
+                WebBackend::Tavily,
+                OutputFormat::Markdown,
+            ) {
+                Err(e) => e.to_string(),
+                Ok(_) => panic!("{body} has no page"),
+            };
+            assert!(err.contains("no result for the requested URL"), "{err}");
+        }
+    }
+
+    #[test]
+    fn tavily_garbage_and_naming_follow_the_backend() {
+        let err = |backend| match parse_tavily_page(
+            "https://example.com/",
+            "oops",
+            backend,
+            OutputFormat::Markdown,
+        ) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("garbage must not parse"),
+        };
+        assert!(err(WebBackend::Tavily).contains("invalid Tavily response"));
+        let custom = err(WebBackend::Custom);
+        assert!(custom.contains("custom fetch service"), "{custom}");
+        assert!(
+            !custom.contains("Tavily") && !custom.contains("DeepSeek"),
+            "{custom}"
+        );
+
+        let page = parse_tavily_page(
+            "https://example.com/article",
+            TAVILY_EXTRACT_SAMPLE,
+            WebBackend::Custom,
+            OutputFormat::Markdown,
+        )
+        .unwrap();
+        assert_eq!(page.provider, "custom");
+        let chunk = make_chunk(&page.content, 0, 20_000);
+        let rendered = format_page_output(&page, &chunk, true);
+        assert!(
+            rendered.contains("fetched by the custom fetch service"),
+            "{rendered}"
+        );
+    }
+
+    /// The shared search slot holds whichever vendor's key was saved last, so with Brave
+    /// as the search provider it is Brave's key and must never reach Tavily.
+    #[test]
+    fn tavily_fetch_key_never_borrows_a_brave_key() {
+        let key = |s: &str| Some(s.to_string());
+        use WebSearchApiProvider::{Brave, Custom, Deepseek, Tavily};
+
+        // Its own slot always wins.
+        for provider in [Brave, Tavily, Deepseek, Custom] {
+            assert_eq!(
+                pick_tavily_fetch_key(key(" own "), key("shared"), provider),
+                key("own"),
+                "{provider:?}"
+            );
+        }
+        // Shared slot only while Tavily is the search provider.
+        assert_eq!(
+            pick_tavily_fetch_key(None, key("shared"), Tavily),
+            key("shared")
+        );
+        for provider in [Brave, Deepseek, Custom] {
+            assert_eq!(
+                pick_tavily_fetch_key(None, key("shared"), provider),
+                None,
+                "{provider:?} must not lend its key to Tavily"
+            );
+        }
+        // Blank values do not count as keys.
+        assert_eq!(
+            pick_tavily_fetch_key(key("  "), key("shared"), Tavily),
+            key("shared")
+        );
+        assert_eq!(pick_tavily_fetch_key(key(""), key(" "), Tavily), None);
+    }
+
+    /// Serve one canned reply and hand back the raw request (headers + body).
+    fn serve_capturing(
+        status: &str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let reply = format!(
+            "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            status,
+            body.len(),
+            body
+        );
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut raw = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                raw.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&raw).to_string();
+                if let Some(split) = text.find("\r\n\r\n") {
+                    let length = text[..split]
+                        .to_ascii_lowercase()
+                        .lines()
+                        .find_map(|l| {
+                            l.strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if raw.len() >= split + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let _ = stream.write_all(reply.as_bytes());
+            String::from_utf8_lossy(&raw).into_owned()
+        });
+        (format!("http://{}/extract", addr), handle)
+    }
+
+    #[tokio::test]
+    async fn custom_service_with_the_tavily_protocol_sends_urls_and_reads_raw_content() {
+        let (endpoint, handle) = serve_capturing("200 OK", TAVILY_EXTRACT_SAMPLE);
+        let fetcher = RemoteFetcher {
+            backend: WebBackend::Custom,
+            protocol: FetchApiProtocol::Tavily,
+            endpoint: Some(endpoint),
+            api_key: "tvly-test".to_string(),
+            format: OutputFormat::Text,
+        };
+        let page = fetch_page_remote(&fetcher, "https://example.com/article")
+            .await
+            .expect("page");
+        assert_eq!(page.provider, "custom");
+        assert!(page.content.contains("Article content from Tavily."));
+
+        let request = handle.join().expect("server thread");
+        let lower = request.to_ascii_lowercase();
+        assert!(lower.starts_with("post /extract "), "{request}");
+        assert!(
+            lower.contains("authorization: bearer tvly-test"),
+            "{request}"
+        );
+        assert!(
+            request.contains(r#""urls":["https://example.com/article"]"#),
+            "{request}"
+        );
+        assert!(request.contains(r#""format":"text""#), "{request}");
+        // The DeepSeek-shaped body must not leak into the Tavily protocol.
+        assert!(!request.contains(r#""url":"#), "{request}");
+    }
+
+    #[tokio::test]
+    async fn custom_service_with_the_deepseek_protocol_still_sends_a_single_url() {
+        let (endpoint, handle) =
+            serve_capturing("200 OK", r#"{"title":"T","content":"Body text here."}"#);
+        let fetcher = RemoteFetcher {
+            backend: WebBackend::Custom,
+            protocol: FetchApiProtocol::Deepseek,
+            endpoint: Some(endpoint),
+            api_key: String::new(),
+            format: OutputFormat::Markdown,
+        };
+        let page = fetch_page_remote(&fetcher, "https://example.com/a")
+            .await
+            .expect("page");
+        assert_eq!(page.title.as_deref(), Some("T"));
+        let request = handle.join().expect("server thread");
+        assert!(
+            request.contains(r#"{"url":"https://example.com/a"}"#),
+            "{request}"
+        );
+        assert!(
+            !request.to_ascii_lowercase().contains("authorization"),
+            "{request}"
+        );
+    }
+
+    /// A Tavily error body (`{"detail":{"error":..}}`) reaches the user readable.
+    #[tokio::test]
+    async fn tavily_http_errors_are_readable_and_named() {
+        let (endpoint, handle) = serve_capturing(
+            "401 Unauthorized",
+            r#"{"detail":{"error":"Unauthorized: missing or invalid API key."}}"#,
+        );
+        let fetcher = RemoteFetcher {
+            backend: WebBackend::Tavily,
+            protocol: FetchApiProtocol::Tavily,
+            endpoint: Some(endpoint),
+            api_key: "bad".to_string(),
+            format: OutputFormat::Markdown,
+        };
+        let err = match fetch_page_remote(&fetcher, "https://example.com/").await {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("401 is a failure"),
+        };
+        handle.join().expect("server thread");
+        assert!(err.contains("Tavily extract HTTP 401"), "{err}");
+        assert!(err.contains("missing or invalid API key"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn tavily_batch_failure_is_attributed_to_tavily() {
+        let (local_url, handle) =
+            serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
+        let batch = finish_remote_batch(
+            &[local_url],
+            vec![Some(Err(
+                "Tavily could not extract x.com: blocked".to_string()
+            ))],
+            OutputFormat::Markdown,
+            WebBackend::Tavily,
+        )
+        .await;
+        let note = batch.fallback.as_ref().expect("a failure is stated");
+        assert_eq!((note.from, note.to), ("tavily", "html"));
+        assert!(note.reason.contains("failed on Tavily"), "{}", note.reason);
+        assert!(!note.reason.contains("DeepSeek"), "{}", note.reason);
         handle.join().expect("server thread");
     }
 

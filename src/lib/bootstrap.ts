@@ -20,6 +20,7 @@ export async function hydrateBootstrapData(): Promise<void> {
       hasDeepseekToolsApiKey: data.hasDeepseekToolsApiKey,
       hasCustomSearchApiKey: data.hasCustomSearchApiKey,
       hasCustomFetchApiKey: data.hasCustomFetchApiKey,
+      hasTavilyFetchApiKey: data.hasTavilyFetchApiKey,
       hasJevApiKey: data.hasJevApiKey,
       channelKeyStatus: data.channelKeyStatus,
       warning: data.settingsWarning,

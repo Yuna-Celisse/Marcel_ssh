@@ -495,6 +495,8 @@ export async function getSettings(): Promise<{
   hasCustomSearchApiKey?: boolean;
   /** 自定义网页获取服务的 Key 是否存在（Key 可选）。原始 Key 永不回传前端。 */
   hasCustomFetchApiKey?: boolean;
+  /** Tavily 网页获取的 Key 是否存在。原始 Key 永不回传前端。 */
+  hasTavilyFetchApiKey?: boolean;
   /** TypeSafe（Jev）API Key 是否存在。原始 Key 永不回传前端。 */
   hasJevApiKey?: boolean;
   /** 各渠道密钥是否存在（多渠道模型服务）。 */
@@ -822,6 +824,15 @@ export async function saveCustomFetchApiKey(apiKey: string): Promise<void> {
 
 export async function deleteCustomFetchApiKey(): Promise<void> {
   return invoke("config_delete_custom_fetch_api_key");
+}
+
+/** 保存「Tavily 网页获取」的 Key（独立槽位；留空时后端沿用 Tavily 搜索的 Key）。 */
+export async function saveTavilyFetchApiKey(apiKey: string): Promise<void> {
+  return invoke("config_save_tavily_fetch_api_key", { apiKey });
+}
+
+export async function deleteTavilyFetchApiKey(): Promise<void> {
+  return invoke("config_delete_tavily_fetch_api_key");
 }
 
 /** 保存 TypeSafe（Jev）API Key 到系统密钥链。原始 Key 不回传前端。 */

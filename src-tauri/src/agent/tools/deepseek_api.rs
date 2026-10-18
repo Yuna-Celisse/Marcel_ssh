@@ -167,11 +167,18 @@ async fn post_with_retry(
     }
 }
 
-/// OpenAI 风格错误体里的 `error.message`；不是那种格式就原样用正文。
+/// 错误体里人能读的那句话：OpenAI 风格的 `error.message`、Tavily 的 `detail.error`，
+/// 或字符串形式的 `detail`；都不是就原样用正文。
 fn error_detail(body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .and_then(|v| {
+            v["error"]["message"]
+                .as_str()
+                .or_else(|| v["detail"]["error"].as_str())
+                .or_else(|| v["detail"].as_str())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| body.to_string())
 }
 
@@ -377,6 +384,23 @@ mod tests {
             .to_ascii_lowercase()
             .contains("authorization: bearer k"));
         assert_eq!(seen.lock().unwrap().len(), 1, "401 is not retried");
+    }
+
+    #[test]
+    fn error_detail_reads_openai_and_tavily_error_bodies() {
+        assert_eq!(
+            error_detail(r#"{"error":{"message":"no funds"}}"#),
+            "no funds"
+        );
+        assert_eq!(
+            error_detail(r#"{"detail":{"error":"Unauthorized: missing or invalid API key."}}"#),
+            "Unauthorized: missing or invalid API key."
+        );
+        assert_eq!(
+            error_detail(r#"{"detail":"Too many requests"}"#),
+            "Too many requests"
+        );
+        assert_eq!(error_detail("<html>502</html>"), "<html>502</html>");
     }
 
     #[test]

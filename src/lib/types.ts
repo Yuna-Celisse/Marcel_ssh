@@ -828,7 +828,7 @@ export interface TerminalColors {
 }
 
 export type WebSearchMode = 'browser' | 'api' | 'html';
-export type HttpFetchMode = 'browser' | 'html' | 'deepseek' | 'custom';
+export type HttpFetchMode = 'browser' | 'html' | 'deepseek' | 'tavily' | 'custom';
 export type WebSearchApiProvider = 'brave' | 'tavily' | 'deepseek' | 'custom';
 /** 「自定义」搜索提供商按哪家的请求/响应格式收发（后端 `SearchApiProtocol`，线上取值须一致）。 */
 export type SearchApiProtocol = 'brave' | 'tavily' | 'deepseek';
@@ -837,9 +837,12 @@ export interface CustomSearchApi {
   url: string;
   protocol: SearchApiProtocol;
 }
-/** 用户自备的网页获取服务（按 DeepSeek 抓取的格式收发）。Key 不在这里，走独立密钥链槽位。 */
+/** 「自定义」网页获取服务按哪家的请求/响应格式收发（后端 `FetchApiProtocol`，线上取值须一致）。 */
+export type FetchApiProtocol = 'deepseek' | 'tavily';
+/** 用户自备的网页获取服务：地址 + 兼容的协议。Key 不在这里，走独立密钥链槽位。 */
 export interface CustomFetchApi {
   url: string;
+  protocol: FetchApiProtocol;
   /** 是否也把内网 / 本机地址交给它抓；默认 false（这些地址只在本机读取）。 */
   sendPrivate: boolean;
 }
@@ -1511,6 +1514,8 @@ export interface AppBootstrapData {
   hasCustomSearchApiKey: boolean;
   /** 密钥链里是否已有「自定义网页获取」的 Key（可为空）。同样必填。 */
   hasCustomFetchApiKey: boolean;
+  /** 密钥链里是否已有「Tavily 网页获取」的 Key（留空时沿用 Tavily 搜索的 Key）。同样必填。 */
+  hasTavilyFetchApiKey: boolean;
   /**
    * 密钥链里是否已有 TypeSafe（Jev）API Key。
    *

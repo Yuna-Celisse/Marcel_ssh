@@ -1,4 +1,4 @@
-import type { SearchApiProtocol, WebSearchApiProvider } from './types';
+import type { FetchApiProtocol, SearchApiProtocol, WebSearchApiProvider } from './types';
 
 /**
  * 「搜索 API」模式可选的提供商——桌面设置页与移动端设置页共用这一份，
@@ -100,9 +100,41 @@ export const DEEPSEEK_KEY_DESCRIPTION =
 export const DEEPSEEK_FETCH_DESCRIPTION =
   '由 DeepSeek 服务器代为抓取公网网页并转成 Markdown，需要 DeepSeek API Key，按成功请求计费。内网 / 本机地址不会发给 DeepSeek，始终在本机读取。';
 
+/** 「获取方式 = Tavily 抓取」的说明：数据去向、需要 Key、计费、内网例外都要讲清。 */
+export const TAVILY_FETCH_DESCRIPTION =
+  '由 Tavily 服务器代为抓取公网网页并转成 Markdown，需要 Tavily API Key，按成功提取的页面计费，详见 Tavily 官方定价。内网 / 本机地址不会发给 Tavily，始终在本机读取。';
+
+/**
+ * Tavily 抓取 Key 的说明。它和「搜索 API = Tavily」是同一家，所以搜索选了 Tavily 时留空即可；
+ * 但搜索槽位可能装着 Brave 的 Key，因此搜索不是 Tavily 时**不会**去借，必须在这里单独填。
+ */
+export const TAVILY_FETCH_KEY_DESCRIPTION =
+  '加密保存在本设备。留空时：若「搜索 API」选的是 Tavily，则沿用搜索那把 Key；否则（例如搜索用 Brave）需要在这里单独填 Tavily 的 Key——不会把 Brave 的 Key 发给 Tavily。';
+
+/**
+ * 「自定义」网页获取可选的兼容协议——你的抓取服务**长得像谁家的接口**。
+ * `hint` 写清请求/响应形状，让人能对照自己的服务判断选哪个。线上取值与后端 `FetchApiProtocol` 一致。
+ */
+export const FETCH_API_PROTOCOLS: readonly {
+  value: FetchApiProtocol;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: 'deepseek',
+    label: 'DeepSeek 格式',
+    hint: 'POST JSON：{"url": 网址}；Key 以 Bearer 方式放在 Authorization 头；返回 {"title", "content"}（content 为 Markdown）。',
+  },
+  {
+    value: 'tavily',
+    label: 'Tavily 格式',
+    hint: 'POST JSON：{"urls": [网址], "format"}；Key 以 Bearer 方式放在 Authorization 头；返回 results[]（url / raw_content），抓不到的在 failed_results[]。',
+  },
+];
+
 /** 「获取方式 = 自定义」的说明：数据去向、协议、内网策略都要讲清。 */
 export const CUSTOM_FETCH_DESCRIPTION =
-  '由你自己的抓取服务代为抓取网页：向填写的地址 POST {"url": 网址}，期望返回 {"title", "content"}（content 为 Markdown），格式与 DeepSeek 抓取相同。网址会发给这个服务，请只填你信任的地址。失败时自动降级为本机裸 HTTP。';
+  '由你自己的抓取服务代为抓取网页并返回 Markdown 正文，下方选择它兼容哪家的接口格式。网址会发给这个服务，请只填你信任的地址。失败时自动降级为本机裸 HTTP。';
 
 /** 自定义抓取 Key：可留空，且与其它 Key 完全隔离。 */
 export const CUSTOM_FETCH_KEY_DESCRIPTION =

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type {
   ExperimentalSettings,
+  FetchApiProtocol,
   HttpFetchMode,
   SearchApiProtocol,
   WebSearchApiProvider,
@@ -24,7 +25,10 @@ import {
   CUSTOM_URL_PLACEHOLDER,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_SHARED_NOTE,
+  FETCH_API_PROTOCOLS,
   SEARCH_API_PROTOCOLS,
+  TAVILY_FETCH_DESCRIPTION,
+  TAVILY_FETCH_KEY_DESCRIPTION,
   WEB_SEARCH_API_PROVIDERS,
   searchKeyDescription,
 } from '@/lib/webSearchProviders';
@@ -168,10 +172,13 @@ export function ToolCapabilitiesSection() {
     (next) => updateExperimental({ webSearchCustom: next }),
   );
   const customFetchForm = useCustomFetchApi(
-    experimental.httpFetchCustom ?? { url: '', sendPrivate: false },
+    experimental.httpFetchCustom ?? { url: '', protocol: 'deepseek', sendPrivate: false },
     (next) => updateExperimental({ httpFetchCustom: next }),
   );
   const protocolHint = SEARCH_API_PROTOCOLS.find((p) => p.value === customForm.protocol)?.hint;
+  const fetchProtocolHint = FETCH_API_PROTOCOLS.find(
+    (p) => p.value === customFetchForm.protocol,
+  )?.hint;
 
   return (
     <Card id="settings-experimental" title="Agent 工具" description="控制 Agent 可调用的工具能力和系统集成">
@@ -338,9 +345,9 @@ export function ToolCapabilitiesSection() {
           <SettingItem
             id="exp-httpfetch-mode"
             label="获取方式"
-            description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截；DeepSeek 抓取由 DeepSeek 服务器代抓并转成 Markdown；自定义可接入你自己的抓取服务。浏览器或远端服务失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
+            description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截；DeepSeek / Tavily 抓取由对应服务器代抓并转成 Markdown；自定义可接入你自己的抓取服务（兼容 DeepSeek 或 Tavily 格式）。浏览器或远端服务失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
             sectionId="settings-experimental"
-            keywords={['http', 'fetch', 'browser', 'html', 'deepseek', 'custom', '自定义', '网页获取', '浏览器', '降级']}
+            keywords={['http', 'fetch', 'browser', 'html', 'deepseek', 'tavily', 'custom', '自定义', '网页获取', '浏览器', '降级']}
           >
             <Select
               value={httpFetchMode}
@@ -349,6 +356,7 @@ export function ToolCapabilitiesSection() {
                 { value: 'browser', label: '本机浏览器（推荐）' },
                 { value: 'html', label: '裸 HTTP GET' },
                 { value: 'deepseek', label: 'DeepSeek 抓取' },
+                { value: 'tavily', label: 'Tavily 抓取' },
                 { value: 'custom', label: '自定义' },
               ]}
               className="w-52"
@@ -364,6 +372,23 @@ export function ToolCapabilitiesSection() {
               keywords={['key', '密钥', 'deepseek', '网页获取']}
             >
               <ToolApiKeyInput slot="deepseek" placeholder="输入 DeepSeek API Key" />
+            </SettingItem>
+          )}
+
+          {httpFetchMode === 'tavily' && (
+            <SettingItem
+              id="exp-httpfetch-tavily-key"
+              label="Tavily API Key"
+              description={`${TAVILY_FETCH_DESCRIPTION}${TAVILY_FETCH_KEY_DESCRIPTION}`}
+              sectionId="settings-experimental"
+              keywords={['key', '密钥', 'tavily', '网页获取']}
+            >
+              <ToolApiKeyInput
+                slot="tavilyFetch"
+                placeholder={
+                  apiProvider === 'tavily' ? '留空则沿用 Tavily 搜索的 Key' : '输入 Tavily API Key'
+                }
+              />
             </SettingItem>
           )}
 
@@ -394,6 +419,20 @@ export function ToolCapabilitiesSection() {
                     <p className="text-xs text-amber-300/90">{customFetchForm.check.warning}</p>
                   )}
                 </div>
+              </SettingItem>
+              <SettingItem
+                id="exp-httpfetch-custom-protocol"
+                label="兼容的协议"
+                description={fetchProtocolHint ?? '选择你的服务兼容哪家的接口格式'}
+                sectionId="settings-experimental"
+                keywords={['protocol', '协议', '兼容', 'deepseek', 'tavily', '网页获取']}
+              >
+                <Select
+                  value={customFetchForm.protocol}
+                  onChange={(v) => customFetchForm.setProtocol(v as FetchApiProtocol)}
+                  options={FETCH_API_PROTOCOLS.map(({ value, label }) => ({ value, label }))}
+                  className="w-52"
+                />
               </SettingItem>
               <SettingItem
                 id="exp-httpfetch-custom-key"

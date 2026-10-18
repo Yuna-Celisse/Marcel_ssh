@@ -75,7 +75,7 @@ export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
   webSearchCustom: { url: '', protocol: 'brave' },
   webSearchEndpoint: 'cn',
   httpFetchMode: 'browser',
-  httpFetchCustom: { url: '', sendPrivate: false },
+  httpFetchCustom: { url: '', protocol: 'deepseek', sendPrivate: false },
   enableHtmlRender: true,
   multiHostConnectionIds: [],
 };
@@ -147,6 +147,8 @@ interface SettingsState {
   hasCustomSearchApiKey: boolean;
   /** True if the custom page-fetch service key is stored in the system keychain (optional to have one). */
   hasCustomFetchApiKey: boolean;
+  /** True if the Tavily page-fetch key is stored in the system keychain (empty = reuse the Tavily search key). */
+  hasTavilyFetchApiKey: boolean;
   /** True if a TypeSafe（Jev）API Key is stored in the system keychain. */
   hasJevApiKey: boolean;
   /** 各渠道密钥是否存在（多渠道模型服务）。key = channelId。 */
@@ -167,6 +169,8 @@ interface SettingsState {
     hasCustomSearchApiKey: boolean;
     /** 必填，理由同上。 */
     hasCustomFetchApiKey: boolean;
+    /** 必填，理由同上。 */
+    hasTavilyFetchApiKey: boolean;
     /**
      * 必填：启动快照是读取该真值的**唯一**路径（`hydrateFromBootstrap` 会把
      * `loaded` 置真，随后的 `load()` 直接短路）。声明成可选会让后端漏发字段时
@@ -226,6 +230,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasDeepseekToolsApiKey: false,
   hasCustomSearchApiKey: false,
   hasCustomFetchApiKey: false,
+  hasTavilyFetchApiKey: false,
   hasJevApiKey: false,
   channelKeyStatus: {},
   warning: null,
@@ -268,6 +273,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       hasDeepseekToolsApiKey: data.hasDeepseekToolsApiKey ?? false,
       hasCustomSearchApiKey: data.hasCustomSearchApiKey ?? false,
       hasCustomFetchApiKey: data.hasCustomFetchApiKey ?? false,
+      hasTavilyFetchApiKey: data.hasTavilyFetchApiKey ?? false,
       hasJevApiKey: data.hasJevApiKey ?? false,
       channelKeyStatus: toKeyStatusMap(data.channelKeyStatus),
       warning: data.warning ?? null,
@@ -311,6 +317,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         hasDeepseekToolsApiKey: resp.hasDeepseekToolsApiKey ?? false,
         hasCustomSearchApiKey: resp.hasCustomSearchApiKey ?? false,
         hasCustomFetchApiKey: resp.hasCustomFetchApiKey ?? false,
+        hasTavilyFetchApiKey: resp.hasTavilyFetchApiKey ?? false,
         hasJevApiKey: resp.hasJevApiKey ?? false,
         channelKeyStatus: toKeyStatusMap(resp.channelKeyStatus),
         warning: resp.warning ?? null,

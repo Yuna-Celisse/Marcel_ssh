@@ -32,6 +32,7 @@ describe('hydrateBootstrapData', () => {
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
       hasCustomFetchApiKey: false,
+      hasTavilyFetchApiKey: false,
       hasJevApiKey: false,
     });
     useConnectionStore.setState({ connections: [], loading: false, loaded: false, error: null });
@@ -46,6 +47,7 @@ describe('hydrateBootstrapData', () => {
       hasDeepseekToolsApiKey: true,
       hasCustomSearchApiKey: true,
       hasCustomFetchApiKey: true,
+      hasTavilyFetchApiKey: false,
       hasJevApiKey: true,
       channelKeyStatus: [],
       connections: [],
@@ -73,6 +75,7 @@ describe('hydrateBootstrapData', () => {
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
       hasCustomFetchApiKey: false,
+      hasTavilyFetchApiKey: false,
       hasJevApiKey: false,
       channelKeyStatus: [],
       connections: [],
@@ -92,6 +95,7 @@ describe('hydrateBootstrapData', () => {
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
       hasCustomFetchApiKey: false,
+      hasTavilyFetchApiKey: false,
       hasJevApiKey: false,
       channelKeyStatus: [],
       connections: [],

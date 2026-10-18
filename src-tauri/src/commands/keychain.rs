@@ -166,6 +166,21 @@ pub async fn config_delete_custom_fetch_api_key() -> Result<(), AppError> {
     Ok(())
 }
 
+/// Save the Tavily page-fetch key to the system keychain.
+/// 原始 Key 永不回传 WebView，前端只通过 `hasTavilyFetchApiKey` 知道配没配。
+#[tauri::command]
+pub async fn config_save_tavily_fetch_api_key(api_key: String) -> Result<(), AppError> {
+    keychain::save_tavily_fetch_api_key(&api_key)?;
+    Ok(())
+}
+
+/// Remove the Tavily page-fetch key from the system keychain.
+#[tauri::command]
+pub async fn config_delete_tavily_fetch_api_key() -> Result<(), AppError> {
+    keychain::delete_tavily_fetch_api_key()?;
+    Ok(())
+}
+
 /// Save the DeepSeek tools API key (web search + web fetch) to the system keychain.
 /// 原始 Key 永不回传 WebView，前端只通过 `hasDeepseekToolsApiKey` 知道配没配。
 #[tauri::command]

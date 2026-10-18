@@ -14,6 +14,7 @@ pub const BROWSER_BACKEND: &str = "browser";
 pub const HTML_BACKEND: &str = "html";
 pub const DEEPSEEK_BACKEND: &str = "deepseek";
 pub const CUSTOM_BACKEND: &str = "custom";
+pub const TAVILY_BACKEND: &str = "tavily";
 
 /// A bot-verification / anti-bot interstitial standing in for the real page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,7 +168,9 @@ pub enum WebBackend {
     Api,
     /// DeepSeek's server-side page fetch (`/v1/tools/fetch`).
     Deepseek,
-    /// The user's own page-fetch service (DeepSeek wire format).
+    /// Tavily's server-side page extraction (`/extract`).
+    Tavily,
+    /// The user's own page-fetch service (DeepSeek or Tavily wire format).
     Custom,
     /// More than one backend served the same batched request.
     Mixed,
@@ -180,6 +183,7 @@ impl WebBackend {
             Self::Html => HTML_BACKEND,
             Self::Api => "api",
             Self::Deepseek => DEEPSEEK_BACKEND,
+            Self::Tavily => TAVILY_BACKEND,
             Self::Custom => CUSTOM_BACKEND,
             Self::Mixed => "mixed",
         }
@@ -416,6 +420,7 @@ mod tests {
         assert_eq!(WebBackend::Html.label(), HTML_BACKEND);
         assert_eq!(WebBackend::Api.label(), "api");
         assert_eq!(WebBackend::Deepseek.label(), "deepseek");
+        assert_eq!(WebBackend::Tavily.label(), "tavily");
         assert_eq!(WebBackend::Mixed.label(), "mixed");
     }
 

@@ -283,17 +283,33 @@ pub enum HttpFetchMode {
     /// including JS-rendered pages, and works on mobile. The page is fetched from
     /// DeepSeek's servers, so private/LAN addresses are always read locally instead.
     Deepseek,
-    /// 用户自备的抓取服务：按 DeepSeek 抓取的格式收发，地址等见 [`CustomFetchApi`]，Key 有独立槽位。
+    /// Tavily 官方的网页提取（`POST https://api.tavily.com/extract`）：同样返回 Markdown，
+    /// 手机上可用。Key 有独立槽位，留空时沿用 Tavily 搜索的 Key。
+    Tavily,
+    /// 用户自备的抓取服务：协议与地址等见 [`CustomFetchApi`]，Key 有独立槽位。
     Custom,
 }
 
-/// 自定义网页获取服务：`POST <url>` 发 `{"url": ...}`，期望回 `{"title", "content"}`（Markdown）。
+/// 「自定义」网页获取服务所兼容的请求/响应协议。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FetchApiProtocol {
+    /// `POST <url>` 发 `{"url"}`，Key 放 `Authorization: Bearer`，回 `{"title","content"}`。
+    #[default]
+    Deepseek,
+    /// `POST <url>` 发 `{"urls":[..],"format"}`，Key 放 `Authorization: Bearer`，
+    /// 回 `{"results":[{"url","raw_content"}],"failed_results":[{"url","error"}]}`。
+    Tavily,
+}
+
+/// 自定义网页获取服务：完整请求地址 + 兼容的协议（默认 DeepSeek 抓取的格式）。
 /// Key 不在这里（密钥链独立槽位，可留空）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CustomFetchApi {
     /// 完整的抓取端点，如 `https://fetch.example.com/v1/fetch`。留空 = 未配置。
     pub url: String,
+    pub protocol: FetchApiProtocol,
     /// 是否也把内网 / 本机地址交给它抓。默认 `false`：这些地址只在本机读取，主机名不外泄；
     /// 自建在同一内网的服务才有理由打开。带账号密码的网址无论如何都不会发出。
     pub send_private: bool,
@@ -1222,6 +1238,7 @@ mod tests {
             http_fetch_mode: HttpFetchMode::Custom,
             http_fetch_custom: CustomFetchApi {
                 url: "https://fetch.example.com/v1/fetch".into(),
+                protocol: FetchApiProtocol::Tavily,
                 send_private: true,
             },
             ..Default::default()
@@ -1229,7 +1246,7 @@ mod tests {
         let json = serde_json::to_string(&s).expect("serialize");
         assert!(json.contains("\"httpFetchMode\":\"custom\""), "{json}");
         assert!(
-            json.contains("\"httpFetchCustom\":{\"url\":\"https://fetch.example.com/v1/fetch\",\"sendPrivate\":true}"),
+            json.contains("\"httpFetchCustom\":{\"url\":\"https://fetch.example.com/v1/fetch\",\"protocol\":\"tavily\",\"sendPrivate\":true}"),
             "{json}"
         );
         let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
@@ -1246,6 +1263,23 @@ mod tests {
             serde_json::from_str(r#"{"httpFetchCustom":{"url":"https://x.example/f"}}"#)
                 .expect("partial");
         assert!(!partial.http_fetch_custom.send_private);
+        // 协议缺省为 DeepSeek 抓取的格式（上一版本只有这一种，已存的配置必须照旧可用）。
+        assert_eq!(
+            partial.http_fetch_custom.protocol,
+            FetchApiProtocol::Deepseek
+        );
+    }
+
+    #[test]
+    fn experimental_settings_tavily_fetch_mode_wire_name() {
+        let s = ExperimentalSettings {
+            http_fetch_mode: HttpFetchMode::Tavily,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"httpFetchMode\":\"tavily\""), "{json}");
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Tavily);
     }
 
     #[test]

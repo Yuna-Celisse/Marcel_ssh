@@ -989,6 +989,8 @@ pub fn run() {
             commands::keychain::config_delete_custom_search_api_key,
             commands::keychain::config_save_custom_fetch_api_key,
             commands::keychain::config_delete_custom_fetch_api_key,
+            commands::keychain::config_save_tavily_fetch_api_key,
+            commands::keychain::config_delete_tavily_fetch_api_key,
             commands::keychain::config_save_deepseek_tools_api_key,
             commands::keychain::config_delete_deepseek_tools_api_key,
             commands::keychain::config_save_jev_api_key,

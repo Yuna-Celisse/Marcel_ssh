@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
   ExperimentalSettings,
+  FetchApiProtocol,
   HttpFetchMode,
   SearchApiProtocol,
   WebSearchApiProvider,
@@ -21,7 +22,10 @@ import {
   CUSTOM_URL_PLACEHOLDER,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_SHARED_NOTE,
+  FETCH_API_PROTOCOLS,
   SEARCH_API_PROTOCOLS,
+  TAVILY_FETCH_DESCRIPTION,
+  TAVILY_FETCH_KEY_DESCRIPTION,
   WEB_SEARCH_API_PROVIDERS,
   searchKeyDescription,
 } from '@/lib/webSearchProviders';
@@ -78,7 +82,7 @@ export function selectMobileSearchMode(
   return {};
 }
 
-type MobileFetchMode = 'html' | 'deepseek' | 'custom';
+type MobileFetchMode = 'html' | 'deepseek' | 'tavily' | 'custom';
 
 const FETCH_MODE_OPTIONS: readonly {
   value: MobileFetchMode;
@@ -87,18 +91,24 @@ const FETCH_MODE_OPTIONS: readonly {
 }[] = [
   { value: 'html', label: '裸 HTTP GET', desc: '零配置，易被站点拦截' },
   { value: 'deepseek', label: 'DeepSeek 抓取', desc: '服务器代抓成 Markdown，需 DeepSeek Key' },
-  { value: 'custom', label: '自定义', desc: '接入你自己的抓取服务，格式同 DeepSeek 抓取' },
+  { value: 'tavily', label: 'Tavily 抓取', desc: '服务器代抓成 Markdown，需 Tavily Key' },
+  { value: 'custom', label: '自定义', desc: '接入你自己的抓取服务，兼容 DeepSeek 或 Tavily 格式' },
 ];
+
+/** 纯 HTTP 的服务端抓取：手机上完全可用（后端 `resolve_fetch_mode` 同一份判断）。 */
+function isServerFetchMode(mode: HttpFetchMode | undefined): mode is 'deepseek' | 'tavily' | 'custom' {
+  return mode === 'deepseek' || mode === 'tavily' || mode === 'custom';
+}
 
 /** 手机端获取方式的 UI 归并：browser（本机不可用的 CDP 模式，可能来自旧版桌面端配置）在 UI 上视为裸 HTTP。 */
 export function resolveMobileFetchMode(stored: HttpFetchMode | undefined): MobileFetchMode {
-  return stored === 'deepseek' || stored === 'custom' ? stored : 'html';
+  return isServerFetchMode(stored) ? stored : 'html';
 }
 
 /**
  * 计算选择获取方式后应写入的配置 patch，规则同 {@link selectMobileSearchMode}：
- * - 选择「DeepSeek 抓取 / 自定义」（纯 HTTP，手机可用）→ 直接写入
- * - 选择「裸 HTTP」→ 仅当原值是服务端抓取（deepseek / custom）时才写 html；
+ * - 选择「DeepSeek / Tavily 抓取 / 自定义」（纯 HTTP，手机可用）→ 直接写入
+ * - 选择「裸 HTTP」→ 仅当原值是服务端抓取（deepseek / tavily / custom）时才写 html；
  *   原值是 browser（桌面端遗留，手机不可用）时保持原样，避免覆盖桌面端的选择
  */
 export function selectMobileFetchMode(
@@ -106,7 +116,7 @@ export function selectMobileFetchMode(
   next: MobileFetchMode,
 ): Partial<ExperimentalSettings> {
   if (next !== 'html') return { httpFetchMode: next };
-  if (stored === 'deepseek' || stored === 'custom') return { httpFetchMode: 'html' };
+  if (isServerFetchMode(stored)) return { httpFetchMode: 'html' };
   return {};
 }
 
@@ -178,7 +188,7 @@ export function MobileAgentToolsSection() {
 
   const searchKeySlot = searchProviderKeySlot(apiProvider);
   const customFetchForm = useCustomFetchApi(
-    experimental.httpFetchCustom ?? { url: '', sendPrivate: false },
+    experimental.httpFetchCustom ?? { url: '', protocol: 'deepseek', sendPrivate: false },
     (next) => updateExperimental({ httpFetchCustom: next }),
   );
   const customForm = useCustomSearchApi(
@@ -344,7 +354,7 @@ export function MobileAgentToolsSection() {
         <>
           <MobileSettingRow
             label="获取方式"
-            description="DeepSeek 抓取 / 自定义服务失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
+            description="DeepSeek / Tavily 抓取或自定义服务失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
           >
             <ChoiceGroup options={FETCH_MODE_OPTIONS} value={fetchMode} onChange={selectFetchMode} />
           </MobileSettingRow>
@@ -355,6 +365,20 @@ export function MobileAgentToolsSection() {
               description={`${DEEPSEEK_FETCH_DESCRIPTION}${DEEPSEEK_KEY_SHARED_NOTE}`}
             >
               <ToolApiKeyInput slot="deepseek" placeholder="输入 DeepSeek API Key" />
+            </MobileSettingRow>
+          )}
+
+          {fetchMode === 'tavily' && (
+            <MobileSettingRow
+              label="Tavily API Key"
+              description={`${TAVILY_FETCH_DESCRIPTION}${TAVILY_FETCH_KEY_DESCRIPTION}`}
+            >
+              <ToolApiKeyInput
+                slot="tavilyFetch"
+                placeholder={
+                  apiProvider === 'tavily' ? '留空则沿用 Tavily 搜索的 Key' : '输入 Tavily API Key'
+                }
+              />
             </MobileSettingRow>
           )}
 
@@ -383,6 +407,18 @@ export function MobileAgentToolsSection() {
                     {customFetchForm.check.warning}
                   </p>
                 )}
+              </MobileSettingRow>
+
+              <MobileSettingRow label="兼容的协议" description="选择你的服务兼容哪家的接口格式">
+                <ChoiceGroup
+                  options={FETCH_API_PROTOCOLS.map(({ value, label, hint }) => ({
+                    value,
+                    label,
+                    desc: hint,
+                  }))}
+                  value={customFetchForm.protocol}
+                  onChange={(v) => customFetchForm.setProtocol(v as FetchApiProtocol)}
+                />
               </MobileSettingRow>
 
               <MobileSettingRow label="API Key（可选）" description={CUSTOM_FETCH_KEY_DESCRIPTION}>
