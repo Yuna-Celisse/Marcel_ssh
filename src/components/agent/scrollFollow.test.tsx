@@ -31,6 +31,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { AgentMessage as AgentMessageType } from '@/lib/types';
 import AgentMessage from '@/components/agent/AgentMessage';
 import ToolCallCard from '@/components/agent/ToolCallCard';
+import { TRANSIENT_REVEAL_DELAY_MS } from '@/components/agent/TransientReveal';
 
 // 注意：不能写成 `selector?.(state) ?? state` —— 选择器取到 undefined 时会被
 // ?? 换成整个 state 对象，`hideThinkingDisplay` 于是变成真值，思考区整块不渲染，
@@ -262,16 +263,25 @@ describe('内嵌滚动区贴底跟随', () => {
   });
 
   it('工具输出：执行中追加输出时贴底，用户上翻后不打扰', () => {
-    const el = mount(<ToolCallCard message={toolOutput('line 1\n')} />);
-    const box = makeScrollBox(findBox(el, OUTPUT_BOX, '工具输出滚动容器'));
-    box.grow(400);
+    // 输出区要连续有输出满观望时间才挂载（快命令不闪），先把时间推过去
+    vi.useFakeTimers();
+    try {
+      const el = mount(<ToolCallCard message={toolOutput('line 1\n')} />);
+      act(() => {
+        vi.advanceTimersByTime(TRANSIENT_REVEAL_DELAY_MS);
+      });
+      const box = makeScrollBox(findBox(el, OUTPUT_BOX, '工具输出滚动容器'));
+      box.grow(400);
 
-    rerender(<ToolCallCard message={toolOutput(`line 1\n${'line 2\n'.repeat(200)}`)} />);
-    expect(box.scrollTop).toBe(box.scrollHeight);
+      rerender(<ToolCallCard message={toolOutput(`line 1\n${'line 2\n'.repeat(200)}`)} />);
+      expect(box.scrollTop).toBe(box.scrollHeight);
 
-    box.userScrollTo(0);
-    box.grow(200);
-    rerender(<ToolCallCard message={toolOutput(`line 1\n${'line 2\n'.repeat(400)}`)} />);
-    expect(box.scrollTop).toBe(0);
+      box.userScrollTo(0);
+      box.grow(200);
+      rerender(<ToolCallCard message={toolOutput(`line 1\n${'line 2\n'.repeat(400)}`)} />);
+      expect(box.scrollTop).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

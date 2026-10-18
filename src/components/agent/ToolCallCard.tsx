@@ -1,14 +1,10 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import type { AgentMessage } from '@/lib/types';
 import FileChangeView from './FileChangeView';
-import LiveToolOutput from './LiveToolOutput';
+import LiveOutputPanel from './LiveOutputPanel';
+import TransientReveal from './TransientReveal';
 import { useConversationStore } from '@/stores/conversationStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import {
-  useIsomorphicLayoutEffect,
-  useStickyFollow,
-} from '@/hooks/useStickyFollow';
-import { INNER_FOLLOW_THRESHOLD_PX } from '@/lib/agentScroll';
 import { readWebToolStatus, webToolChips, webToolDetails, webToolNotice } from '@/lib/webToolStatus';
 import {
   asArgString,
@@ -78,11 +74,6 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
   const [expanded, setExpanded] = useMessageViewState('tool-expanded', autoExpand ?? false);
   const previousAutoExpand = useRef(autoExpand);
   const wasExecutingRef = useRef(message.isExecuting);
-  const {
-    ref: outputRef,
-    onScroll: onOutputScroll,
-    follow: followOutput,
-  } = useStickyFollow<HTMLPreElement>(INNER_FOLLOW_THRESHOLD_PX);
   const onExpandChangeRef = useRef(onExpandChange);
   const lastNotifiedExpandedRef = useRef<boolean | null>(null);
   const expandNotifyId = messageId ?? message.id;
@@ -125,12 +116,6 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
     onExpandChangeRef.current?.(expandNotifyId, expanded);
   }, [expanded, expandNotifyId]);
 
-  // 执行中输出逐条追加：用户没上翻就跟着走，上翻了就不打扰（判定见 useStickyFollow）
-  useIsomorphicLayoutEffect(() => {
-    if (!message.isExecuting) return;
-    followOutput();
-  }, [message.toolResult?.result, message.isExecuting, followOutput]);
-
   useEffect(() => {
     // Remounting an offscreen row must not undo the user's saved expansion.
     if (previousAutoExpand.current !== autoExpand) setExpanded(!!autoExpand);
@@ -155,7 +140,6 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
     const fileChangeTool = fileChangeToolName(tr.toolName);
     const isExecuting = message.isExecuting;
     const hasOutput = !!tr.result;
-    const showOutput = (isExecuting && hasOutput) || expanded;
     // 多机操控：目标机器归属。优先用结果 metadata 的权威 targetHostLabel
     // （后端解析 host→会话后回填，含消歧后缀）；执行中 metadata 尚未回填，
     // 从工具调用参数 `host` 读取——发起调用时模型已带上目标机器，执行中
@@ -305,7 +289,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
           })()
         )}
         {/* Model approval phase — distinct from execution progress */}
-        {message.modelApproval?.status === 'checking' && (
+        <TransientReveal show={message.modelApproval?.status === 'checking'}>
           <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
             <div className="flex items-center gap-2 text-xs text-indigo-400">
               <svg className="animate-spin h-3 w-3 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -315,7 +299,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
               <span>模型审批中…</span>
             </div>
           </div>
-        )}
+        </TransientReveal>
         {message.modelApproval?.status === 'done' && message.modelApproval.decision === 'route_to_human' && (
           <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
             <div className="text-xs text-amber-400 font-medium mb-0.5">模型建议人工审批</div>
@@ -385,17 +369,12 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
             </div>
           </details>
         )}
-        {showOutput && (
-          <div className={`min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5 ${isExecuting ? '' : 'hidden'}`}>
-            <pre
-              ref={outputRef}
-              onScroll={onOutputScroll}
-              className="text-xs text-zinc-400 whitespace-pre max-h-[120px] max-w-full overflow-x-auto overflow-y-auto font-mono leading-relaxed"
-            >
-              {isExecuting ? <LiveToolOutput text={tr.result || ''} /> : tr.result || ''}
-            </pre>
-          </div>
-        )}
+        {/* 执行中的实时输出：连续有输出满 400ms 才露出，高度长出来；命令结束后收回去
+            再卸载。不能条件渲染——那样第一行输出一到整块瞬间顶出来、结束又瞬间消失，
+            快命令就是「弹起来又突然没了」。 */}
+        <TransientReveal show={!!isExecuting && hasOutput}>
+          <LiveOutputPanel text={tr.result || ''} executing={!!isExecuting} />
+        </TransientReveal>
         {expanded && !isExecuting && (
           tr.success && fileChangeTool ? (
             <FileChangeView toolName={fileChangeTool} arguments={tr.arguments || {}} metadata={tr.metadata} />

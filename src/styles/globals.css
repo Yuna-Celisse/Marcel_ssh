@@ -189,6 +189,51 @@
   }
 }
 
+/* 工具卡里的瞬态块（执行中的实时输出、「模型审批中」）：高度从 0 长出来、收回去。
+   用 grid-template-rows 0fr↔1fr 做高度动画——内容高度未知（输出最高 120px、审批行
+   一行）也不用量；内层 overflow:hidden + min-height:0 才能被压到 0。
+   时长与 `useToolFoldTransition` 的折叠接近（280ms），两个动画同时发生时节奏一致。 */
+@keyframes transient-reveal-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+@keyframes transient-reveal-out {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.transient-reveal {
+  display: grid;
+}
+.transient-reveal > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.transient-reveal-enter {
+  animation: transient-reveal-in 260ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+.transient-reveal-exit {
+  animation: transient-reveal-out 220ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 保留 1ms 而不是 none：退场要靠 animationend 卸载 */
+  .transient-reveal-enter,
+  .transient-reveal-exit {
+    animation-duration: 1ms;
+  }
+}
+
 /* 任务运行状态条：三点依次起伏的波浪 */
 @keyframes run-dot-wave {
   0%, 60%, 100% {
