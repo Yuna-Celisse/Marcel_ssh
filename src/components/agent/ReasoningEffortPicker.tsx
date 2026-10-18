@@ -242,7 +242,11 @@ export function ReasoningEffortPicker({
       >
         <SlidersHorizontal size={13} className="shrink-0" aria-hidden="true" />
         <span className="min-w-0 max-w-[8rem] truncate">{hasModelSettings ? resolvedModelName : label}</span>
-        <ChevronDown size={12} className="shrink-0" aria-hidden="true" />
+        <ChevronDown
+          size={12}
+          className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
       </button>
 
       {presence.mounted && pos && createPortal(
