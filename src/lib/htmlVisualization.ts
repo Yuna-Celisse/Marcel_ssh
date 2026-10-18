@@ -123,7 +123,7 @@ svg text { fill: var(--foreground); font-size: 12px; }
 .text-small { font-size: 12px; color: var(--muted-foreground); }
 .card { background: var(--card); color: var(--card-foreground); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
 .btn { appearance: none; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: var(--foreground); font: inherit; cursor: pointer; transition: transform 100ms ease-out, background-color 180ms ease-out, color 180ms ease-out, border-color 180ms ease-out; }
-.btn:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); }
+@media (hover: hover) { .btn:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); } }
 .btn:active { transform: scale(.975); }
 .btn-primary, .btn[aria-pressed='true'], .btn[aria-selected='true'], .btn.is-selected { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 .btn-ghost { border-color: transparent; } .btn:disabled { opacity: .5; cursor: default; }

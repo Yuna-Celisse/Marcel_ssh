@@ -53,7 +53,6 @@ pub mod open_cloud_page;
 pub mod plan;
 pub mod plugin_tool;
 pub mod question;
-#[cfg(desktop)]
 pub mod render_html;
 pub mod search;
 // SFTP 远端探测（stat）：调度器「写前必须已读」预检里「远端目标存在吗」的回落实现。
@@ -650,10 +649,10 @@ pub struct ToolRegistry {
 }
 
 /// Whether the `render_html` tool and the `builtin.visualize` skill are
-/// available. Interactive visualization is desktop-only, so the platform is
-/// part of the gate rather than a separate check at each call site.
+/// available. Desktop and mobile render the same sandboxed iframe, so the
+/// switch is the only gate; the tool and the skill must follow it together.
 pub(crate) fn html_render_enabled(experimental_settings: &ExperimentalSettings) -> bool {
-    cfg!(desktop) && experimental_settings.enable_html_render
+    experimental_settings.enable_html_render
 }
 
 // ───────────────────── 内置工具声明表 ─────────────────────
@@ -1244,15 +1243,7 @@ static BUILTIN_TOOLS_COMMON: &[BuiltinToolSpec] = &[
         prompt_section: None,
         build: || Arc::new(open_cloud_page::OpenCloudPageTool::new()),
     },
-];
-
-/// 仅桌面端存在的内置工具声明。
-///
-/// 整段用 `cfg(desktop)` 隔开而不是塞一个恒假的开关：`render_html` 模块本身是
-/// 桌面专属代码，`upload_file` / `download_file` 读写本机文件系统（Android 走
-/// SAF，没有对应语义），移动端连类型都不编译。
-#[cfg(desktop)]
-static BUILTIN_TOOLS_DESKTOP: &[BuiltinToolSpec] = &[
+    // 应用内渲染的交互可视化：桌面与手机都是同一个沙箱 iframe，没有平台差异。
     BuiltinToolSpec {
         name: "render_html",
         side: ToolSide::App,
@@ -1263,6 +1254,15 @@ static BUILTIN_TOOLS_DESKTOP: &[BuiltinToolSpec] = &[
         prompt_section: None,
         build: || Arc::new(render_html::RenderHtmlTool::new()),
     },
+];
+
+/// 仅桌面端存在的内置工具声明。
+///
+/// 整段用 `cfg(desktop)` 隔开而不是塞一个恒假的开关：`upload_file` /
+/// `download_file` 读写本机文件系统（Android 走 SAF，没有对应语义），本机执行
+/// 与文件工具依赖本机子进程，移动端连类型都不编译。
+#[cfg(desktop)]
+static BUILTIN_TOOLS_DESKTOP: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         name: "upload_file",
         side: ToolSide::Both,
@@ -2095,7 +2095,6 @@ mod tests {
     fn desktop_only_tools_are_platform_gated() {
         let r = ToolRegistry::build_mut_for_mode(ToolAudience::Main, &[], &all_switches_on());
         for name in [
-            "render_html",
             "upload_file",
             "download_file",
             // 本机执行与文件工具：主 agent 拿不到（要本机子 agent 才拿得到），

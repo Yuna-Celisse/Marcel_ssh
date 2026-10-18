@@ -255,11 +255,10 @@ describe('real virtualizer integration', () => {
     await settle();
 
     expect(renderedIds().length).toBeGreaterThan(0);
-    expect(viewport.querySelectorAll('iframe')).toHaveLength(mobile ? 0 : 4);
+    expect(viewport.querySelectorAll('iframe')).toHaveLength(4);
     const views = [1, 3, 5, 7].map((index) => viewport.querySelector(`[data-message-id="m${index}"]`));
     for (const view of views) {
       expect(view).not.toBeNull();
-      if (mobile) expect(view!.textContent).toContain('交互可视化仅支持桌面端');
     }
     // A parent update must not reattach view refs and schedule another commit.
     commits.mockClear();

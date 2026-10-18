@@ -26,13 +26,12 @@ function toolMessage(
 }
 
 describe("toolViews", () => {
-  it("uses platform-specific render_html views while ordinary tools fall back", () => {
+  it("shares the render_html view across platforms while ordinary tools fall back", () => {
     const desktopView = getToolView("render_html", false);
     const mobileView = getToolView("render_html", true);
 
     expect(desktopView).toBeDefined();
-    expect(mobileView).toBeDefined();
-    expect(mobileView).not.toBe(desktopView);
+    expect(mobileView).toBe(desktopView);
     expect(getToolView("execute_command", false)).toBeUndefined();
     expect(getToolView("execute_command", true)).toBeUndefined();
   });

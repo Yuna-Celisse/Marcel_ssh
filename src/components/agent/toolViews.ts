@@ -2,7 +2,6 @@ import type { ComponentType } from "react";
 import type { AgentMessage } from "@/lib/types";
 import { collectPlatformHints, isMobilePlatform } from "@/platform";
 import HtmlVisualization from "./HtmlVisualization";
-import MobileVisualizationUnavailable from "./MobileVisualizationUnavailable";
 
 export interface ToolViewProps {
   message: AgentMessage;
@@ -30,7 +29,6 @@ interface ToolViewEntry {
 const TOOL_VIEWS: Record<string, ToolViewEntry> = {
   render_html: {
     desktop: HtmlVisualization,
-    mobile: MobileVisualizationUnavailable,
   },
 };
 

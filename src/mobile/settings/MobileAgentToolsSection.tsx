@@ -154,7 +154,7 @@ function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placehol
   );
 }
 
-/** Agent 工具能力（联网搜索 / 网页抓取 / 多机目标）——与桌面 ToolCapabilitiesSection 对齐的移动端版。 */
+/** Agent 工具能力（联网搜索 / 网页抓取 / 交互可视化 / 多机目标）——与桌面 ToolCapabilitiesSection 对齐的移动端版。 */
 export function MobileAgentToolsSection() {
   const { settings, update } = useSettingsActions();
   const connections = useConnectionStore((s) => s.connections);
@@ -439,6 +439,17 @@ export function MobileAgentToolsSection() {
           )}
         </>
       )}
+
+      <MobileSettingRow
+        label="交互可视化"
+        description="允许 Agent 将图表、对比面板、模拟器等交互内容直接展示在对话中"
+        trailing={
+          <Toggle
+            checked={experimental.enableHtmlRender ?? true}
+            onChange={(checked) => updateExperimental({ enableHtmlRender: checked })}
+          />
+        }
+      />
 
       <MobileSettingRow
         label="多机操控目标"
