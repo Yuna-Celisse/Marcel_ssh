@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useMemo } from 'react';
 import { sshSendInput } from '@/lib/tauri';
 import { BOTTOM_TABS, DEFAULT_TERMINAL_COLORS, type BottomTab } from '@/lib/constants';
 import { buildTerminalFontFamily } from '@/lib/terminalFont';
@@ -16,6 +16,11 @@ import { usePluginStore } from '@/stores/pluginStore';
 import { useClipboardHandler } from '@/hooks/useClipboardHandler';
 import { useTerminalBottomPanel } from './useTerminalBottomPanel';
 import { terminalInstanceManager } from './TerminalInstanceManager';
+import {
+  PanelTransition,
+  PANEL_TRANSITION_EASING,
+  PANEL_TRANSITION_MS,
+} from './terminalPanelTransition';
 import { isDebugSession } from '@/lib/debugServer';
 import { resolveTerminalColors } from '@/lib/terminalTheme';
 import { useDebugStore } from '@/stores/debugStore';
@@ -27,6 +32,10 @@ export default function Terminal() {
   const fitFrameRef = useRef<number | null>(null);
   const activeInstanceIdRef = useRef<string | null>(null);
   const lastWrapperSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelTransitionRef = useRef<PanelTransition | null>(null);
+  if (panelTransitionRef.current === null) panelTransitionRef.current = new PanelTransition();
+  const panelTransition = panelTransitionRef.current;
 
   const sessions = useSessionStore((s) => s.sessions);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -95,6 +104,35 @@ export default function Terminal() {
     activeInstanceIdRef.current = activeInstanceId;
   }, [activeInstanceId]);
 
+  // 底栏展开 / 收起：把整个 200ms 过渡期的 fit 收敛成一次，并让文字位移保持平滑
+  // （原理见 terminalPanelTransition.ts）。布局 effect：必须在浏览器画第一帧之前
+  // 读到面板的起始高度、定下终端的最终行数。
+  const panelOpen = activeTab !== null;
+  const panelOpenRef = useRef(panelOpen);
+  const panelHeightRef = useRef(panelHeight);
+  useLayoutEffect(() => {
+    panelHeightRef.current = panelHeight;
+  });
+  useLayoutEffect(() => {
+    if (panelOpenRef.current === panelOpen) return;
+    panelOpenRef.current = panelOpen;
+    const panel = panelRef.current;
+    const instanceId = useSessionStore.getState().activeSessionId;
+    // 面板没挂载（会话未连接）或没有活动终端：没有动画可协调，交给 ResizeObserver。
+    if (!panel || !instanceId) return;
+    const instance = terminalInstanceManager.get(instanceId);
+    if (!instance) return;
+    const from = panel.offsetHeight;
+    const to = panelOpen ? panelHeightRef.current : 0;
+    panelTransition.run({
+      instance,
+      delta: to - from,
+      onSettled: (settled) => terminalInstanceManager.resizeRemoteIfChanged(settled),
+    });
+  }, [panelOpen, panelTransition]);
+
+  useEffect(() => () => panelTransition.settle(), [panelTransition]);
+
   const scheduleActiveFit = () => {
     if (fitFrameRef.current !== null) return;
     fitFrameRef.current = requestAnimationFrame(() => {
@@ -111,6 +149,9 @@ export default function Terminal() {
 
   // Sync terminals with sessions
   useEffect(() => {
+    // 过渡中途切走 / 关掉了会话：让它立刻收尾，别把位移和 fit 留给不在前台的终端。
+    panelTransition.settleUnless(activeSessionId);
+
     const currentIds = new Set(Object.keys(sessions));
 
     // Create new terminals for new sessions; apply status if already terminal
@@ -172,13 +213,16 @@ export default function Terminal() {
     }
 
     setActiveInstanceId(activeSessionId);
-  }, [sessions, activeSessionId]);
+  }, [sessions, activeSessionId, panelTransition]);
 
   // Handle resize
   useEffect(() => {
     if (!wrapperRef.current) return;
 
     const resizeObserver = new ResizeObserver(([entry]) => {
+      // 底栏过渡期间终端区逐帧变矮，但 fit 只在过渡开始 / 结束时做一次（见上）。
+      // 不记录尺寸：收尾后的最终尺寸要能触发一次兜底 fit。
+      if (panelTransition.active) return;
       const size = {
         width: Math.round(entry.contentRect.width),
         height: Math.round(entry.contentRect.height),
@@ -198,7 +242,7 @@ export default function Terminal() {
         fitFrameRef.current = null;
       }
     };
-  }, []);
+  }, [panelTransition]);
 
   // Apply settings changes
   useEffect(() => {
@@ -225,7 +269,8 @@ export default function Terminal() {
 
   return (
     <div ref={terminalRootRef} data-region="terminal" className="flex flex-col flex-1 h-full bg-zinc-900">
-      <div className="relative flex-1 min-h-0">
+      {/* overflow-hidden：过渡期间终端内容带着位移，不能越过终端区盖住正在滑动的面板 */}
+      <div className="relative flex-1 min-h-0 overflow-hidden">
         <div ref={wrapperRef} className="absolute inset-0" />
         {!hasSessions && (
           <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/95 z-10">
@@ -247,9 +292,12 @@ export default function Terminal() {
       {hasSessions && activeSessionId && activeSession?.status === 'connected' && !isDebugSession(activeSessionId) && (
         <div className="flex flex-col flex-shrink-0">
           <div
+            ref={panelRef}
             style={{
               maxHeight: activeTab ? `${panelHeight}px` : '0',
-              transition: isResizingPanel ? 'none' : 'max-height 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: isResizingPanel
+                ? 'none'
+                : `max-height ${PANEL_TRANSITION_MS}ms ${PANEL_TRANSITION_EASING}`,
             }}
             className={`overflow-hidden ${
               activeTab ? 'border-t border-zinc-800' : ''
