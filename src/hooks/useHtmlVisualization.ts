@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { AgentMessage } from "@/lib/types";
 import { useMessageViewState } from "@/components/agent/messageViewState";
 import {
@@ -7,6 +14,7 @@ import {
   HTML_VIZ_HEIGHT_MESSAGE,
   HTML_VIZ_STREAM_MESSAGE,
   resolveVisualizationTheme,
+  sameVisualizationTheme,
   trimIncompleteStreamingScript,
   visualizationPresentation,
   type HtmlVisualizationTheme,
@@ -15,22 +23,49 @@ import {
 
 export const VISUALIZATION_MIN_HEIGHT = 48;
 
-/** 宿主主题（含深浅色切换）变化时重新解析，iframe 文档随之重建。 */
-export function useVisualizationTheme(): HtmlVisualizationTheme {
-  const [theme, setTheme] = useState(resolveVisualizationTheme);
+/**
+ * 宿主主题（含深浅色切换）变化时重新解析，iframe 文档随之重建。
+ *
+ * `host`：undefined = 只看 `:root`（桌面）；元素 = 按它在 DOM 里的位置取色（手机，
+ * 所在的面可能比 `:root` 默认的更深）；null = 宿主元素还没挂上。`ready` 在宿主的
+ * 颜色解析完之前为 false，调用方此前不要渲染 iframe——否则会先用 `:root` 的颜色
+ * 建一次文档，解析完又换一次，一个 iframe 白白加载两遍。
+ */
+export function useVisualizationTheme(host?: Element | null): {
+  theme: HtmlVisualizationTheme;
+  ready: boolean;
+} {
+  const [theme, setTheme] = useState(() => resolveVisualizationTheme());
+  const [resolvedHost, setResolvedHost] = useState<Element | null>(null);
+  const refresh = useCallback(
+    () =>
+      setTheme((prev) => {
+        const next = resolveVisualizationTheme(host);
+        return sameVisualizationTheme(prev, next) ? prev : next;
+      }),
+    [host],
+  );
+  // 布局阶段解析：在绘制之前完成，用户看不到换色。
+  useLayoutEffect(() => {
+    if (!host) return;
+    refresh();
+    setResolvedHost(host);
+  }, [host, refresh]);
   useEffect(() => {
-    const refreshTheme = () => setTheme(resolveVisualizationTheme());
-    const observer = new MutationObserver(refreshTheme);
+    const observer = new MutationObserver(refresh);
     observer.observe(document.documentElement, { attributes: true });
     observer.observe(document.body, { attributes: true });
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    media.addEventListener("change", refreshTheme);
+    media.addEventListener("change", refresh);
     return () => {
       observer.disconnect();
-      media.removeEventListener("change", refreshTheme);
+      media.removeEventListener("change", refresh);
     };
-  }, []);
-  return theme;
+  }, [refresh]);
+  return {
+    theme,
+    ready: host === undefined || (host !== null && host === resolvedHost),
+  };
 }
 
 interface Options extends VisualizationDocOptions {
@@ -40,6 +75,11 @@ interface Options extends VisualizationDocOptions {
    * 模型逐 token 吐字时没必要每个 token 都做一遍。
    */
   streamThrottleMs?: number;
+  /**
+   * 可视化容器的 DOM 元素，用来按所在的面取底色，取值含义见 `useVisualizationTheme`。
+   * 桌面不传。
+   */
+  host?: Element | null;
 }
 
 /**
@@ -52,7 +92,7 @@ interface Options extends VisualizationDocOptions {
  */
 export function useHtmlVisualization(
   message: AgentMessage,
-  { streamThrottleMs = 0, ...docOptions }: Options = {},
+  { streamThrottleMs = 0, host, ...docOptions }: Options = {},
 ) {
   const presentation = visualizationPresentation(message);
   const { title, fragment } = presentation;
@@ -65,8 +105,13 @@ export function useHtmlVisualization(
     "viz-content-height",
     VISUALIZATION_MIN_HEIGHT,
   );
-  const theme = useVisualizationTheme();
+  const { theme, ready } = useVisualizationTheme(host);
   const { scrollable, focus } = docOptions;
+
+  // iframe 不渲染期间没有文档可言；之后新挂的 iframe 要重新等它自己的 load。
+  useEffect(() => {
+    if (!ready) setLoaded(false);
+  }, [ready]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -136,6 +181,7 @@ export function useHtmlVisualization(
     token,
     frameRef,
     theme,
+    ready,
     doc,
     contentHeight,
     onLoad: () => setLoaded(true),

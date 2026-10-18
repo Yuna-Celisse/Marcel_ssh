@@ -12,6 +12,11 @@ interface MobileFullscreenPageProps {
   region: string;
   /** Extra classes for the root, mainly the background (default zinc-950). */
   className?: string;
+  /**
+   * Inline background for pages whose color is only known at runtime (it wins
+   * over the class). Layout properties stay owned by the shell.
+   */
+  backgroundColor?: string;
   /** True while the exit animation plays (from `useAnimatedClose`). */
   closing?: boolean;
   /** Pass `useAnimatedClose().onAnimationEnd` so the exit can unmount. */
@@ -47,6 +52,7 @@ export default function MobileFullscreenPage({
   children,
   region,
   className = 'bg-zinc-950',
+  backgroundColor,
   closing = false,
   onExitAnimationEnd,
   onBack,
@@ -70,6 +76,7 @@ export default function MobileFullscreenPage({
         closing ? 'mobile-fullscreen-exit' : 'mobile-fullscreen-enter'
       }`}
       style={{
+        backgroundColor,
         // Push the content area above the soft keyboard / gesture nav bar
         // instead of shrinking the page (shrinking creates a gap that exposes
         // the pinned tab bar behind). The system navigation bar (3-button

@@ -402,7 +402,7 @@ export default function MobileAgentHost({
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-col bg-zinc-950"
+      className="marcel-viz-surface-page relative flex h-full min-h-0 flex-col bg-zinc-950"
       data-region="mobile-agent"
     >
       <header

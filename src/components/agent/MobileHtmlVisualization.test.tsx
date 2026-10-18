@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type CSSProperties } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "@/lib/types";
@@ -82,6 +82,8 @@ beforeEach(() => {
     addEventListener: () => {},
     removeEventListener: () => {},
   }));
+  // 桌面面板 / 底部面板的底色（globals.css 的默认值）。
+  document.documentElement.style.setProperty("--marcel-viz-background", "#18181b");
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -90,6 +92,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  document.documentElement.style.removeProperty("--marcel-viz-background");
   resetBackHandlers();
   vi.unstubAllGlobals();
 });
@@ -268,6 +271,66 @@ describe("MobileHtmlVisualization", () => {
       await act(async () => vi.advanceTimersByTime(MOBILE_VIZ_STREAM_THROTTLE_MS));
       await render(streaming("<p>abcde</p>"));
       expect(posted(post)).toEqual(["<p>a</p>", "<p>abcd</p>", "<p>abcde</p>"]);
+    });
+  });
+
+  describe("surface color", () => {
+    // 手机对话页比桌面面板更深：`.marcel-viz-surface-page` 在那一层覆盖底色变量。
+    const onPage = (message: AgentMessage = vizMessage()) => (
+      <div style={{ "--marcel-viz-background": "#09090b" } as CSSProperties}>
+        <MobileHtmlVisualization message={message} />
+      </div>
+    );
+
+    it("paints the frame in the color of the surface it sits on", async () => {
+      await act(async () => root.render(onPage()));
+      expect(inlineFrame().style.backgroundColor).toBe("rgb(9, 9, 11)");
+      expect(inlineFrame().srcdoc).toContain("--marcel-viz-background: #09090b");
+    });
+
+    it("keeps the default color on a surface that does not override it", async () => {
+      await render();
+      expect(inlineFrame().style.backgroundColor).toBe("rgb(24, 24, 27)");
+      expect(inlineFrame().srcdoc).toContain("--marcel-viz-background: #18181b");
+    });
+
+    it("builds the document once, with the surface's color from the start", async () => {
+      const srcdocs: string[] = [];
+      const setAttribute = Element.prototype.setAttribute;
+      const spy = vi
+        .spyOn(Element.prototype, "setAttribute")
+        .mockImplementation(function (this: Element, name, value) {
+          // React 18 以 `srcDoc` 的大小写写属性，DOM 里不区分。
+          if (name.toLowerCase() === "srcdoc") srcdocs.push(value);
+          return setAttribute.call(this, name, value);
+        });
+      try {
+        await act(async () => root.render(onPage()));
+      } finally {
+        spy.mockRestore();
+      }
+      // 不能先用 :root 的颜色建一次、解析完宿主再换一次：同一个 iframe 会白白加载两遍。
+      expect(srcdocs).toHaveLength(1);
+      expect(srcdocs[0]).toContain("--marcel-viz-background: #09090b");
+    });
+
+    it("fades the cropped bottom into the same color", async () => {
+      await act(async () => root.render(onPage()));
+      await reportHeight(1400);
+      const fade = host.querySelector<HTMLElement>('[aria-hidden="true"].pointer-events-none');
+      expect(fade?.style.background).toContain("rgb(9, 9, 11)");
+    });
+
+    it("gives the fullscreen viewer the same color, so page and frame read as one", async () => {
+      await act(async () => root.render(onPage()));
+      await act(async () => button("全屏查看")!.click());
+      const viewer = document.querySelector<HTMLElement>(
+        '[data-region="mobile-html-viz-viewer"]',
+      )!;
+      expect(viewer.style.backgroundColor).toBe("rgb(9, 9, 11)");
+      expect(viewer.querySelector("iframe")!.style.backgroundColor).toBe(
+        "rgb(9, 9, 11)",
+      );
     });
   });
 

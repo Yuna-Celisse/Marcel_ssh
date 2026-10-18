@@ -42,6 +42,17 @@
   --marcel-viz-accentText: #ffffff;
 }
 
+/*
+ * 可视化的底色要等于它所在那一层「面」的底色，否则在面上就是一块偏亮/偏暗的方块。
+ * 默认值（zinc-900）是桌面对话面板和手机底部面板的底色；手机对话页是更深的
+ * zinc-950（MobileAgentHost 根节点的 bg-zinc-950），这一层覆盖它。变量沿 DOM 继承，
+ * 可视化容器从自己的位置读（resolveVisualizationTheme 的 host 参数）。
+ * 改手机对话页底色时同步改这里。
+ */
+.marcel-viz-surface-page {
+  --marcel-viz-background: #09090b;
+}
+
 /* Spring keyframes for toggle/button animations */
 @keyframes spring-pop {
   0% {

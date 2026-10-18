@@ -23,14 +23,26 @@ const THEME_FALLBACKS: Omit<HtmlVisualizationTheme, "colorScheme"> = {
   accentText: "#ffffff",
 };
 
-export function resolveVisualizationTheme(): HtmlVisualizationTheme {
-  const style = getComputedStyle(document.documentElement);
+/**
+ * 从 CSS 变量解析可视化的主题。
+ *
+ * `host` 是可视化所在的 DOM 元素：`--marcel-viz-*` 沿 DOM 继承，所以哪一层「面」
+ * （手机对话页比桌面面板和底部面板更深）在 CSS 里覆盖了它，从宿主读就拿到哪一层的
+ * 颜色。不传则读 `:root`。
+ */
+export function resolveVisualizationTheme(
+  host?: Element | null,
+): HtmlVisualizationTheme {
+  const root = getComputedStyle(document.documentElement);
+  const style = host ? getComputedStyle(host) : root;
   const read = (name: keyof typeof THEME_FALLBACKS) =>
     style.getPropertyValue(`--marcel-viz-${name}`).trim() ||
+    root.getPropertyValue(`--marcel-viz-${name}`).trim() ||
     THEME_FALLBACKS[name];
   return {
-    // The visualization shares the agent panel base color so the sandboxed
-    // iframe never exposes a compositor fallback between document paints.
+    // The visualization shares the base color of the surface it sits on so the
+    // sandboxed iframe never exposes a compositor fallback between document
+    // paints, and never shows up as a lighter or darker box on that surface.
     background: read("background"),
     surface: read("surface"),
     text: read("text"),
@@ -39,10 +51,20 @@ export function resolveVisualizationTheme(): HtmlVisualizationTheme {
     accent: read("accent"),
     accentText: read("accentText"),
     colorScheme:
-      style.colorScheme.includes("light") && !style.colorScheme.includes("dark")
+      root.colorScheme.includes("light") && !root.colorScheme.includes("dark")
         ? "light"
         : "dark",
   };
+}
+
+/** 主题逐字段相同：不同就要重建 iframe 文档，相同则沿用旧对象避免白白重载。 */
+export function sameVisualizationTheme(
+  a: HtmlVisualizationTheme,
+  b: HtmlVisualizationTheme,
+): boolean {
+  return (Object.keys(a) as (keyof HtmlVisualizationTheme)[]).every(
+    (key) => a[key] === b[key],
+  );
 }
 
 function asString(value: unknown): string | undefined {

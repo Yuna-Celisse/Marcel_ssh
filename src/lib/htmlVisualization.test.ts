@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
 import type { AgentMessage } from "./types";
 import {
   buildSettledVisualizationDoc,
@@ -7,6 +8,8 @@ import {
   HTML_VIZ_STREAM_MESSAGE,
   mobileVisualizationCap,
   mobileVisualizationFrame,
+  resolveVisualizationTheme,
+  sameVisualizationTheme,
   trimIncompleteStreamingScript,
   visualizationNotice,
   type HtmlVisualizationTheme,
@@ -199,5 +202,51 @@ describe("visualizationNotice", () => {
     });
     expect(visualizationNotice({ ...base, isExecuting: true }, "")).toBeNull();
     expect(visualizationNotice(base, "<p>x</p>")).toBeNull();
+  });
+});
+
+describe("resolveVisualizationTheme", () => {
+  afterEach(() => {
+    document.documentElement.style.removeProperty("--marcel-viz-background");
+    document.body.replaceChildren();
+  });
+
+  it("falls back to the root tokens when no host is given", () => {
+    document.documentElement.style.setProperty("--marcel-viz-background", "#18181b");
+    expect(resolveVisualizationTheme().background).toBe("#18181b");
+  });
+
+  it("reads the color of the surface the host sits on, not the root's", () => {
+    // 手机对话页比 :root 默认的面更深：覆盖写在那一层，可视化从自己的位置继承。
+    document.documentElement.style.setProperty("--marcel-viz-background", "#18181b");
+    const page = document.createElement("div");
+    page.style.setProperty("--marcel-viz-background", "#09090b");
+    const host = document.createElement("div");
+    page.append(host);
+    document.body.append(page);
+    expect(resolveVisualizationTheme(host).background).toBe("#09090b");
+    // 其余没被覆盖的颜色仍取自 :root，不会变成空串。
+    expect(resolveVisualizationTheme(host).accent).toBe(
+      resolveVisualizationTheme().accent,
+    );
+  });
+
+  it("a host with no override behaves like the root", () => {
+    document.documentElement.style.setProperty("--marcel-viz-background", "#18181b");
+    const host = document.createElement("div");
+    document.body.append(host);
+    expect(resolveVisualizationTheme(host).background).toBe("#18181b");
+  });
+});
+
+describe("sameVisualizationTheme", () => {
+  it("compares field by field, so an unchanged theme keeps the same document", () => {
+    expect(sameVisualizationTheme(theme, { ...theme })).toBe(true);
+    expect(
+      sameVisualizationTheme(theme, { ...theme, background: "#09090b" }),
+    ).toBe(false);
+    expect(
+      sameVisualizationTheme(theme, { ...theme, colorScheme: "light" }),
+    ).toBe(false);
   });
 });

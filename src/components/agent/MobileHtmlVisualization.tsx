@@ -24,6 +24,10 @@ interface Props {
  * 在底部渐隐，并给「全屏查看」入口，全屏查看器里才能完整滚动浏览。
  */
 function MobileHtmlVisualization({ message }: Props) {
+  // 底色按「所在的面」取：手机对话页（zinc-950）比底部面板、桌面面板（zinc-900）更深，
+  // 写死一个颜色总有一边会是一块偏亮或偏暗的方块。见 globals.css 的
+  // `.marcel-viz-surface-page`。
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const {
     title,
     fragment,
@@ -31,6 +35,7 @@ function MobileHtmlVisualization({ message }: Props) {
     token,
     frameRef,
     theme,
+    ready,
     doc,
     contentHeight,
     onLoad,
@@ -38,6 +43,7 @@ function MobileHtmlVisualization({ message }: Props) {
     scrollable: false,
     streamThrottleMs: MOBILE_VIZ_STREAM_THROTTLE_MS,
     focus: "report",
+    host,
   });
   useIframeFocusReveal(frameRef, token);
   const viewport = useViewportSize();
@@ -63,7 +69,7 @@ function MobileHtmlVisualization({ message }: Props) {
   const canOpenViewer = hasContent && !message.isExecuting;
 
   return (
-    <div className="my-2 min-w-0 w-full bg-transparent">
+    <div ref={setHost} className="my-2 min-w-0 w-full bg-transparent">
       <div className="mb-1.5 flex min-w-0 items-center gap-2 whitespace-nowrap text-xs text-zinc-500">
         <span className="min-w-0 truncate font-medium text-zinc-300">
           {title}
@@ -87,20 +93,22 @@ function MobileHtmlVisualization({ message }: Props) {
         )}
       </div>
       <div className="relative overflow-hidden">
-        <iframe
-          ref={frameRef}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          title={title}
-          srcDoc={doc}
-          onLoad={onLoad}
-          className="block w-full border-0"
-          style={{
-            height: hasContent ? height : 0,
-            backgroundColor: theme.background,
-            colorScheme: "normal",
-          }}
-        />
+        {ready && (
+          <iframe
+            ref={frameRef}
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            title={title}
+            srcDoc={doc}
+            onLoad={onLoad}
+            className="block w-full border-0"
+            style={{
+              height: hasContent ? height : 0,
+              backgroundColor: theme.background,
+              colorScheme: "normal",
+            }}
+          />
+        )}
         {hasContent && clipped && (
           <>
             {/* 渐隐只提示「下面还有」，不拦截触摸：手指照样落在可视化上。 */}

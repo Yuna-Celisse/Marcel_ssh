@@ -45,7 +45,8 @@ export default function MobileHtmlVisualizationViewer({
     <MobileFullscreenPage
       region="mobile-html-viz-viewer"
       // 背景跟 iframe 同色，页眉、页脚（导航栏 padding）与画面连成一体。
-      className="bg-[color:var(--marcel-viz-background,#18181b)]"
+      // 取对话里那份可视化解析出的底色：本页挂在 body 上，读不到对话页的覆盖值。
+      backgroundColor={theme.background}
       closing={closing}
       onExitAnimationEnd={onAnimationEnd}
       onBack={requestClose}
