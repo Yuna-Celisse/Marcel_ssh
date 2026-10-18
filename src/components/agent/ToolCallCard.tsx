@@ -78,8 +78,6 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
   const [expanded, setExpanded] = useMessageViewState('tool-expanded', autoExpand ?? false);
   const previousAutoExpand = useRef(autoExpand);
   const wasExecutingRef = useRef(message.isExecuting);
-  // 挂载时仍在执行且刚结束撰写（isComposing 明确为 false）= 由气泡变形而来，只在首次挂载播一次
-  const materializeRef = useRef(!!message.isExecuting && message.isComposing === false);
   const {
     ref: outputRef,
     onScroll: onOutputScroll,
@@ -226,7 +224,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
     return (
       <ToolCardFrame
         containerRef={cardRefCb}
-        materialize={materializeRef.current}
+        composing={message.isExecuting ? !!message.isComposing : undefined}
         toolName={tr.toolName}
         label={displayName}
         tone={tr.blocked ? 'danger' : tr.wasTimeout || tr.wasAborted ? 'warning' : 'default'}

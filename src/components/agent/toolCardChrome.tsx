@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { toolIconPaths } from '@/lib/toolCatalog';
 
 /**
@@ -85,7 +85,7 @@ export function ToolCardFrame({
   expanded = false,
   onToggle,
   containerRef,
-  materialize = false,
+  composing,
   children,
 }: {
   /** 决定图标（走 toolCatalog 的图标表；表里没有的工具落到默认齿轮）。 */
@@ -105,14 +105,20 @@ export function ToolCardFrame({
   onToggle?: () => void;
   /** 容器 ref（工具卡要量宽度决定标题行放得下多少字）。 */
   containerRef?: (node: HTMLDivElement | null) => void;
-  /** 刚由「正在撰写」气泡变形而来：播登场动画。 */
-  materialize?: boolean;
+  /**
+   * 模型正在撰写这次调用的参数。undefined = 非流式来源（历史/重载），完全不参与；
+   * true = 标题行呈「正在撰写」胶囊；true→false = 同一个元素把胶囊褪成普通卡片
+   * （没有卸载/重挂，所以不会闪、不会跳）。
+   */
+  composing?: boolean;
   children?: ReactNode;
 }) {
+  // 只有「一挂载就在撰写」的卡片才播从状态条分裂出来的登场；之后状态再变不重播
+  const splitOnMount = useRef(composing === true).current;
   return (
     <div
       ref={containerRef}
-      className={`min-w-0 max-w-full rounded-md ${CONTAINER_TONE_CLASS[tone]}${materialize ? ' tool-card-materialize' : ''}`}
+      className={`min-w-0 max-w-full rounded-md ${CONTAINER_TONE_CLASS[tone]}${splitOnMount ? ' compose-split-enter' : ''}`}
     >
       <button
         type="button"
@@ -122,12 +128,19 @@ export function ToolCardFrame({
         title={typeof preview === 'string' && preview ? `${label} ${preview}` : label}
         className="group block w-full min-w-0 rounded-md text-left transition-colors duration-150 hover:bg-zinc-800/30 active:bg-zinc-800/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 touch-manipulation motion-reduce:transition-none"
       >
-        <div className="flex min-h-7 items-center gap-2 px-1 py-1 min-w-0 [@media(pointer:coarse)]:min-h-8">
+        <div
+          className={`tool-card-row flex min-h-7 items-center gap-2 px-1 py-1 min-w-0 [@media(pointer:coarse)]:min-h-8${
+            composing === undefined ? '' : composing ? ' tool-card-row-composing' : ' tool-card-row-settled'
+          }`}
+        >
           <span className="shrink-0" aria-hidden="true">
             <ToolIcon toolName={toolName} />
           </span>
           <div className="flex flex-1 items-center gap-2 min-w-0 overflow-hidden">
-            <span className={`min-w-0 truncate text-[13px] leading-5 font-normal ${preview ? 'max-w-[45%] shrink-0' : 'flex-1'}`}>{label}</span>
+            <span className={`min-w-0 truncate text-[13px] leading-5 font-normal ${preview ? 'max-w-[45%] shrink-0' : 'flex-1'}`}>
+              {composing !== undefined && <span className="compose-prefix" aria-hidden={!composing}>正在撰写&nbsp;</span>}
+              {label}
+            </span>
             {preview && (
               <span className="min-w-0 flex-1 truncate text-[13px] leading-5 font-normal text-zinc-400 font-mono">{preview}</span>
             )}
@@ -135,7 +148,11 @@ export function ToolCardFrame({
           <div className="flex min-w-0 max-w-[45%] items-center gap-1 overflow-hidden empty:hidden">{chips}</div>
           {trailing}
           <div className="flex items-center gap-1 flex-shrink-0">
-            {busy ? (
+            {composing ? (
+              <span className="run-dots flex items-center gap-[3px] px-1" aria-hidden="true">
+                <i /><i /><i />
+              </span>
+            ) : busy ? (
               <svg
                 className="animate-spin h-4 w-4 flex-shrink-0 text-zinc-500"
                 xmlns="http://www.w3.org/2000/svg"

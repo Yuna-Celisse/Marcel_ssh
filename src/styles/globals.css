@@ -106,55 +106,75 @@
 }
 
 /* 工具调用「撰写中」气泡：从状态条（左下）向上分裂出来，带一点果冻回弹 */
-@keyframes compose-bubble-split {
+/* 工具调用「撰写中」：卡片标题行先是一枚胶囊，从状态条（左下）向上"分裂"出来，
+   参数写完后**同一个元素**褪成普通卡片行（宽度/底色/圆角/前缀全是 CSS 过渡，
+   没有卸载重挂，所以没有闪烁和跳动）。行高与卡片行一致，状态切换不改变布局高度。 */
+@keyframes compose-split {
   0% {
     opacity: 0;
     transform: translate(-4px, 18px) scale(0.15, 0.3);
   }
   55% {
     opacity: 1;
-    transform: translate(0, -3px) scale(1.06, 1.08);
+    transform: translate(0, -3px) scale(1.04, 1.06);
   }
   80% {
-    transform: translate(0, 1px) scale(0.98, 0.97);
+    transform: translate(0, 1px) scale(0.99, 0.98);
   }
   100% {
     opacity: 1;
     transform: translate(0, 0) scale(1);
   }
 }
-.compose-bubble {
-  display: inline-flex;
-  max-width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
-  border-radius: 9999px;
-  border: 1px solid rgb(63 63 70 / 0.6);
-  background: rgb(39 39 42 / 0.5);
-  color: rgb(161 161 170);
-  font-size: 12px;
-  line-height: 18px;
+.compose-split-enter {
   transform-origin: 14px 100%;
-  animation: compose-bubble-split 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: compose-split 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
-
-/* 参数写完：气泡退场，正式卡片从同一处"长"出来 */
-@keyframes tool-card-materialize {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.94);
-  }
+.tool-card-row-composing,
+.tool-card-row-settled {
+  border-radius: 9999px;
+  transition:
+    max-width 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 340ms ease,
+    background-color 340ms ease,
+    box-shadow 340ms ease,
+    border-radius 340ms ease;
 }
-.tool-card-materialize {
-  transform-origin: left bottom;
-  animation: tool-card-materialize 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.tool-card-row-composing {
+  max-width: 13rem;
+  padding-left: 8px;
+  padding-right: 8px;
+  background-color: rgb(39 39 42 / 0.5);
+  box-shadow: inset 0 0 0 1px rgb(63 63 70 / 0.6);
+}
+.tool-card-row-settled {
+  max-width: 100%;
+  padding-left: 4px;
+  padding-right: 4px;
+  background-color: rgb(39 39 42 / 0);
+  box-shadow: inset 0 0 0 1px rgb(63 63 70 / 0);
+  border-radius: 6px;
+}
+.compose-prefix {
+  display: inline-block;
+  max-width: 5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  transition: max-width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease;
+}
+.tool-card-row-settled .compose-prefix {
+  max-width: 0;
+  opacity: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .compose-bubble,
-  .tool-card-materialize {
+  .compose-split-enter {
     animation: none;
+  }
+  .tool-card-row-composing,
+  .tool-card-row-settled,
+  .compose-prefix {
+    transition: none;
   }
 }
 
