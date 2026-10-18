@@ -225,6 +225,34 @@ describe('real virtualizer integration', () => {
     expect(renderedIds().length).toBeLessThan(40);
   });
 
+  it('with a retain limit, unmounts the view that was seen longest ago', async () => {
+    for (const index of [4000, 5000, 6000]) {
+      data[index] = { ...data[index], role: 'tool', toolResult: {
+        toolName: 'render_html', result: '', summary: '', success: true, blocked: false,
+      } };
+    }
+    const framesAfter = async (highlightMessageId: string) => {
+      await render({ highlightMessageId, maxRetainedViews: 2 });
+      return viewport.querySelector<HTMLIFrameElement>(`[data-message-id="${highlightMessageId}"] iframe`)!;
+    };
+    const first = await framesAfter('m4000');
+    const second = await framesAfter('m5000');
+    // Two are within the limit: scrolling away keeps both, same instances.
+    await act(async () => handle.current!.scrollToBottom());
+    await settle();
+    expect(first.isConnected).toBe(true);
+    expect(second.isConnected).toBe(true);
+
+    // A third visit pushes the oldest (4000) out; the newer two stay.
+    const third = await framesAfter('m6000');
+    await act(async () => handle.current!.scrollToBottom());
+    await settle();
+    expect(first.isConnected).toBe(false);
+    expect(second.isConnected).toBe(true);
+    expect(third.isConnected).toBe(true);
+    expect(viewport.querySelectorAll('iframe')).toHaveLength(2);
+  });
+
   it.each([
     { mobile: false, transcript: false },
     { mobile: true, transcript: false },

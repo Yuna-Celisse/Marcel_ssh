@@ -90,6 +90,9 @@ const MOBILE_VIZ_LANDSCAPE_MIN_CAP = 280;
  */
 const MOBILE_VIZ_CLIP_SLACK = 32;
 
+/** 流式阶段向 iframe 推新片段的最短间隔：手机上每次推送都要整段重新解析比对。 */
+export const MOBILE_VIZ_STREAM_THROTTLE_MS = 120;
+
 export interface MobileVisualizationFrame {
   /** iframe 实际显示的高度。 */
   height: number;
@@ -119,6 +122,7 @@ export function mobileVisualizationFrame(
 
 export const HTML_VIZ_HEIGHT_MESSAGE = "marcel-html-viz:height";
 export const HTML_VIZ_STREAM_MESSAGE = "marcel-html-viz:stream";
+export const HTML_VIZ_FOCUS_MESSAGE = "marcel-html-viz:focus";
 
 const RESOURCE_ORIGINS = [
   "https://cdnjs.cloudflare.com",
@@ -212,6 +216,12 @@ const NO_SCROLL_CSS = "html, body { overflow: hidden; }";
 export interface VisualizationDocOptions {
   /** 文档本身能否在 iframe 内滚动；默认 true（桌面与全屏查看器）。 */
   scrollable?: boolean;
+  /**
+   * 软键盘弹起时让正在输入的控件露出来（只手机端用，默认都不装）：
+   * - `report`：对话内版本。文档不滚动，把控件位置报给宿主，由宿主滚对话列表。
+   * - `self`：全屏查看器。文档自己可滚动，iframe 被键盘挤矮后自己把控件滚回可视区。
+   */
+  focus?: "report" | "self";
 }
 
 function safeCssValue(value: string): string {
@@ -267,6 +277,47 @@ function heightReporter(token: string): string {
 })();`;
 }
 
+/**
+ * 软键盘弹起后让输入控件露出来。只认会唤起键盘的控件（文本类 input、textarea、
+ * contenteditable）；复选框、滑块、按钮、下拉都不算。
+ *
+ * `report` 模式同时听 `click`：安卓返回键收起键盘后输入框仍有焦点，再点它不会有
+ * 新的 focusin，键盘却会重新弹起。
+ */
+function focusBridge(token: string, mode: "report" | "self"): string {
+  return `
+(function () {
+  var token = ${JSON.stringify(token)};
+  var NO_KEYBOARD = /^(checkbox|radio|range|button|submit|reset|color|file|image|hidden)$/i;
+  function wantsKeyboard(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.tagName === 'TEXTAREA') return !el.readOnly;
+    if (el.tagName === 'INPUT') return !el.readOnly && !NO_KEYBOARD.test(el.type);
+    return el.isContentEditable === true;
+  }
+  ${
+    mode === "report"
+      ? `function report(event) {
+    var el = event.target;
+    if (!wantsKeyboard(el)) return;
+    var rect = el.getBoundingClientRect();
+    parent.postMessage({ type: ${JSON.stringify(HTML_VIZ_FOCUS_MESSAGE)}, token: token, top: rect.top, bottom: rect.bottom }, '*');
+  }
+  addEventListener('focusin', report);
+  addEventListener('click', report);`
+      : `// iframe 被键盘挤矮会触发 resize：此时若有输入控件在编辑，把它滚回可视区中间。
+  addEventListener('resize', function () {
+    var el = document.activeElement;
+    if (wantsKeyboard(el)) el.scrollIntoView({ block: 'center', inline: 'nearest' });
+  });`
+  }
+})();`;
+}
+
+function focusScript(token: string, mode: VisualizationDocOptions["focus"]) {
+  return mode ? `<script>${focusBridge(token, mode)}</script>` : "";
+}
+
 function documentShell(
   title: string,
   theme: HtmlVisualizationTheme,
@@ -302,7 +353,7 @@ export function buildSettledVisualizationDoc(
     // scripts inside the fragment can block the HTML parser while loading;
     // placing the reporter after them left replayed frames stuck at 48px and
     // made the persisted visualization look missing after app restart.
-    `<script>${heightReporter(token)}</script>${fragment}`,
+    `<script>${heightReporter(token)}</script>${focusScript(token, options.focus)}${fragment}`,
     options,
   );
 }
@@ -377,7 +428,7 @@ export function buildStreamingVisualizationDoc(
   return documentShell(
     "Streaming visualization",
     theme,
-    `<script>${heightReporter(token)}</script>
+    `<script>${heightReporter(token)}</script>${focusScript(token, options.focus)}
 <div id="marcel-viz-stream-root"></div>
 <style>
 .marcel-viz-enter { animation: marcel-viz-enter .32s cubic-bezier(.2,.7,.3,1) both; }

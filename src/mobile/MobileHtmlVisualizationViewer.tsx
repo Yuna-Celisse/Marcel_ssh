@@ -33,7 +33,11 @@ export default function MobileHtmlVisualizationViewer({
   // 与对话里那份用不同的 token：高度上报 / 流式消息按 token + source 认领，
   // 两个实例互不串线。
   const doc = useMemo(
-    () => buildSettledVisualizationDoc(fragment, title, theme, `${token}:fullscreen`),
+    () =>
+      buildSettledVisualizationDoc(fragment, title, theme, `${token}:fullscreen`, {
+        // 查看器被键盘挤矮后，文档自己把正在输入的控件滚回可视区。
+        focus: "self",
+      }),
     [fragment, title, theme, token],
   );
 

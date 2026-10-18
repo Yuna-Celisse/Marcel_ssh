@@ -20,6 +20,7 @@ import {
 } from '@/stores/conversationHistoryManager';
 import { Pencil, Pin } from 'lucide-react';
 import AgentMessageList from '@/components/agent/AgentMessageList';
+import { MOBILE_MAX_RETAINED_VIEWS } from '@/lib/retainedViews';
 import MobileSheet from './ui/MobileSheet';
 
 interface MobileChatHistorySheetProps {
@@ -241,6 +242,7 @@ export default function MobileChatHistorySheet({
                   isSearching ? debouncedQuery.trim() : undefined
                 }
                 alwaysShowActions
+                maxRetainedViews={MOBILE_MAX_RETAINED_VIEWS}
               />
             )}
           </div>

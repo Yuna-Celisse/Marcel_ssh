@@ -7,6 +7,7 @@ import type { AgentMessage } from '@/lib/types';
 import { isNearBottom } from '@/lib/agentScroll';
 import { isTurnStart } from '@/lib/agentTurnFold';
 import { isTaskBusy } from '@/lib/agentStatus';
+import { retainRecent } from '@/lib/retainedViews';
 import { turnFooters, type TurnFooter } from '@/lib/turnTranscript';
 import { getErrorMessage } from '@/lib/errors';
 import { useConversationStore } from '@/stores/conversationStore';
@@ -57,6 +58,11 @@ interface Props {
   enableStickyFollow?: boolean;
   onManualLayout?: () => void;
   listRef?: RefObject<AgentMessageListHandle | null>;
+  /**
+   * 逛过的专属 view（交互可视化 iframe）最多同时保持挂载几个，超出的按最久没看的卸载。
+   * 不传 = 不限（桌面）。手机内存吃紧，由调用方传 `MOBILE_MAX_RETAINED_VIEWS`。
+   */
+  maxRetainedViews?: number;
 }
 const PAGE_SIZE = 50;
 const TOP_MARGIN = 160;
@@ -105,7 +111,7 @@ function DedicatedViewRetention({
 function MessageList({
   messages, conversationId = '', rollbackDisabled = false, onRollback, onCopy, onCopyText, messagesEndRef,
   highlightMessageId = null, matchedMessageIds, searchKeyword, alwaysShowActions = false,
-  foldTurns: foldTurnsProp, enableStickyFollow = true, listRef, onManualLayout,
+  foldTurns: foldTurnsProp, enableStickyFollow = true, listRef, onManualLayout, maxRetainedViews,
 }: Props) {
   const visible = useContext(MarkdownVisibility);
   const [visibleCount, setVisibleCount] = useState(() => {
@@ -174,10 +180,10 @@ function MessageList({
   const [margin, setMargin] = useState(0);
   const pinned = useRef(!highlightMessageId);
   const viewCache = useRef<MessageViewCache>(new Map());
-  const [retained, setRetained] = useState<Set<string>>(() => new Set());
+  const [retained, setRetained] = useState<ReadonlySet<string>>(() => new Set());
   const retainDedicatedView = useCallback((rowKey: string) => {
-    setRetained((old) => old.has(rowKey) ? old : new Set([...old, rowKey]));
-  }, []);
+    setRetained((old) => retainRecent(old, rowKey, maxRetainedViews));
+  }, [maxRetainedViews]);
   const [held, setHeld] = useState<Set<string>>(() => new Set());
   const previousRows = useRef(slots);
   const shift = isRowPrepend(previousRows.current, slots);

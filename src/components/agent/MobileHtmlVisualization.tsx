@@ -2,11 +2,13 @@ import { memo, useState } from "react";
 import { Maximize2 } from "lucide-react";
 import type { AgentMessage } from "@/lib/types";
 import {
+  MOBILE_VIZ_STREAM_THROTTLE_MS,
   mobileVisualizationCap,
   mobileVisualizationFrame,
   visualizationNotice,
 } from "@/lib/htmlVisualization";
 import { useHtmlVisualization } from "@/hooks/useHtmlVisualization";
+import { useIframeFocusReveal } from "@/hooks/useIframeFocusReveal";
 import { useViewportSize } from "@/hooks/useViewportSize";
 import MobileHtmlVisualizationViewer from "@/mobile/MobileHtmlVisualizationViewer";
 
@@ -32,7 +34,12 @@ function MobileHtmlVisualization({ message }: Props) {
     doc,
     contentHeight,
     onLoad,
-  } = useHtmlVisualization(message, { scrollable: false });
+  } = useHtmlVisualization(message, {
+    scrollable: false,
+    streamThrottleMs: MOBILE_VIZ_STREAM_THROTTLE_MS,
+    focus: "report",
+  });
+  useIframeFocusReveal(frameRef, token);
   const viewport = useViewportSize();
   const [viewerOpen, setViewerOpen] = useState(false);
 

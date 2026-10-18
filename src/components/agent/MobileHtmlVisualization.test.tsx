@@ -3,9 +3,17 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "@/lib/types";
-import { HTML_VIZ_HEIGHT_MESSAGE } from "@/lib/htmlVisualization";
+import {
+  HTML_VIZ_HEIGHT_MESSAGE,
+  MOBILE_VIZ_STREAM_THROTTLE_MS,
+} from "@/lib/htmlVisualization";
 import { resetBackHandlers } from "@/mobile/backHandler";
 import MobileHtmlVisualization from "./MobileHtmlVisualization";
+import {
+  MessageViewCacheContext,
+  MessageViewIdContext,
+  type MessageViewCache,
+} from "./messageViewState";
 
 const NO_SCROLL_RULE = "html, body { overflow: hidden; }";
 
@@ -180,6 +188,87 @@ describe("MobileHtmlVisualization", () => {
     expect(
       document.querySelector('[data-region="mobile-html-viz-viewer"]'),
     ).not.toBeNull();
+  });
+
+  it("ignores a zero height, which only means the page was hidden", async () => {
+    await render();
+    await reportHeight(300);
+    // 切到别的 tab：agent 页 display:none，iframe 内容区量出 0。
+    await reportHeight(0);
+    expect(inlineFrame().style.height).toBe("300px");
+    await reportHeight(-5);
+    expect(inlineFrame().style.height).toBe("300px");
+    // 切回来后真实高度照常生效。
+    await reportHeight(420);
+    expect(inlineFrame().style.height).toBe("420px");
+  });
+
+  it("starts a rebuilt frame at the height the list remembers", async () => {
+    const cache: MessageViewCache = new Map();
+    const withCache = (message: AgentMessage | null) => (
+      <MessageViewCacheContext.Provider value={cache}>
+        <MessageViewIdContext.Provider value="m1">
+          {message && <MobileHtmlVisualization message={message} />}
+        </MessageViewIdContext.Provider>
+      </MessageViewCacheContext.Provider>
+    );
+    await act(async () => root.render(withCache(vizMessage())));
+    await reportHeight(420);
+    // 虚拟列表把这一行卸载，再滚回来重建。
+    await act(async () => root.render(withCache(null)));
+    expect(host.querySelector("iframe")).toBeNull();
+    await act(async () => root.render(withCache(vizMessage())));
+    expect(inlineFrame().style.height).toBe("420px");
+  });
+
+  it("installs the keyboard bridge in the inline document", async () => {
+    await render();
+    expect(inlineFrame().srcdoc).toContain("wantsKeyboard");
+  });
+
+  describe("while streaming", () => {
+    const streaming = (fragment: string) =>
+      vizMessage({
+        isExecuting: true,
+        toolResult: {
+          ...vizMessage().toolResult!,
+          arguments: { title: "利率对比", fragment },
+        },
+      });
+    const posted = (spy: ReturnType<typeof vi.spyOn>) =>
+      spy.mock.calls.map(([data]) => (data as { fragment: string }).fragment);
+
+    afterEach(() => vi.useRealTimers());
+
+    it("pushes at most one fragment per interval and always ends on the latest", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000_000);
+      // 先挂空片段的 iframe 并等它 load，再装监听、送入第一版内容。
+      await render(streaming(""));
+      const frame = inlineFrame();
+      await act(async () => {
+        frame.dispatchEvent(new Event("load"));
+      });
+      const post = vi.spyOn(frame.contentWindow!, "postMessage");
+      await render(streaming("<p>a</p>"));
+      // 首次立即推：没有上一次推送在等。
+      expect(posted(post)).toEqual(["<p>a</p>"]);
+
+      // 模型逐 token 吐字：120ms 内来了三版。
+      for (const text of ["<p>ab</p>", "<p>abc</p>", "<p>abcd</p>"]) {
+        await act(async () => vi.advanceTimersByTime(20));
+        await render(streaming(text));
+      }
+      expect(posted(post)).toEqual(["<p>a</p>"]);
+
+      await act(async () => vi.advanceTimersByTime(MOBILE_VIZ_STREAM_THROTTLE_MS));
+      expect(posted(post)).toEqual(["<p>a</p>", "<p>abcd</p>"]);
+
+      // 间隔满之后来的新片段又是立即推。
+      await act(async () => vi.advanceTimersByTime(MOBILE_VIZ_STREAM_THROTTLE_MS));
+      await render(streaming("<p>abcde</p>"));
+      expect(posted(post)).toEqual(["<p>a</p>", "<p>abcd</p>", "<p>abcde</p>"]);
+    });
   });
 
   it("shows failures as a line of text instead of a frame", async () => {

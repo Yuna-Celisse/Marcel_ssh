@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject, 
 import { ArrowDown } from 'lucide-react';
 import { useConversationStore } from '@/stores/conversationStore';
 import { isNearBottom, shouldAutoScroll, shouldShowScrollToBottomFab } from '@/lib/agentScroll';
+import { MOBILE_MAX_RETAINED_VIEWS } from '@/lib/retainedViews';
 import type { AgentMessage } from '@/lib/types';
 import AgentMessageList, { type AgentMessageListHandle } from './AgentMessageList';
 import AgentRunStatus, { useConversationLoopRunning } from './AgentRunStatus';
@@ -120,6 +121,7 @@ export default memo(function AgentTranscript({
               onCopy={onCopy}
               onCopyText={onCopyText}
               alwaysShowActions={mobile}
+              maxRetainedViews={mobile ? MOBILE_MAX_RETAINED_VIEWS : undefined}
               enableStickyFollow={false}
               onManualLayout={onManualLayout}
             />
