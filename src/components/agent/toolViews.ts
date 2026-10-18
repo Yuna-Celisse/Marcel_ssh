@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import type { AgentMessage } from "@/lib/types";
 import { collectPlatformHints, isMobilePlatform } from "@/platform";
 import HtmlVisualization from "./HtmlVisualization";
+import MobileHtmlVisualization from "./MobileHtmlVisualization";
 
 export interface ToolViewProps {
   message: AgentMessage;
@@ -29,6 +30,8 @@ interface ToolViewEntry {
 const TOOL_VIEWS: Record<string, ToolViewEntry> = {
   render_html: {
     desktop: HtmlVisualization,
+    // 手机：高度压在一屏内、内部不滚动，放不下的走全屏查看器。
+    mobile: MobileHtmlVisualization,
   },
 };
 

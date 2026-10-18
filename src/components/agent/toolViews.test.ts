@@ -26,12 +26,15 @@ function toolMessage(
 }
 
 describe("toolViews", () => {
-  it("shares the render_html view across platforms while ordinary tools fall back", () => {
+  it("gives render_html its own mobile view while ordinary tools fall back", () => {
     const desktopView = getToolView("render_html", false);
     const mobileView = getToolView("render_html", true);
 
     expect(desktopView).toBeDefined();
-    expect(mobileView).toBe(desktopView);
+    expect(mobileView).toBeDefined();
+    // 手机端有专属容器（一屏封顶 + 全屏查看），不与桌面共用同一个组件。
+    expect(mobileView).not.toBe(desktopView);
+    expect(getToolView("render_html", true)).toBe(mobileView);
     expect(getToolView("execute_command", false)).toBeUndefined();
     expect(getToolView("execute_command", true)).toBeUndefined();
   });
@@ -44,8 +47,10 @@ describe("toolViews", () => {
         arguments: { mode: "wide" },
       },
     });
-    expect(getToolView(inline.toolResult!.toolName, false)).toBe(
-      getToolView(wide.toolResult!.toolName, false),
-    );
+    for (const mobile of [false, true]) {
+      expect(getToolView(inline.toolResult!.toolName, mobile)).toBe(
+        getToolView(wide.toolResult!.toolName, mobile),
+      );
+    }
   });
 });

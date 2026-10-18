@@ -16,6 +16,9 @@ vi.mock('./AgentMessage', () => ({
 vi.mock('./HtmlVisualization', () => ({
   default: () => <iframe title="retained-chart" />,
 }));
+vi.mock('./MobileHtmlVisualization', () => ({
+  default: () => <iframe title="retained-chart" />,
+}));
 vi.mock('@/stores/settingsStore', () => ({
   useSettingsStore: (selector: (s: unknown) => unknown) =>
     selector({ settings: { foldCompletedTurns: false } }),

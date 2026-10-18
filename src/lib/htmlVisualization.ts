@@ -62,6 +62,61 @@ export function visualizationPresentation(message: AgentMessage) {
   };
 }
 
+/** 失败 / 空内容时代替 iframe 展示的一行提示；两端共用，别各写一份判断。 */
+export function visualizationNotice(
+  message: AgentMessage,
+  fragment: string,
+): { tone: "error" | "muted"; text: string } | null {
+  const tr = message.toolResult;
+  if (tr && (!tr.success || tr.blocked)) {
+    return { tone: "error", text: tr.summary || "可视化失败" };
+  }
+  if (!fragment.trim() && !message.isExecuting) {
+    return { tone: "muted", text: tr?.result || "可视化内容不可用" };
+  }
+  return null;
+}
+
+/**
+ * 手机端对话内可视化的高度上限占屏高的比例。手指落在可视化上时要带动对话列表
+ * 滚动，所以高度必须压在一屏以内；超出的部分交给全屏查看器。
+ */
+const MOBILE_VIZ_VIEWPORT_RATIO = 0.65;
+/** 横屏时屏高很小，按比例算出来会比一个控件面板还矮，给个下限。 */
+const MOBILE_VIZ_LANDSCAPE_MIN_CAP = 280;
+/**
+ * 内容只超出上限一点点时不裁：为几十像素多出一层「渐隐 + 全屏」比直接多显示
+ * 一小截更打扰人。
+ */
+const MOBILE_VIZ_CLIP_SLACK = 32;
+
+export interface MobileVisualizationFrame {
+  /** iframe 实际显示的高度。 */
+  height: number;
+  /** 内容被裁掉了一部分（需要渐隐和全屏入口）。 */
+  clipped: boolean;
+}
+
+export function mobileVisualizationCap(
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  const cap = Math.round(viewportHeight * MOBILE_VIZ_VIEWPORT_RATIO);
+  return viewportWidth > viewportHeight
+    ? Math.max(cap, MOBILE_VIZ_LANDSCAPE_MIN_CAP)
+    : cap;
+}
+
+export function mobileVisualizationFrame(
+  contentHeight: number,
+  cap: number,
+): MobileVisualizationFrame {
+  if (contentHeight <= cap + MOBILE_VIZ_CLIP_SLACK) {
+    return { height: contentHeight, clipped: false };
+  }
+  return { height: cap, clipped: true };
+}
+
 export const HTML_VIZ_HEIGHT_MESSAGE = "marcel-html-viz:height";
 export const HTML_VIZ_STREAM_MESSAGE = "marcel-html-viz:stream";
 
@@ -138,7 +193,26 @@ svg text { fill: var(--foreground); font-size: 12px; }
 .form-check { display: flex; align-items: center; gap: 6px; } .form-check input, input[type='range'] { accent-color: var(--primary); }
 table { border-collapse: collapse; width: 100%; } th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); }
 th { font-weight: 500; color: var(--muted-foreground); font-size: 12px; } .table-responsive { overflow-x: auto; }
+@media (pointer: coarse) {
+  * { -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .btn, .form-control, .form-select, .form-check { min-height: 40px; }
+  .form-check { gap: 10px; }
+  .form-check input[type='checkbox'], .form-check input[type='radio'] { width: 20px; height: 20px; flex: none; }
+  .viz-controls { gap: 14px 16px; margin-bottom: 16px; }
+}
 `;
+
+/**
+ * 不允许在 iframe 内部滚动的文档（手机端对话内版本）：滚动留给对话列表，
+ * 手指落在可视化上也能带动整个对话。全屏查看器不加这条。
+ */
+const NO_SCROLL_CSS = "html, body { overflow: hidden; }";
+
+export interface VisualizationDocOptions {
+  /** 文档本身能否在 iframe 内滚动；默认 true（桌面与全屏查看器）。 */
+  scrollable?: boolean;
+}
 
 function safeCssValue(value: string): string {
   const trimmed = value.trim();
@@ -197,7 +271,9 @@ function documentShell(
   title: string,
   theme: HtmlVisualizationTheme,
   body: string,
+  options: VisualizationDocOptions = {},
 ): string {
+  const scrollCss = options.scrollable === false ? NO_SCROLL_CSS : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -206,7 +282,7 @@ function documentShell(
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="${HTML_VIZ_CSP}">
 <title>${escapeHtml(title)}</title>
-<style>${BASE_CSS}${themeCss(theme)}</style>
+<style>${BASE_CSS}${themeCss(theme)}${scrollCss}</style>
 </head>
 <body>${body}</body>
 </html>`;
@@ -217,6 +293,7 @@ export function buildSettledVisualizationDoc(
   title: string,
   theme: HtmlVisualizationTheme,
   token: string,
+  options: VisualizationDocOptions = {},
 ): string {
   return documentShell(
     title,
@@ -226,6 +303,7 @@ export function buildSettledVisualizationDoc(
     // placing the reporter after them left replayed frames stuck at 48px and
     // made the persisted visualization look missing after app restart.
     `<script>${heightReporter(token)}</script>${fragment}`,
+    options,
   );
 }
 
@@ -294,6 +372,7 @@ function streamRuntime(token: string): string {
 export function buildStreamingVisualizationDoc(
   theme: HtmlVisualizationTheme,
   token: string,
+  options: VisualizationDocOptions = {},
 ): string {
   return documentShell(
     "Streaming visualization",
@@ -305,6 +384,7 @@ export function buildStreamingVisualizationDoc(
 @keyframes marcel-viz-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 </style>
 <script>${streamRuntime(token)}</script>`,
+    options,
   );
 }
 

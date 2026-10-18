@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import type { AgentMessage } from "./types";
 import {
   buildSettledVisualizationDoc,
   buildStreamingVisualizationDoc,
   HTML_VIZ_CSP,
   HTML_VIZ_STREAM_MESSAGE,
+  mobileVisualizationCap,
+  mobileVisualizationFrame,
   trimIncompleteStreamingScript,
+  visualizationNotice,
   type HtmlVisualizationTheme,
 } from "./htmlVisualization";
 
@@ -85,6 +89,38 @@ describe("htmlVisualization shell", () => {
     ).toBe("<style>.x{color:red}</style><div>x");
   });
 
+  it("lets only the phone's inline document opt out of scrolling", () => {
+    const rule = "html, body { overflow: hidden; }";
+    const args = ["<p>x</p>", "x", theme, "t"] as const;
+    expect(buildSettledVisualizationDoc(...args)).not.toContain(rule);
+    expect(
+      buildSettledVisualizationDoc(...args, { scrollable: true }),
+    ).not.toContain(rule);
+    expect(
+      buildSettledVisualizationDoc(...args, { scrollable: false }),
+    ).toContain(rule);
+    expect(buildStreamingVisualizationDoc(theme, "t")).not.toContain(rule);
+    expect(
+      buildStreamingVisualizationDoc(theme, "t", { scrollable: false }),
+    ).toContain(rule);
+  });
+
+  it("scopes touch sizing to coarse pointers so desktop stays unchanged", () => {
+    const doc = buildSettledVisualizationDoc("<p>x</p>", "x", theme, "t");
+    const start = doc.indexOf("@media (pointer: coarse)");
+    expect(start).toBeGreaterThan(-1);
+    const block = doc.slice(start, doc.indexOf("</style>", start));
+    expect(block).toContain("-webkit-tap-highlight-color: transparent");
+    expect(block).toContain("-webkit-text-size-adjust: 100%");
+    expect(block).toMatch(
+      /\.btn, \.form-control, \.form-select, \.form-check \{ min-height: 40px; \}/,
+    );
+    expect(block).toContain("input[type='checkbox']");
+    expect(block).toContain(".viz-controls");
+    // 触屏规则全部在媒体查询内：块外不应再出现 40px 的最小高度。
+    expect(doc.slice(0, start)).not.toContain("min-height: 40px");
+  });
+
   it("drops unsafe theme declarations instead of repairing them", () => {
     const doc = buildSettledVisualizationDoc(
       "<p>x</p>",
@@ -93,5 +129,75 @@ describe("htmlVisualization shell", () => {
       "x",
     );
     expect(doc).not.toContain("body { display:none");
+  });
+});
+
+describe("mobile visualization height", () => {
+  it("caps a portrait phone at about two thirds of the screen", () => {
+    expect(mobileVisualizationCap(390, 844)).toBe(549);
+    expect(mobileVisualizationCap(360, 640)).toBe(416);
+  });
+
+  it("keeps a floor on a landscape phone", () => {
+    // 390 × 0.65 = 254 → 抬到 280；屏幕够高时不受下限影响。
+    expect(mobileVisualizationCap(844, 390)).toBe(280);
+    expect(mobileVisualizationCap(1000, 800)).toBe(520);
+  });
+
+  it("crops only when content clearly exceeds the cap", () => {
+    expect(mobileVisualizationFrame(300, 549)).toEqual({
+      height: 300,
+      clipped: false,
+    });
+    // 超出不到一个余量：整段展示，省掉为几十像素加的渐隐和入口。
+    expect(mobileVisualizationFrame(549 + 32, 549)).toEqual({
+      height: 581,
+      clipped: false,
+    });
+    expect(mobileVisualizationFrame(549 + 33, 549)).toEqual({
+      height: 549,
+      clipped: true,
+    });
+  });
+});
+
+describe("visualizationNotice", () => {
+  const base: AgentMessage = {
+    id: "m",
+    role: "tool",
+    content: "",
+    timestamp: "",
+    toolResult: {
+      toolName: "render_html",
+      summary: "",
+      result: "",
+      success: true,
+      blocked: false,
+    },
+  };
+
+  it("reports failures and blocked calls as errors", () => {
+    const failed = {
+      ...base,
+      toolResult: { ...base.toolResult!, success: false, summary: "坏页面" },
+    };
+    expect(visualizationNotice(failed, "<p>x</p>")).toEqual({
+      tone: "error",
+      text: "坏页面",
+    });
+    const blocked = {
+      ...base,
+      toolResult: { ...base.toolResult!, blocked: true },
+    };
+    expect(visualizationNotice(blocked, "<p>x</p>")?.text).toBe("可视化失败");
+  });
+
+  it("says so when there is nothing to show, except while still streaming", () => {
+    expect(visualizationNotice(base, "  ")).toEqual({
+      tone: "muted",
+      text: "可视化内容不可用",
+    });
+    expect(visualizationNotice({ ...base, isExecuting: true }, "")).toBeNull();
+    expect(visualizationNotice(base, "<p>x</p>")).toBeNull();
   });
 });
