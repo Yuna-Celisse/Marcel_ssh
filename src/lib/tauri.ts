@@ -491,6 +491,8 @@ export async function getSettings(): Promise<{
   hasWebSearchApiKey?: boolean;
   /** DeepSeek 工具类（搜索 + 网页获取）API Key 是否存在。原始 Key 永不回传前端。 */
   hasDeepseekToolsApiKey?: boolean;
+  /** 自定义搜索 API 的 Key 是否存在（Key 可选）。原始 Key 永不回传前端。 */
+  hasCustomSearchApiKey?: boolean;
   /** TypeSafe（Jev）API Key 是否存在。原始 Key 永不回传前端。 */
   hasJevApiKey?: boolean;
   /** 各渠道密钥是否存在（多渠道模型服务）。 */
@@ -800,6 +802,15 @@ export async function saveDeepseekToolsApiKey(apiKey: string): Promise<void> {
 
 export async function deleteDeepseekToolsApiKey(): Promise<void> {
   return invoke("config_delete_deepseek_tools_api_key");
+}
+
+/** 保存「自定义搜索 API」的 Key（独立槽位，绝不会被发给 Brave/Tavily/DeepSeek 官方）。 */
+export async function saveCustomSearchApiKey(apiKey: string): Promise<void> {
+  return invoke("config_save_custom_search_api_key", { apiKey });
+}
+
+export async function deleteCustomSearchApiKey(): Promise<void> {
+  return invoke("config_delete_custom_search_api_key");
 }
 
 /** 保存 TypeSafe（Jev）API Key 到系统密钥链。原始 Key 不回传前端。 */

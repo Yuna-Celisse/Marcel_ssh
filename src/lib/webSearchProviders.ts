@@ -1,4 +1,4 @@
-import type { WebSearchApiProvider } from './types';
+import type { SearchApiProtocol, WebSearchApiProvider } from './types';
 
 /**
  * 「搜索 API」模式可选的提供商——桌面设置页与移动端设置页共用这一份，
@@ -9,7 +9,88 @@ export const WEB_SEARCH_API_PROVIDERS: readonly { value: WebSearchApiProvider; l
   { value: 'brave', label: 'Brave Search' },
   { value: 'tavily', label: 'Tavily' },
   { value: 'deepseek', label: 'DeepSeek 搜索' },
+  { value: 'custom', label: '自定义' },
 ];
+
+/**
+ * 「自定义」提供商可选的兼容协议——也就是你的服务**长得像谁家的接口**。
+ * `hint` 写清请求/响应形状，让人能对照自己的服务判断选哪个。线上取值与后端 `SearchApiProtocol` 一致。
+ */
+export const SEARCH_API_PROTOCOLS: readonly {
+  value: SearchApiProtocol;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: 'brave',
+    label: 'Brave 格式',
+    hint: 'GET 请求，查询参数 q、count；Key 放在 X-Subscription-Token 头；结果在 web.results[]。适合 SearXNG 等自建网关的 Brave 兼容层。',
+  },
+  {
+    value: 'tavily',
+    label: 'Tavily 格式',
+    hint: 'POST JSON：query、max_results（有 Key 时另带 api_key）；结果在 results[]（title / url / content）。',
+  },
+  {
+    value: 'deepseek',
+    label: 'DeepSeek 格式',
+    hint: 'POST JSON：query、count；Key 以 Bearer 方式放在 Authorization 头；结果在 results[]（带发布日期）。',
+  },
+];
+
+/** 自定义搜索 API 的 Key 说明：可留空，且与其它提供商的 Key 完全隔离。 */
+export const CUSTOM_KEY_DESCRIPTION =
+  '可留空（自建服务常常不鉴权）。加密保存在本设备，只会发给你填的这个地址，不会与 Brave / Tavily / DeepSeek 的 Key 混用。';
+
+export const CUSTOM_URL_PLACEHOLDER = 'https://search.example.com/v1/search';
+
+export interface CustomUrlCheck {
+  /** 能否保存/使用：为 false 时后端调用也会拒绝，界面要给出原因。 */
+  ok: boolean;
+  /** 不通过时的原因；或者通过但值得提醒（见 warning）。 */
+  error?: string;
+  /** 能用但有风险的提示（明文 http）。 */
+  warning?: string;
+}
+
+/**
+ * 检查自定义搜索地址，规则与后端 `validate_custom_url` 一致：只收 http/https、必须有主机、
+ * 不许内嵌用户名密码（配置文件是明文，Key 该走密钥链）。空串视为「还没填」，不报错。
+ * 明文 http 到公网主机会把查询词与 Key 暴露在链路上，提示一下；本机/内网地址不提示。
+ */
+export function checkCustomSearchUrl(raw: string): CustomUrlCheck {
+  const text = raw.trim();
+  if (!text) return { ok: false };
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return { ok: false, error: '地址格式不正确，请填写完整的 http:// 或 https:// 地址' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, error: '只支持 http:// 或 https:// 地址' };
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: '地址里不能带用户名或密码，请把 Key 填到下方的 API Key 框' };
+  }
+  if (parsed.protocol === 'http:' && !isLocalHost(parsed.hostname)) {
+    return {
+      ok: true,
+      warning: '使用的是明文 http，搜索词和 Key 会在网络上裸传；除内网自建服务外建议改用 https。',
+    };
+  }
+  return { ok: true };
+}
+
+function isLocalHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h === '::1') return true;
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31);
+}
 
 /** DeepSeek Key 输入框的说明——搜索与网页获取两处共用，免得两边各写各的。 */
 export const DEEPSEEK_KEY_DESCRIPTION =
@@ -30,5 +111,6 @@ export const DEEPSEEK_KEY_SHARED_NOTE = '与「搜索 API = DeepSeek 搜索」�
  */
 export function searchKeyDescription(provider: WebSearchApiProvider): string {
   if (provider === 'deepseek') return DEEPSEEK_KEY_DESCRIPTION;
+  if (provider === 'custom') return CUSTOM_KEY_DESCRIPTION;
   return '加密保存在本设备，不会写入配置文件；Brave 与 Tavily 共用这一份，切换后请重新填写。';
 }

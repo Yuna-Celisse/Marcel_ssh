@@ -31,6 +31,7 @@ use crate::agent::tools::{truncate_output, AgentTool, ToolContext, ToolOutput};
 use crate::config::keychain;
 use crate::config::settings::{WebSearchApiProvider, WebSearchEndpoint, WebSearchMode};
 use crate::error::AppError;
+use api::ApiSearchTarget;
 
 mod api;
 mod browser;
@@ -184,9 +185,9 @@ impl AgentTool for WebSearchTool {
             None => return Ok(ToolOutput::fail("web_search", "missing 'query' parameter")),
         };
 
-        let (mode, api_provider, endpoint) = resolve_search_config(ctx).await;
+        let (mode, api_target, endpoint) = resolve_search_config(ctx).await;
 
-        match run_search(mode, api_provider, endpoint, &query, max_results).await {
+        match run_search(mode, &api_target, endpoint, &query, max_results).await {
             Ok(attempt) => Ok(format_outcome(&query, mode, attempt)),
             Err(message) => Ok(ToolOutput::fail(
                 format!("web_search '{}'", query),
@@ -218,7 +219,7 @@ impl SearchAttempt {
 
 async fn resolve_search_config(
     ctx: &ToolContext,
-) -> (WebSearchMode, WebSearchApiProvider, WebSearchEndpoint) {
+) -> (WebSearchMode, ApiSearchTarget, WebSearchEndpoint) {
     // Mobile (Android) 无法启动本地 Chrome/Edge 走 CDP：Browser 模式必然失败，
     // 因此按用户设置解析后把 Browser 降级为裸 Bing HTML 抓取（html）模式；
     // Api 模式（Brave/Tavily/DeepSeek 纯 HTTP）在手机上完全可用，直接生效。
@@ -231,11 +232,11 @@ async fn resolve_search_config(
                 WebSearchMode::Browser => WebSearchMode::Html,
                 mode => mode,
             };
-            return (mode, exp.web_search_api_provider, exp.web_search_endpoint);
+            return (mode, api_target(exp), exp.web_search_endpoint);
         }
         (
             WebSearchMode::Html,
-            WebSearchApiProvider::default(),
+            ApiSearchTarget::default(),
             WebSearchEndpoint::default(),
         )
     }
@@ -248,21 +249,28 @@ async fn resolve_search_config(
             let exp = &settings.experimental_settings;
             return (
                 exp.web_search_mode,
-                exp.web_search_api_provider,
+                api_target(exp),
                 exp.web_search_endpoint,
             );
         }
         (
             WebSearchMode::default(),
-            WebSearchApiProvider::default(),
+            ApiSearchTarget::default(),
             WebSearchEndpoint::default(),
         )
     }
 }
 
+fn api_target(exp: &crate::config::settings::ExperimentalSettings) -> ApiSearchTarget {
+    ApiSearchTarget {
+        provider: exp.web_search_api_provider,
+        custom: exp.web_search_custom.clone(),
+    }
+}
+
 async fn run_search(
     mode: WebSearchMode,
-    api_provider: WebSearchApiProvider,
+    api_target: &ApiSearchTarget,
     endpoint: WebSearchEndpoint,
     query: &str,
     max_results: usize,
@@ -274,8 +282,8 @@ async fn run_search(
             .map(SearchAttempt::direct)
             .map_err(|e| e.to_string()),
         WebSearchMode::Api => {
-            let key = search_api_key(api_provider).map_err(|e| e.to_string())?;
-            api::search(api_provider, &key, query, max_results)
+            let key = search_api_key(api_target.provider).map_err(|e| e.to_string())?;
+            api::search(api_target, &key, query, max_results)
                 .await
                 .map(SearchAttempt::direct)
                 .map_err(|e| e.to_string())
@@ -286,12 +294,14 @@ async fn run_search(
 /// The stored key that belongs to `provider`; empty when none is saved (the API
 /// layer turns that into a "not configured" error).
 ///
-/// DeepSeek has its own slot, shared with its `http_get` fetch. Brave and Tavily
-/// share the legacy one, so a key is only ever sent to the vendor the user
-/// currently has selected — never DeepSeek's key to Brave or the reverse.
+/// DeepSeek has its own slot, shared with its `http_get` fetch; the custom endpoint
+/// has its own too, because it is an address we know nothing about. Brave and Tavily
+/// share the legacy one. So a key is only ever sent to the vendor the user currently
+/// has selected — never Brave's or DeepSeek's key to a custom host, or the reverse.
 fn search_api_key(provider: WebSearchApiProvider) -> Result<String, AppError> {
     let stored = match provider {
         WebSearchApiProvider::Deepseek => keychain::get_deepseek_tools_api_key()?,
+        WebSearchApiProvider::Custom => keychain::get_custom_search_api_key()?,
         WebSearchApiProvider::Brave | WebSearchApiProvider::Tavily => {
             keychain::get_web_search_api_key()?
         }
@@ -964,7 +974,14 @@ mod tests {
         assert_eq!(browser_outcome.results.len(), 1);
 
         // API modes: mapping layer produces api:brave / api:tavily / api:deepseek labels.
-        for provider in ["browser", "html", "api:brave", "api:tavily", "api:deepseek"] {
+        for provider in [
+            "browser",
+            "html",
+            "api:brave",
+            "api:tavily",
+            "api:deepseek",
+            "api:custom",
+        ] {
             let out = format_outcome(
                 "q",
                 WebSearchMode::Api,
@@ -1007,7 +1024,7 @@ mod tests {
     async fn run_search_api_mode_fails_without_key() {
         let err = run_search(
             WebSearchMode::Api,
-            WebSearchApiProvider::Brave,
+            &ApiSearchTarget::default(),
             WebSearchEndpoint::Cn,
             "q",
             3,

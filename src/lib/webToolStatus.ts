@@ -78,6 +78,7 @@ const BACKEND_LABELS: Record<string, string> = {
   'api:brave': 'Brave 搜索 API',
   'api:tavily': 'Tavily 搜索 API',
   'api:deepseek': 'DeepSeek 搜索 API',
+  'api:custom': '自定义搜索 API',
   deepseek: 'DeepSeek 抓取',
 };
 

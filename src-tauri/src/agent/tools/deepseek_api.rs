@@ -55,28 +55,79 @@ async fn post_json_at(
     timeout: Duration,
     backoff: Duration,
 ) -> Result<String, AppError> {
+    let url = format!("{}/{}", base, path);
+    let who = format!("DeepSeek {}", path);
+    post_with_retry(
+        &url,
+        &who,
+        api_key,
+        payload,
+        timeout,
+        backoff,
+        &|status, body| http_error(path, status, body),
+    )
+    .await
+}
+
+/// 用户自备地址、按 DeepSeek 协议收发的 POST：同样的 408/429/5xx 退避重试，但没有
+/// DeepSeek 专属的处置提示（"去 DeepSeek 充值"对别人的服务毫无意义），Key 可以为空
+/// （自建服务常常不鉴权）——空则不发 `Authorization` 头。
+pub(crate) async fn post_json_custom(
+    url: &str,
+    api_key: &str,
+    payload: &Value,
+    timeout: Duration,
+) -> Result<String, AppError> {
+    post_with_retry(
+        url,
+        "custom search API",
+        api_key,
+        payload,
+        timeout,
+        RETRY_BACKOFF,
+        &|status, body| {
+            AppError::Agent(format!(
+                "custom search API HTTP {}: {}",
+                status,
+                truncate_error_body(&error_detail(body))
+            ))
+        },
+    )
+    .await
+}
+
+async fn post_with_retry(
+    url: &str,
+    who: &str,
+    api_key: &str,
+    payload: &Value,
+    timeout: Duration,
+    backoff: Duration,
+    to_error: &(dyn Fn(StatusCode, &str) -> AppError + Sync),
+) -> Result<String, AppError> {
     let client = Client::builder()
         .timeout(timeout)
         .build()
         .map_err(|e| AppError::Agent(format!("failed to create HTTP client: {}", e)))?;
-    let url = format!("{}/{}", base, path);
+    let key = api_key.trim();
 
     let mut attempt = 0usize;
     loop {
         attempt += 1;
-        let resp = client
-            .post(&url)
-            .bearer_auth(api_key.trim())
-            .json(payload)
+        let mut request = client.post(url).json(payload);
+        if !key.is_empty() {
+            request = request.bearer_auth(key);
+        }
+        let resp = request
             .send()
             .await
-            .map_err(|e| AppError::Agent(format!("DeepSeek {} request failed: {}", path, e)))?;
+            .map_err(|e| AppError::Agent(format!("{} request failed: {}", who, e)))?;
 
         let status = resp.status();
         let body = resp
             .text()
             .await
-            .map_err(|e| AppError::Agent(format!("failed to read DeepSeek response: {}", e)))?;
+            .map_err(|e| AppError::Agent(format!("failed to read {} response: {}", who, e)))?;
 
         if status.is_success() {
             return Ok(body);
@@ -85,8 +136,16 @@ async fn post_json_at(
             tokio::time::sleep(backoff * attempt as u32).await;
             continue;
         }
-        return Err(http_error(path, status, &body));
+        return Err(to_error(status, &body));
     }
+}
+
+/// OpenAI 风格错误体里的 `error.message`；不是那种格式就原样用正文。
+fn error_detail(body: &str) -> String {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .unwrap_or_else(|| body.to_string())
 }
 
 /// 各状态码允许的总尝试次数（含第一次）。官方指引：408/429/5xx 是暂时性的，等一会儿
@@ -102,10 +161,7 @@ pub(crate) fn max_attempts(status: StatusCode) -> usize {
 /// 把非 2xx 回复变成用户能照着办的错误。响应体是 OpenAI 风格的
 /// `{"error":{"message":..}}`；401/402/429 附上处置提示——"检查 Key"和"去充值"是两码事。
 pub(crate) fn http_error(path: &str, status: StatusCode, body: &str) -> AppError {
-    let detail = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
-        .unwrap_or_else(|| body.to_string());
+    let detail = error_detail(body);
     let hint = match status.as_u16() {
         401 => " — the API key is missing or invalid; use your DeepSeek API key",
         402 => " — insufficient DeepSeek balance; top up the account and retry",

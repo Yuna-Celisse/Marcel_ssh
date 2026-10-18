@@ -7,22 +7,28 @@ import type { WebSearchApiProvider } from './types';
  *
  * - `search`：Brave / Tavily 的搜索 Key（后端 `web_search_api_key`）。
  * - `deepseek`：DeepSeek 的网页搜索与网页获取共用的 Key（后端 `deepseek_tools_api_key`）。
+ * - `custom`：用户自备搜索服务的 Key（后端 `custom_search_api_key`），**可以不填**。
  *
  * 槽位分开是刻意的：「搜索提供商」与「网页获取方式」是两个互不相干的设置，若共用一份，
- * 选了 Brave 搜索 + DeepSeek 获取的人，Brave 的 Key 会被原样发给 DeepSeek。
+ * 选了 Brave 搜索 + DeepSeek 获取的人，Brave 的 Key 会被原样发给 DeepSeek；自定义地址同理，
+ * 它的 Key 绝不能是别家官方的 Key，否则切到自定义就等于把官方 Key 交给一个任意主机。
  */
-export type ToolApiKeySlot = 'search' | 'deepseek';
+export type ToolApiKeySlot = 'search' | 'deepseek' | 'custom';
 
 /** 搜索 API 提供商用哪个槽位。与后端 `web_search::search_api_key` 必须一致。 */
 export function searchProviderKeySlot(provider: WebSearchApiProvider): ToolApiKeySlot {
-  return provider === 'deepseek' ? 'deepseek' : 'search';
+  if (provider === 'deepseek') return 'deepseek';
+  if (provider === 'custom') return 'custom';
+  return 'search';
 }
 
 /** 该槽位当前是否已存了 Key（只是布尔，原始 Key 永不回传前端）。 */
 export function useHasToolApiKey(slot: ToolApiKeySlot): boolean {
-  return useSettingsStore((s) =>
-    slot === 'deepseek' ? s.hasDeepseekToolsApiKey : s.hasWebSearchApiKey,
-  );
+  return useSettingsStore((s) => {
+    if (slot === 'deepseek') return s.hasDeepseekToolsApiKey;
+    if (slot === 'custom') return s.hasCustomSearchApiKey;
+    return s.hasWebSearchApiKey;
+  });
 }
 
 /**
@@ -37,6 +43,9 @@ export async function saveToolApiKey(slot: ToolApiKeySlot, raw: string): Promise
     if (slot === 'deepseek') {
       await tauri.saveDeepseekToolsApiKey(trimmed);
       useSettingsStore.setState({ hasDeepseekToolsApiKey: true });
+    } else if (slot === 'custom') {
+      await tauri.saveCustomSearchApiKey(trimmed);
+      useSettingsStore.setState({ hasCustomSearchApiKey: true });
     } else {
       await tauri.saveWebSearchApiKey(trimmed);
       useSettingsStore.setState({ hasWebSearchApiKey: true });
@@ -54,6 +63,9 @@ export async function clearToolApiKey(slot: ToolApiKeySlot): Promise<boolean> {
     if (slot === 'deepseek') {
       await tauri.deleteDeepseekToolsApiKey();
       useSettingsStore.setState({ hasDeepseekToolsApiKey: false });
+    } else if (slot === 'custom') {
+      await tauri.deleteCustomSearchApiKey();
+      useSettingsStore.setState({ hasCustomSearchApiKey: false });
     } else {
       await tauri.deleteWebSearchApiKey();
       useSettingsStore.setState({ hasWebSearchApiKey: false });

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import type {
   ExperimentalSettings,
   HttpFetchMode,
+  SearchApiProtocol,
   WebSearchApiProvider,
   WebSearchEndpoint,
   WebSearchMode,
@@ -16,11 +17,14 @@ import { useConnectionStore } from '@/stores/connectionStore';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatConnLabel } from '@/lib/privacy';
 import {
+  CUSTOM_URL_PLACEHOLDER,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_SHARED_NOTE,
+  SEARCH_API_PROTOCOLS,
   WEB_SEARCH_API_PROVIDERS,
   searchKeyDescription,
 } from '@/lib/webSearchProviders';
+import { useCustomSearchApi } from '@/hooks/useCustomSearchApi';
 import {
   clearToolApiKey,
   saveToolApiKey,
@@ -154,6 +158,11 @@ export function ToolCapabilitiesSection() {
   const httpFetchMode = experimental.httpFetchMode ?? 'browser';
 
   const searchKeySlot = searchProviderKeySlot(apiProvider);
+  const customForm = useCustomSearchApi(
+    experimental.webSearchCustom ?? { url: '', protocol: 'brave' },
+    (next) => updateExperimental({ webSearchCustom: next }),
+  );
+  const protocolHint = SEARCH_API_PROTOCOLS.find((p) => p.value === customForm.protocol)?.hint;
 
   return (
     <Card id="settings-experimental" title="Agent 工具" description="控制 Agent 可调用的工具能力和系统集成">
@@ -227,18 +236,74 @@ export function ToolCapabilitiesSection() {
                   className="w-52"
                 />
               </SettingItem>
+              {apiProvider === 'custom' && (
+                <>
+                  <SettingItem
+                    id="exp-websearch-custom-url"
+                    label="自定义接口地址"
+                    description="你自己的搜索服务的完整地址（不是 OpenAI 格式）。搜索词会发到这个地址，请只填你信任的服务"
+                    sectionId="settings-experimental"
+                    keywords={['custom', 'url', '自定义', '地址', '自建', 'searxng']}
+                  >
+                    <div className="flex flex-1 flex-col gap-1">
+                      <input
+                        type="url"
+                        value={customForm.urlDraft}
+                        onChange={(e) => customForm.setUrlDraft(e.target.value)}
+                        onBlur={customForm.commitUrl}
+                        placeholder={CUSTOM_URL_PLACEHOLDER}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                      />
+                      {customForm.check.error && (
+                        <p className="text-xs text-red-400">{customForm.check.error}</p>
+                      )}
+                      {customForm.check.warning && (
+                        <p className="text-xs text-amber-300/90">{customForm.check.warning}</p>
+                      )}
+                    </div>
+                  </SettingItem>
+                  <SettingItem
+                    id="exp-websearch-custom-protocol"
+                    label="兼容的协议"
+                    description={protocolHint ?? '选择你的服务兼容哪家的接口格式'}
+                    sectionId="settings-experimental"
+                    keywords={['protocol', '协议', '兼容', 'brave', 'tavily', 'deepseek']}
+                  >
+                    <Select
+                      value={customForm.protocol}
+                      onChange={(v) => customForm.setProtocol(v as SearchApiProtocol)}
+                      options={SEARCH_API_PROTOCOLS.map(({ value, label }) => ({ value, label }))}
+                      className="w-52"
+                    />
+                  </SettingItem>
+                </>
+              )}
               <SettingItem
                 id="exp-websearch-api-key"
-                label={apiProvider === 'deepseek' ? 'DeepSeek API Key' : '搜索 API Key'}
+                label={
+                  apiProvider === 'deepseek'
+                    ? 'DeepSeek API Key'
+                    : apiProvider === 'custom'
+                      ? 'API Key（可选）'
+                      : '搜索 API Key'
+                }
                 description={searchKeyDescription(apiProvider)}
                 sectionId="settings-experimental"
-                keywords={['key', '密钥', 'brave', 'tavily', 'deepseek']}
+                keywords={['key', '密钥', 'brave', 'tavily', 'deepseek', '自定义']}
               >
                 {/* key = 槽位：切换提供商时各用各的草稿，不把上一个提供商的输入带过去 */}
                 <ToolApiKeyInput
                   key={searchKeySlot}
                   slot={searchKeySlot}
-                  placeholder={apiProvider === 'deepseek' ? '输入 DeepSeek API Key' : '输入搜索 API Key'}
+                  placeholder={
+                    apiProvider === 'deepseek'
+                      ? '输入 DeepSeek API Key'
+                      : apiProvider === 'custom'
+                        ? '可留空（自建服务无需 Key）'
+                        : '输入搜索 API Key'
+                  }
                 />
               </SettingItem>
             </>

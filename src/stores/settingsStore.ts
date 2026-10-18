@@ -72,6 +72,7 @@ export const DEFAULT_EXPERIMENTAL_SETTINGS: ExperimentalSettings = {
   enableCloudPage: false,
   webSearchMode: 'browser',
   webSearchApiProvider: 'brave',
+  webSearchCustom: { url: '', protocol: 'brave' },
   webSearchEndpoint: 'cn',
   httpFetchMode: 'browser',
   enableHtmlRender: true,
@@ -141,6 +142,8 @@ interface SettingsState {
   hasWebSearchApiKey: boolean;
   /** True if the DeepSeek tools API key (web search + web fetch) is stored in the system keychain. */
   hasDeepseekToolsApiKey: boolean;
+  /** True if the custom search API key is stored in the system keychain (it is optional to have one). */
+  hasCustomSearchApiKey: boolean;
   /** True if a TypeSafe（Jev）API Key is stored in the system keychain. */
   hasJevApiKey: boolean;
   /** 各渠道密钥是否存在（多渠道模型服务）。key = channelId。 */
@@ -157,6 +160,8 @@ interface SettingsState {
     hasWebSearchApiKey: boolean;
     /** 必填，理由同 `hasJevApiKey`：漏发会让设置页把已配的 DeepSeek Key 显示成没配。 */
     hasDeepseekToolsApiKey: boolean;
+    /** 必填，理由同上：启动快照是唯一读取路径。 */
+    hasCustomSearchApiKey: boolean;
     /**
      * 必填：启动快照是读取该真值的**唯一**路径（`hydrateFromBootstrap` 会把
      * `loaded` 置真，随后的 `load()` 直接短路）。声明成可选会让后端漏发字段时
@@ -214,6 +219,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hasApiKey: false,
   hasWebSearchApiKey: false,
   hasDeepseekToolsApiKey: false,
+  hasCustomSearchApiKey: false,
   hasJevApiKey: false,
   channelKeyStatus: {},
   warning: null,
@@ -254,6 +260,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       hasApiKey: data.hasApiKey,
       hasWebSearchApiKey: data.hasWebSearchApiKey ?? false,
       hasDeepseekToolsApiKey: data.hasDeepseekToolsApiKey ?? false,
+      hasCustomSearchApiKey: data.hasCustomSearchApiKey ?? false,
       hasJevApiKey: data.hasJevApiKey ?? false,
       channelKeyStatus: toKeyStatusMap(data.channelKeyStatus),
       warning: data.warning ?? null,
@@ -295,6 +302,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         hasApiKey: resp.hasApiKey,
         hasWebSearchApiKey: resp.hasWebSearchApiKey ?? false,
         hasDeepseekToolsApiKey: resp.hasDeepseekToolsApiKey ?? false,
+        hasCustomSearchApiKey: resp.hasCustomSearchApiKey ?? false,
         hasJevApiKey: resp.hasJevApiKey ?? false,
         channelKeyStatus: toKeyStatusMap(resp.channelKeyStatus),
         warning: resp.warning ?? null,

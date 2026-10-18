@@ -6,30 +6,107 @@ use std::time::Duration;
 
 use crate::agent::tools::deepseek_api;
 use crate::agent::tools::web_result::truncate_error_body as truncate_err;
-use crate::config::settings::WebSearchApiProvider;
+use crate::config::settings::{CustomSearchApi, SearchApiProtocol, WebSearchApiProvider};
 use crate::error::AppError;
 
 use super::types::{SearchOutcome, SearchResult};
 
 const TIMEOUT_SECS: u64 = 20;
 
+const BRAVE_URL: &str = "https://api.search.brave.com/res/v1/web/search";
+const TAVILY_URL: &str = "https://api.tavily.com/search";
+
+/// Which search API to call: a built-in vendor, or the user's own endpoint.
+#[derive(Debug, Clone, Default)]
+pub struct ApiSearchTarget {
+    pub provider: WebSearchApiProvider,
+    /// Only consulted when `provider` is [`WebSearchApiProvider::Custom`].
+    pub custom: CustomSearchApi,
+}
+
 pub async fn search(
-    provider: WebSearchApiProvider,
+    target: &ApiSearchTarget,
     api_key: &str,
     query: &str,
     max_results: usize,
 ) -> Result<SearchOutcome, AppError> {
-    if api_key.trim().is_empty() {
+    // Built-in vendors always authenticate; a self-hosted endpoint often does not,
+    // so a custom one may run without a key.
+    if target.provider != WebSearchApiProvider::Custom && api_key.trim().is_empty() {
         return Err(AppError::Agent(
             "search API key is not configured; set it in Settings → Agent tools".into(),
         ));
     }
 
-    match provider {
-        WebSearchApiProvider::Brave => search_brave(api_key, query, max_results).await,
-        WebSearchApiProvider::Tavily => search_tavily(api_key, query, max_results).await,
-        WebSearchApiProvider::Deepseek => search_deepseek(api_key, query, max_results).await,
+    match target.provider {
+        WebSearchApiProvider::Brave => {
+            search_brave(
+                BRAVE_URL,
+                "api:brave",
+                "Brave search",
+                api_key,
+                query,
+                max_results,
+            )
+            .await
+        }
+        WebSearchApiProvider::Tavily => {
+            search_tavily(
+                TAVILY_URL,
+                "api:tavily",
+                "Tavily search",
+                api_key,
+                query,
+                max_results,
+            )
+            .await
+        }
+        WebSearchApiProvider::Deepseek => {
+            search_deepseek(None, "api:deepseek", api_key, query, max_results).await
+        }
+        WebSearchApiProvider::Custom => {
+            let url = validate_custom_url(&target.custom.url)?;
+            let (label, who) = ("api:custom", "custom search API");
+            match target.custom.protocol {
+                SearchApiProtocol::Brave => {
+                    search_brave(&url, label, who, api_key, query, max_results).await
+                }
+                SearchApiProtocol::Tavily => {
+                    search_tavily(&url, label, who, api_key, query, max_results).await
+                }
+                SearchApiProtocol::Deepseek => {
+                    search_deepseek(Some(&url), label, api_key, query, max_results).await
+                }
+            }
+        }
     }
+}
+
+/// The user typed this address, so it is trusted to point anywhere — but a key goes
+/// with every request, so what is accepted is kept narrow: an `http(s)` URL with a
+/// host and **no embedded credentials** (those would be written to settings.json in
+/// the clear; the key has its own keychain field).
+pub(crate) fn validate_custom_url(raw: &str) -> Result<String, AppError> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(AppError::Agent(
+            "custom search API URL is not configured; set it in Settings → Agent tools".into(),
+        ));
+    }
+    let parsed = url::Url::parse(raw)
+        .map_err(|e| AppError::Agent(format!("custom search API URL is invalid: {}", e)))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
+        return Err(AppError::Agent(
+            "custom search API URL must be an http:// or https:// address".into(),
+        ));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::Agent(
+            "custom search API URL must not embed a username or password; put the key in the API Key field"
+                .into(),
+        ));
+    }
+    Ok(parsed.to_string())
 }
 
 fn http_client() -> Result<Client, AppError> {
@@ -39,7 +116,12 @@ fn http_client() -> Result<Client, AppError> {
         .map_err(|e| AppError::Agent(format!("failed to create HTTP client: {}", e)))
 }
 
+/// Brave Search protocol: `GET <url>?q=&count=`, key in `X-Subscription-Token`,
+/// hits under `web.results[]`.
 async fn search_brave(
+    url: &str,
+    provider: &'static str,
+    who: &str,
     api_key: &str,
     query: &str,
     max_results: usize,
@@ -64,31 +146,35 @@ async fn search_brave(
     let client = http_client()?;
 
     let count = max_results.clamp(1, 20);
-    let resp = client
-        .get("https://api.search.brave.com/res/v1/web/search")
+    let mut request = client
+        .get(url)
         .header("Accept", "application/json")
-        .header("X-Subscription-Token", api_key)
-        .query(&[("q", query), ("count", &count.to_string())])
+        .query(&[("q", query), ("count", &count.to_string())]);
+    if !api_key.trim().is_empty() {
+        request = request.header("X-Subscription-Token", api_key.trim());
+    }
+    let resp = request
         .send()
         .await
-        .map_err(|e| AppError::Agent(format!("Brave search request failed: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("{} request failed: {}", who, e)))?;
 
     let status = resp.status();
     let body = resp
         .text()
         .await
-        .map_err(|e| AppError::Agent(format!("failed to read Brave response: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("failed to read {} response: {}", who, e)))?;
 
     if !status.is_success() {
         return Err(AppError::Agent(format!(
-            "Brave search HTTP {}: {}",
+            "{} HTTP {}: {}",
+            who,
             status,
             truncate_err(&body)
         )));
     }
 
     let parsed: BraveResponse = serde_json::from_str(&body)
-        .map_err(|e| AppError::Agent(format!("invalid Brave response: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("invalid {} response: {}", who, e)))?;
 
     let results = map_brave_items(
         parsed
@@ -101,7 +187,7 @@ async fn search_brave(
     );
 
     Ok(SearchOutcome {
-        provider: "api:brave",
+        provider,
         results,
         // A search API either answers with results or fails outright; it never
         // hands back a verification interstitial.
@@ -109,7 +195,12 @@ async fn search_brave(
     })
 }
 
+/// Tavily protocol: `POST <url>` with the key in the body's `api_key`, hits under
+/// `results[]` with `content` as the snippet.
 async fn search_tavily(
+    url: &str,
+    provider: &'static str,
+    who: &str,
     api_key: &str,
     query: &str,
     max_results: usize,
@@ -128,38 +219,42 @@ async fn search_tavily(
 
     let client = http_client()?;
 
-    let payload = serde_json::json!({
-        "api_key": api_key,
+    let mut payload = serde_json::json!({
         "query": query,
         "max_results": max_results.clamp(1, 20),
         "include_answer": false,
         "search_depth": "basic",
     });
+    // A keyless self-hosted endpoint must not be sent an empty credential field.
+    if !api_key.trim().is_empty() {
+        payload["api_key"] = serde_json::Value::String(api_key.trim().to_string());
+    }
 
     let resp = client
-        .post("https://api.tavily.com/search")
+        .post(url)
         .header("Content-Type", "application/json")
         .json(&payload)
         .send()
         .await
-        .map_err(|e| AppError::Agent(format!("Tavily search request failed: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("{} request failed: {}", who, e)))?;
 
     let status = resp.status();
     let body = resp
         .text()
         .await
-        .map_err(|e| AppError::Agent(format!("failed to read Tavily response: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("failed to read {} response: {}", who, e)))?;
 
     if !status.is_success() {
         return Err(AppError::Agent(format!(
-            "Tavily search HTTP {}: {}",
+            "{} HTTP {}: {}",
+            who,
             status,
             truncate_err(&body)
         )));
     }
 
     let parsed: TavilyResponse = serde_json::from_str(&body)
-        .map_err(|e| AppError::Agent(format!("invalid Tavily response: {}", e)))?;
+        .map_err(|e| AppError::Agent(format!("invalid {} response: {}", who, e)))?;
 
     let results = map_tavily_items(
         parsed
@@ -170,7 +265,7 @@ async fn search_tavily(
     );
 
     Ok(SearchOutcome {
-        provider: "api:tavily",
+        provider,
         results,
         interception: None,
     })
@@ -206,7 +301,13 @@ struct DeepseekItem {
     date: Option<String>,
 }
 
+/// DeepSeek protocol: `POST <url>` with a Bearer key, hits under `results[]`.
+/// `custom_url == None` is the official endpoint; `Some` is a user-supplied one that
+/// speaks the same protocol (no vendor-specific hints, optional key, and no 128-char
+/// query cap — that limit is the official service's, not the protocol's).
 async fn search_deepseek(
+    custom_url: Option<&str>,
+    provider: &'static str,
     api_key: &str,
     query: &str,
     max_results: usize,
@@ -214,19 +315,17 @@ async fn search_deepseek(
     // `need_content` stays at its default (false): `web_search` returns pointers,
     // and full pages are `http_get`'s job.
     let payload = serde_json::json!({
-        "query": clamp_deepseek_query(query),
+        "query": if custom_url.is_none() { clamp_deepseek_query(query) } else { query.to_string() },
         "count": max_results.clamp(1, DEEPSEEK_MAX_COUNT),
     });
-    let body = deepseek_api::post_json(
-        "search",
-        api_key,
-        &payload,
-        Duration::from_secs(TIMEOUT_SECS),
-    )
-    .await?;
+    let timeout = Duration::from_secs(TIMEOUT_SECS);
+    let body = match custom_url {
+        None => deepseek_api::post_json("search", api_key, &payload, timeout).await?,
+        Some(url) => deepseek_api::post_json_custom(url, api_key, &payload, timeout).await?,
+    };
 
     Ok(SearchOutcome {
-        provider: "api:deepseek",
+        provider,
         results: parse_deepseek_response(&body, max_results)?,
         interception: None,
     })
@@ -337,10 +436,59 @@ where
 mod tests {
     use super::*;
     use crate::config::settings::WebSearchApiProvider;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    fn builtin(provider: WebSearchApiProvider) -> ApiSearchTarget {
+        ApiSearchTarget {
+            provider,
+            custom: CustomSearchApi::default(),
+        }
+    }
+
+    fn custom(url: &str, protocol: SearchApiProtocol) -> ApiSearchTarget {
+        ApiSearchTarget {
+            provider: WebSearchApiProvider::Custom,
+            custom: CustomSearchApi {
+                url: url.to_string(),
+                protocol,
+            },
+        }
+    }
+
+    /// Answers one request with `status`/`body` and records the raw request.
+    fn serve_once(status: u16, body: &'static str) -> (String, Arc<Mutex<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let seen = Arc::new(Mutex::new(String::new()));
+        let seen_in_thread = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut buf = vec![0u8; 16384];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            *seen_in_thread.lock().unwrap() = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let reply = format!(
+                "HTTP/1.1 {} X
+Content-Type: application/json
+Content-Length: {}
+Connection: close
+
+{}",
+                status,
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(reply.as_bytes());
+        });
+        (format!("http://{}/search", addr), seen)
+    }
 
     #[tokio::test]
     async fn api_brave_mode_requires_key() {
-        let err = search(WebSearchApiProvider::Brave, "  ", "q", 5)
+        let err = search(&builtin(WebSearchApiProvider::Brave), "  ", "q", 5)
             .await
             .expect_err("empty key");
         let msg = err.to_string();
@@ -352,7 +500,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_tavily_mode_requires_key() {
-        let err = search(WebSearchApiProvider::Tavily, "", "q", 5)
+        let err = search(&builtin(WebSearchApiProvider::Tavily), "", "q", 5)
             .await
             .expect_err("empty key");
         let msg = err.to_string();
@@ -364,7 +512,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_deepseek_mode_requires_key() {
-        let err = search(WebSearchApiProvider::Deepseek, " ", "q", 5)
+        let err = search(&builtin(WebSearchApiProvider::Deepseek), " ", "q", 5)
             .await
             .expect_err("empty key");
         let msg = err.to_string();
@@ -372,6 +520,155 @@ mod tests {
             msg.to_ascii_lowercase().contains("key"),
             "expected key error, got {msg}"
         );
+    }
+
+    #[tokio::test]
+    async fn custom_mode_without_a_url_says_so() {
+        let err = search(&custom("  ", SearchApiProtocol::Brave), "k", "q", 5)
+            .await
+            .expect_err("no url");
+        assert!(err.to_string().contains("URL is not configured"), "{err}");
+    }
+
+    #[test]
+    fn custom_url_must_be_plain_http_without_credentials() {
+        assert_eq!(
+            validate_custom_url("  https://search.example.com/v1/search?x=1 ").unwrap(),
+            "https://search.example.com/v1/search?x=1"
+        );
+        assert!(validate_custom_url("http://127.0.0.1:8080/search").is_ok());
+        for bad in [
+            "",
+            "search.example.com/search",
+            "ftp://example.com/x",
+            "file:///etc/passwd",
+            "https://user:pass@example.com/search",
+            "https://user@example.com/search",
+            "https://",
+        ] {
+            assert!(
+                validate_custom_url(bad).is_err(),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_brave_protocol_sends_the_token_header_only_when_there_is_a_key() {
+        let body =
+            r#"{"web":{"results":[{"title":"A","url":"https://a.example","description":"da"}]}}"#;
+        let (url, seen) = serve_once(200, body);
+        let outcome = search(
+            &custom(&url, SearchApiProtocol::Brave),
+            " tok-1 ",
+            "rust async",
+            3,
+        )
+        .await
+        .expect("brave-shaped answer");
+        assert_eq!(outcome.provider, "api:custom");
+        assert_eq!(outcome.results[0].title, "A");
+        assert_eq!(outcome.results[0].snippet, "da");
+        let request = seen.lock().unwrap().to_ascii_lowercase();
+        assert!(
+            request.starts_with("get /search?q=rust+async&count=3 ")
+                || request.starts_with("get /search?q=rust%20async&count=3 "),
+            "{request}"
+        );
+        assert!(
+            request.contains("x-subscription-token: tok-1\r\n"),
+            "{request}"
+        );
+
+        let (url, seen) = serve_once(200, body);
+        search(&custom(&url, SearchApiProtocol::Brave), "", "q", 3)
+            .await
+            .expect("keyless");
+        assert!(!seen
+            .lock()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("x-subscription-token"));
+    }
+
+    #[tokio::test]
+    async fn custom_tavily_protocol_puts_the_key_in_the_body_only_when_there_is_one() {
+        let body = r#"{"results":[{"title":"T","url":"https://t.example","content":"ct"}]}"#;
+        let (url, seen) = serve_once(200, body);
+        let outcome = search(&custom(&url, SearchApiProtocol::Tavily), "tv-key", "q", 4)
+            .await
+            .expect("tavily-shaped answer");
+        assert_eq!(outcome.provider, "api:custom");
+        assert_eq!(outcome.results[0].snippet, "ct");
+        let request = seen.lock().unwrap().clone();
+        assert!(request.starts_with("POST /search "), "{request}");
+        assert!(request.contains(r#""api_key":"tv-key""#), "{request}");
+        assert!(request.contains(r#""max_results":4"#), "{request}");
+
+        let (url, seen) = serve_once(200, body);
+        search(&custom(&url, SearchApiProtocol::Tavily), "", "q", 4)
+            .await
+            .expect("keyless");
+        assert!(!seen.lock().unwrap().contains("api_key"));
+    }
+
+    #[tokio::test]
+    async fn custom_deepseek_protocol_uses_bearer_dates_and_does_not_clamp_the_query() {
+        let body = r#"{"results":[{"title":"D","url":"https://d.example","summary":"long","snippet":"short","date":"2026-06-01T00:00:00+00:00"}]}"#;
+        let long_query = "q".repeat(300);
+        let (url, seen) = serve_once(200, body);
+        let outcome = search(
+            &custom(&url, SearchApiProtocol::Deepseek),
+            "ds-key",
+            &long_query,
+            5,
+        )
+        .await
+        .expect("deepseek-shaped answer");
+        assert_eq!(outcome.provider, "api:custom");
+        assert_eq!(outcome.results[0].snippet, "long");
+        assert_eq!(outcome.results[0].date.as_deref(), Some("2026-06-01"));
+        let request = seen.lock().unwrap().clone();
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer ds-key\r\n"),
+            "{request}"
+        );
+        assert!(
+            request.contains(&long_query),
+            "a custom endpoint's own limits are not ours to apply"
+        );
+
+        let (url, seen) = serve_once(200, body);
+        search(&custom(&url, SearchApiProtocol::Deepseek), "", "q", 5)
+            .await
+            .expect("keyless");
+        assert!(!seen
+            .lock()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("authorization"));
+    }
+
+    /// An error from someone else's service must not be dressed up as DeepSeek's
+    /// ("use your DeepSeek API key", "top up your DeepSeek balance").
+    #[tokio::test]
+    async fn custom_errors_name_the_custom_api_not_a_vendor() {
+        for protocol in [
+            SearchApiProtocol::Brave,
+            SearchApiProtocol::Tavily,
+            SearchApiProtocol::Deepseek,
+        ] {
+            let (url, _) = serve_once(401, r#"{"error":{"message":"bad token"}}"#);
+            let err = search(&custom(&url, protocol), "k", "q", 3)
+                .await
+                .expect_err("401")
+                .to_string();
+            assert!(err.contains("custom search API"), "{protocol:?}: {err}");
+            assert!(err.contains("401"), "{protocol:?}: {err}");
+            assert!(!err.contains("DeepSeek"), "{protocol:?}: {err}");
+        }
     }
 
     /// The sample response from the official docs, verbatim.

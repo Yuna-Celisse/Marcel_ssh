@@ -829,7 +829,14 @@ export interface TerminalColors {
 
 export type WebSearchMode = 'browser' | 'api' | 'html';
 export type HttpFetchMode = 'browser' | 'html' | 'deepseek';
-export type WebSearchApiProvider = 'brave' | 'tavily' | 'deepseek';
+export type WebSearchApiProvider = 'brave' | 'tavily' | 'deepseek' | 'custom';
+/** 「自定义」搜索提供商按哪家的请求/响应格式收发（后端 `SearchApiProtocol`，线上取值须一致）。 */
+export type SearchApiProtocol = 'brave' | 'tavily' | 'deepseek';
+/** 用户自备的搜索服务：地址 + 兼容的协议。Key 不在这里，走独立密钥链槽位。 */
+export interface CustomSearchApi {
+  url: string;
+  protocol: SearchApiProtocol;
+}
 /** Bing host used by web_search browser/html modes; default cn */
 export type WebSearchEndpoint = 'cn' | 'www';
 
@@ -841,6 +848,8 @@ export interface ExperimentalSettings {
   webSearchMode?: WebSearchMode;
   /** used when webSearchMode === 'api' */
   webSearchApiProvider?: WebSearchApiProvider;
+  /** used when webSearchApiProvider === 'custom' */
+  webSearchCustom?: CustomSearchApi;
   /** Bing host for browser/html modes; default cn */
   webSearchEndpoint?: WebSearchEndpoint;
   /** http_get backend; independent of webSearchMode; default browser */
@@ -1490,6 +1499,8 @@ export interface AppBootstrapData {
    * 与 `hasJevApiKey` 同理必填：启动快照是本会话读到真值的唯一路径。
    */
   hasDeepseekToolsApiKey: boolean;
+  /** 密钥链里是否已有「自定义搜索 API」的 Key（可为空：自建服务常不鉴权）。同样必填。 */
+  hasCustomSearchApiKey: boolean;
   /**
    * 密钥链里是否已有 TypeSafe（Jev）API Key。
    *

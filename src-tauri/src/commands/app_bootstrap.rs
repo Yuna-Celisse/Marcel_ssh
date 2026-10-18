@@ -23,6 +23,8 @@ pub struct AppBootstrapData {
     /// 与 `has_jev_api_key` 同理：启动快照是前端读到真值的唯一路径，漏发会让设置页
     /// 误报「还没配 Key」。
     pub has_deepseek_tools_api_key: bool,
+    /// 密钥链中是否已存储「自定义搜索 API」的 Key（同样只有启动快照这一条读取路径）
+    pub has_custom_search_api_key: bool,
     /// 密钥链中是否已存储 TypeSafe（Jev）API Key
     ///
     /// 与 `has_web_search_api_key` 成对：前端只在启动快照这一条路上 hydrate 设置
@@ -62,6 +64,10 @@ pub async fn app_get_bootstrap(state: State<'_, AppState>) -> Result<AppBootstra
         .ok()
         .flatten()
         .is_some();
+    let has_custom_search_api_key = keychain::get_custom_search_api_key()
+        .ok()
+        .flatten()
+        .is_some();
     let has_jev_api_key = keychain::get_jev_api_key().ok().flatten().is_some();
     let channel_key_status = crate::commands::settings::compute_channel_key_status(&settings);
     let settings_warning = state.settings_warning.write().take();
@@ -74,6 +80,7 @@ pub async fn app_get_bootstrap(state: State<'_, AppState>) -> Result<AppBootstra
         has_api_key,
         has_web_search_api_key,
         has_deepseek_tools_api_key,
+        has_custom_search_api_key,
         has_jev_api_key,
         channel_key_status,
         settings_warning,

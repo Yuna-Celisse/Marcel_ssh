@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type {
   ExperimentalSettings,
   HttpFetchMode,
+  SearchApiProtocol,
   WebSearchApiProvider,
   WebSearchEndpoint,
   WebSearchMode,
@@ -13,11 +14,14 @@ import { useConnectionStore } from '@/stores/connectionStore';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatConnLabel } from '@/lib/privacy';
 import {
+  CUSTOM_URL_PLACEHOLDER,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_SHARED_NOTE,
+  SEARCH_API_PROTOCOLS,
   WEB_SEARCH_API_PROVIDERS,
   searchKeyDescription,
 } from '@/lib/webSearchProviders';
+import { useCustomSearchApi } from '@/hooks/useCustomSearchApi';
 import {
   clearToolApiKey,
   saveToolApiKey,
@@ -165,6 +169,10 @@ export function MobileAgentToolsSection() {
   };
 
   const searchKeySlot = searchProviderKeySlot(apiProvider);
+  const customForm = useCustomSearchApi(
+    experimental.webSearchCustom ?? { url: '', protocol: 'brave' },
+    (next) => updateExperimental({ webSearchCustom: next }),
+  );
 
   // 获取方式同理：browser（桌面端遗留）在 UI 上归并为裸 HTTP，保存的配置值不动。
   const fetchMode = resolveMobileFetchMode(experimental.httpFetchMode);
@@ -241,15 +249,69 @@ export function MobileAgentToolsSection() {
             />
           </MobileSettingRow>
 
+          {apiProvider === 'custom' && (
+            <>
+              <MobileSettingRow
+                label="自定义接口地址"
+                description="你自己的搜索服务的完整地址（不是 OpenAI 格式）。搜索词会发到这个地址，请只填你信任的服务"
+              >
+                <input
+                  type="url"
+                  inputMode="url"
+                  value={customForm.urlDraft}
+                  onChange={(e) => customForm.setUrlDraft(e.target.value)}
+                  onBlur={customForm.commitUrl}
+                  placeholder={CUSTOM_URL_PLACEHOLDER}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  className={`mt-2 w-full ${KEY_INPUT_CLASS}`}
+                />
+                {customForm.check.error && (
+                  <p className="mt-1.5 text-xs leading-relaxed text-red-400">{customForm.check.error}</p>
+                )}
+                {customForm.check.warning && (
+                  <p className="mt-1.5 text-xs leading-relaxed text-amber-300/90">
+                    {customForm.check.warning}
+                  </p>
+                )}
+              </MobileSettingRow>
+
+              <MobileSettingRow label="兼容的协议" description="选择你的服务兼容哪家的接口格式">
+                <ChoiceGroup
+                  options={SEARCH_API_PROTOCOLS.map(({ value, label, hint }) => ({
+                    value,
+                    label,
+                    desc: hint,
+                  }))}
+                  value={customForm.protocol}
+                  onChange={(v) => customForm.setProtocol(v as SearchApiProtocol)}
+                />
+              </MobileSettingRow>
+            </>
+          )}
+
           <MobileSettingRow
-            label={apiProvider === 'deepseek' ? 'DeepSeek API Key' : '搜索 API Key'}
+            label={
+              apiProvider === 'deepseek'
+                ? 'DeepSeek API Key'
+                : apiProvider === 'custom'
+                  ? 'API Key（可选）'
+                  : '搜索 API Key'
+            }
             description={searchKeyDescription(apiProvider)}
           >
             {/* key = 槽位：切换提供商时各用各的草稿，不把上一个提供商的输入带过去 */}
             <ToolApiKeyInput
               key={searchKeySlot}
               slot={searchKeySlot}
-              placeholder={apiProvider === 'deepseek' ? '输入 DeepSeek API Key' : '输入搜索 API Key'}
+              placeholder={
+                apiProvider === 'deepseek'
+                  ? '输入 DeepSeek API Key'
+                  : apiProvider === 'custom'
+                    ? '可留空（自建服务无需 Key）'
+                    : '输入搜索 API Key'
+              }
             />
           </MobileSettingRow>
         </>

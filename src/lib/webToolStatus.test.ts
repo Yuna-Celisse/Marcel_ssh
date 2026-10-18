@@ -35,6 +35,7 @@ describe('backendLabel', () => {
     expect(backendLabel('api:brave')).toBe('Brave 搜索 API');
     expect(backendLabel('api:tavily')).toBe('Tavily 搜索 API');
     expect(backendLabel('api:deepseek')).toBe('DeepSeek 搜索 API');
+    expect(backendLabel('api:custom')).toBe('自定义搜索 API');
     expect(backendLabel('deepseek')).toBe('DeepSeek 抓取');
   });
 

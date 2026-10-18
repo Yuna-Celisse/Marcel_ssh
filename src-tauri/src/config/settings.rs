@@ -304,6 +304,30 @@ pub enum WebSearchApiProvider {
     Tavily,
     /// DeepSeek 官方搜索（`POST /v1/tools/search`），Key 即 DeepSeek API Key。
     Deepseek,
+    /// 用户自备的服务：地址与所用协议见 [`CustomSearchApi`]，Key 有独立槽位。
+    Custom,
+}
+
+/// 「自定义」搜索 API 所兼容的请求/响应协议——决定怎么发请求、怎么认证、怎么读结果。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchApiProtocol {
+    /// `GET <url>?q=&count=`，Key 放 `X-Subscription-Token` 头，结果在 `web.results[]`。
+    #[default]
+    Brave,
+    /// `POST <url>`，Key 放请求体 `api_key`，结果在 `results[]`（`content` 作摘要）。
+    Tavily,
+    /// `POST <url>`，Key 放 `Authorization: Bearer`，结果在 `results[]`（`summary`/`snippet`/`date`）。
+    Deepseek,
+}
+
+/// 自定义搜索 API：完整请求地址 + 兼容的协议。Key 不在这里（密钥链独立槽位）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomSearchApi {
+    /// 完整的搜索端点，如 `https://search.example.com/v1/search`。留空 = 未配置。
+    pub url: String,
+    pub protocol: SearchApiProtocol,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -326,6 +350,9 @@ pub struct ExperimentalSettings {
     /// Which search API vendor to use when `web_search_mode == Api`.
     #[serde(default)]
     pub web_search_api_provider: WebSearchApiProvider,
+    /// 提供商为「自定义」时使用的地址与协议。
+    #[serde(default)]
+    pub web_search_custom: CustomSearchApi,
     /// Which Bing host `web_search` uses for browser/html modes.
     #[serde(default)]
     pub web_search_endpoint: WebSearchEndpoint,
@@ -351,6 +378,7 @@ impl Default for ExperimentalSettings {
             enable_html_render: default_true(),
             web_search_mode: WebSearchMode::Browser,
             web_search_api_provider: WebSearchApiProvider::Brave,
+            web_search_custom: CustomSearchApi::default(),
             web_search_endpoint: WebSearchEndpoint::Cn,
             http_fetch_mode: HttpFetchMode::Browser,
             multi_host_connection_ids: Vec::new(),
@@ -1142,6 +1170,32 @@ mod tests {
         assert!(json.contains("\"httpFetchMode\":\"deepseek\""), "{json}");
         let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed.http_fetch_mode, HttpFetchMode::Deepseek);
+    }
+
+    #[test]
+    fn experimental_settings_custom_search_api_roundtrip_and_old_config_default() {
+        let s = ExperimentalSettings {
+            web_search_api_provider: WebSearchApiProvider::Custom,
+            web_search_custom: CustomSearchApi {
+                url: "https://search.example.com/v1/search".into(),
+                protocol: SearchApiProtocol::Tavily,
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"webSearchApiProvider\":\"custom\""), "{json}");
+        assert!(
+            json.contains("\"webSearchCustom\":{\"url\":\"https://search.example.com/v1/search\",\"protocol\":\"tavily\"}"),
+            "{json}"
+        );
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, s);
+
+        // 旧配置没有这个字段：回落为「未配置」，不报错。
+        let old: ExperimentalSettings =
+            serde_json::from_str(r#"{"webSearchApiProvider":"brave"}"#).expect("old config");
+        assert_eq!(old.web_search_custom, CustomSearchApi::default());
+        assert!(old.web_search_custom.url.is_empty());
     }
 
     #[test]

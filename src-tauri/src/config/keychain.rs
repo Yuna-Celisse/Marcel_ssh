@@ -213,6 +213,35 @@ pub fn delete_deepseek_tools_api_key() -> Result<(), AppError> {
         .map_err(|e| AppError::Config(format!("删除 DeepSeek API Key 失败：{}", e)))
 }
 
+/// Store the key of the user-configured ("custom") search API in the system keychain.
+///
+/// 又一个独立槽位：地址是用户自己填的任意主机，把 Brave/DeepSeek 的 Key 借给它就等于
+/// 把别家的凭据发给一个我们完全不认识的服务。
+pub fn save_custom_search_api_key(api_key: &str) -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_search_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    entry
+        .set_password(api_key)
+        .map_err(|e| AppError::Config(format!("保存自定义搜索 API Key 到密钥链失败：{}", e)))?;
+    Ok(())
+}
+
+/// Retrieve the custom search API key. Returns `Ok(None)` if not found.
+pub fn get_custom_search_api_key() -> Result<Option<String>, AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_search_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::get_optional_password(&entry)
+        .map_err(|e| AppError::Config(format!("读取自定义搜索 API Key 失败：{}", e)))
+}
+
+/// Remove the custom search API key. Missing entries are treated as success.
+pub fn delete_custom_search_api_key() -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_search_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::delete_if_exists(&entry)
+        .map_err(|e| AppError::Config(format!("删除自定义搜索 API Key 失败：{}", e)))
+}
+
 /// Store the TypeSafe (Jev) API key in the system keychain.
 ///
 /// 全局一份凭据（不像 LLM 渠道按 `channel_id` 分）：命令审批引擎只有一个，
