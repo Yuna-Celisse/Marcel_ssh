@@ -39,6 +39,9 @@ pub struct SettingsResponse {
     /// True if the custom search API key is stored in the keychain.
     #[serde(default)]
     pub has_custom_search_api_key: bool,
+    /// True if the custom fetch API key is stored in the keychain.
+    #[serde(default)]
+    pub has_custom_fetch_api_key: bool,
     /// True if a TypeSafe (Jev) API key is stored in the keychain.
     /// 前端据此决定「命令审批引擎 = Jev」时是否提示去填 Key，避免只显示一个
     /// 空输入框让人猜。原始 Key 永不回传 WebView。
@@ -94,6 +97,10 @@ pub async fn config_get_settings(state: State<'_, AppState>) -> Result<SettingsR
         .ok()
         .flatten()
         .is_some();
+    let has_custom_fetch_api_key = keychain::get_custom_fetch_api_key()
+        .ok()
+        .flatten()
+        .is_some();
     let has_jev_api_key = keychain::get_jev_api_key().ok().flatten().is_some();
     let channel_key_status = compute_channel_key_status(&settings);
     // Take the warning so the user only sees it once (after a single load).
@@ -104,6 +111,7 @@ pub async fn config_get_settings(state: State<'_, AppState>) -> Result<SettingsR
         has_web_search_api_key,
         has_deepseek_tools_api_key,
         has_custom_search_api_key,
+        has_custom_fetch_api_key,
         has_jev_api_key,
         channel_key_status,
         warning,

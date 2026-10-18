@@ -56,6 +56,10 @@ describe('resolveMobileFetchMode', () => {
   it('keeps deepseek, which is plain HTTP and works on a phone', () => {
     expect(resolveMobileFetchMode('deepseek')).toBe('deepseek');
   });
+
+  it('keeps custom, which is plain HTTP too', () => {
+    expect(resolveMobileFetchMode('custom')).toBe('custom');
+  });
 });
 
 describe('selectMobileFetchMode', () => {
@@ -65,8 +69,15 @@ describe('selectMobileFetchMode', () => {
     expect(selectMobileFetchMode(undefined, 'deepseek')).toEqual({ httpFetchMode: 'deepseek' });
   });
 
-  it('selecting html only rewrites when stored is deepseek', () => {
+  it('selecting custom always writes custom', () => {
+    expect(selectMobileFetchMode('browser', 'custom')).toEqual({ httpFetchMode: 'custom' });
+    expect(selectMobileFetchMode('deepseek', 'custom')).toEqual({ httpFetchMode: 'custom' });
+    expect(selectMobileFetchMode(undefined, 'custom')).toEqual({ httpFetchMode: 'custom' });
+  });
+
+  it('selecting html only rewrites when stored is a server-side fetch (deepseek / custom)', () => {
     expect(selectMobileFetchMode('deepseek', 'html')).toEqual({ httpFetchMode: 'html' });
+    expect(selectMobileFetchMode('custom', 'html')).toEqual({ httpFetchMode: 'html' });
   });
 
   it('selecting html keeps a synced browser value untouched (no cloud overwrite)', () => {

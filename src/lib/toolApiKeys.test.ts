@@ -7,6 +7,8 @@ const tauriMock = vi.hoisted(() => ({
   deleteDeepseekToolsApiKey: vi.fn(),
   saveCustomSearchApiKey: vi.fn(),
   deleteCustomSearchApiKey: vi.fn(),
+  saveCustomFetchApiKey: vi.fn(),
+  deleteCustomFetchApiKey: vi.fn(),
 }));
 vi.mock('@/lib/tauri', () => tauriMock);
 
@@ -19,6 +21,7 @@ beforeEach(() => {
     hasWebSearchApiKey: false,
     hasDeepseekToolsApiKey: false,
     hasCustomSearchApiKey: false,
+    hasCustomFetchApiKey: false,
   });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -65,8 +68,19 @@ describe('saveToolApiKey', () => {
     expect(useSettingsStore.getState().hasDeepseekToolsApiKey).toBe(false);
   });
 
+  it('stores a custom fetch key in its own slot, never the search custom one', async () => {
+    expect(await saveToolApiKey('customFetch', ' fetch-key ')).toBe(true);
+
+    expect(tauriMock.saveCustomFetchApiKey).toHaveBeenCalledWith('fetch-key');
+    expect(tauriMock.saveCustomSearchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveDeepseekToolsApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveWebSearchApiKey).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().hasCustomFetchApiKey).toBe(true);
+    expect(useSettingsStore.getState().hasCustomSearchApiKey).toBe(false);
+  });
+
   it('ignores blanks and the masked placeholder, which blur events deliver untouched', async () => {
-    for (const slot of ['search', 'deepseek', 'custom'] as const) {
+    for (const slot of ['search', 'deepseek', 'custom', 'customFetch'] as const) {
       expect(await saveToolApiKey(slot, '')).toBe(false);
       expect(await saveToolApiKey(slot, '   ')).toBe(false);
       expect(await saveToolApiKey(slot, '********')).toBe(false);
@@ -74,6 +88,7 @@ describe('saveToolApiKey', () => {
     expect(tauriMock.saveWebSearchApiKey).not.toHaveBeenCalled();
     expect(tauriMock.saveDeepseekToolsApiKey).not.toHaveBeenCalled();
     expect(tauriMock.saveCustomSearchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.saveCustomFetchApiKey).not.toHaveBeenCalled();
   });
 
   it('does not claim a key is saved when the backend refused it', async () => {
@@ -110,6 +125,23 @@ describe('clearToolApiKey', () => {
     expect(tauriMock.deleteDeepseekToolsApiKey).not.toHaveBeenCalled();
     expect(useSettingsStore.getState().hasCustomSearchApiKey).toBe(false);
     expect(useSettingsStore.getState().hasWebSearchApiKey).toBe(true);
+    expect(useSettingsStore.getState().hasDeepseekToolsApiKey).toBe(true);
+  });
+
+  it('clears the custom fetch slot without touching the search ones', async () => {
+    useSettingsStore.setState({
+      hasCustomSearchApiKey: true,
+      hasDeepseekToolsApiKey: true,
+      hasCustomFetchApiKey: true,
+    });
+
+    expect(await clearToolApiKey('customFetch')).toBe(true);
+
+    expect(tauriMock.deleteCustomFetchApiKey).toHaveBeenCalledTimes(1);
+    expect(tauriMock.deleteCustomSearchApiKey).not.toHaveBeenCalled();
+    expect(tauriMock.deleteDeepseekToolsApiKey).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().hasCustomFetchApiKey).toBe(false);
+    expect(useSettingsStore.getState().hasCustomSearchApiKey).toBe(true);
     expect(useSettingsStore.getState().hasDeepseekToolsApiKey).toBe(true);
   });
 

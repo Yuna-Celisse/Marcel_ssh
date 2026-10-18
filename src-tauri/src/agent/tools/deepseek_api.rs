@@ -69,31 +69,58 @@ async fn post_json_at(
     .await
 }
 
-/// 用户自备地址、按 DeepSeek 协议收发的 POST：同样的 408/429/5xx 退避重试，但没有
-/// DeepSeek 专属的处置提示（"去 DeepSeek 充值"对别人的服务毫无意义），Key 可以为空
-/// （自建服务常常不鉴权）——空则不发 `Authorization` 头。
+/// 用户自备地址、按 DeepSeek 协议收发的 POST（搜索与抓取共用）：同样的 408/429/5xx 退避重试，
+/// 但没有 DeepSeek 专属的处置提示（"去 DeepSeek 充值"对别人的服务毫无意义），Key 可以为空
+/// （自建服务常常不鉴权）——空则不发 `Authorization` 头。`who` 是错误文案里的服务称呼。
 pub(crate) async fn post_json_custom(
     url: &str,
+    who: &'static str,
     api_key: &str,
     payload: &Value,
     timeout: Duration,
 ) -> Result<String, AppError> {
     post_with_retry(
         url,
-        "custom search API",
+        who,
         api_key,
         payload,
         timeout,
         RETRY_BACKOFF,
         &|status, body| {
             AppError::Agent(format!(
-                "custom search API HTTP {}: {}",
+                "{} HTTP {}: {}",
+                who,
                 status,
                 truncate_error_body(&error_detail(body))
             ))
         },
     )
     .await
+}
+
+/// 用户自己填的地址：信任它可以指向任何地方，但每个请求都带着 Key，所以收得很窄——
+/// 只收有主机名的 `http(s)` 地址，且**不许内嵌账号密码**（那会明文落进 settings.json，
+/// Key 有自己的密钥链字段）。返回规范化后的地址。`what` 是错误文案里对该设置项的称呼。
+pub(crate) fn validate_endpoint_url(raw: &str, what: &str) -> Result<String, AppError> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(AppError::Agent(format!(
+            "{what} URL is not configured; set it in Settings → Agent tools"
+        )));
+    }
+    let parsed = url::Url::parse(raw)
+        .map_err(|e| AppError::Agent(format!("{what} URL is invalid: {}", e)))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
+        return Err(AppError::Agent(format!(
+            "{what} URL must be an http:// or https:// address"
+        )));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::Agent(format!(
+            "{what} URL must not embed a username or password; put the key in the API Key field"
+        )));
+    }
+    Ok(parsed.to_string())
 }
 
 async fn post_with_retry(
@@ -310,5 +337,65 @@ mod tests {
         let body = format!(r#"{{"error":{{"message":"{}"}}}}"#, "错".repeat(500));
         let msg = http_error("fetch", StatusCode::FORBIDDEN, &body).to_string();
         assert!(msg.contains('…'), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn custom_endpoint_sends_no_auth_header_without_a_key_and_names_itself_in_errors() {
+        let (base, seen) = serve_sequence(vec![(200, r#"{"ok":true}"#)]);
+        let body = post_json_custom(
+            &format!("{base}/fetch"),
+            "custom fetch service",
+            "  ",
+            &serde_json::json!({"url": "https://example.com"}),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("200");
+        assert_eq!(body, r#"{"ok":true}"#);
+        let request = seen.lock().unwrap()[0].to_ascii_lowercase();
+        assert!(request.starts_with("post /fetch "), "{request}");
+        assert!(!request.contains("authorization"), "{request}");
+
+        let (base, seen) =
+            serve_sequence(vec![(401, r#"{"error":{"message":"nope"}}"#), (200, "{}")]);
+        let err = post_json_custom(
+            &base,
+            "custom fetch service",
+            "k",
+            &serde_json::json!({}),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect_err("401");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("custom fetch service HTTP 401") && msg.contains("nope"),
+            "{msg}"
+        );
+        assert!(!msg.contains("DeepSeek"), "{msg}");
+        assert!(seen.lock().unwrap()[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer k"));
+        assert_eq!(seen.lock().unwrap().len(), 1, "401 is not retried");
+    }
+
+    #[test]
+    fn endpoint_urls_are_validated_with_the_callers_wording() {
+        assert_eq!(
+            validate_endpoint_url(" https://x.example/f?a=1 ", "custom fetch API").unwrap(),
+            "https://x.example/f?a=1"
+        );
+        for (bad, needle) in [
+            ("", "not configured"),
+            ("nope", "invalid"),
+            ("ftp://x.example/f", "http:// or https://"),
+            ("https://u:p@x.example/f", "must not embed"),
+        ] {
+            let msg = validate_endpoint_url(bad, "custom fetch API")
+                .unwrap_err()
+                .to_string();
+            assert!(msg.contains("custom fetch API URL"), "{bad:?}: {msg}");
+            assert!(msg.contains(needle), "{bad:?}: {msg}");
+        }
     }
 }

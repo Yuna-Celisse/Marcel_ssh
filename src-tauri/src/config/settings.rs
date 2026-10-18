@@ -283,6 +283,20 @@ pub enum HttpFetchMode {
     /// including JS-rendered pages, and works on mobile. The page is fetched from
     /// DeepSeek's servers, so private/LAN addresses are always read locally instead.
     Deepseek,
+    /// 用户自备的抓取服务：按 DeepSeek 抓取的格式收发，地址等见 [`CustomFetchApi`]，Key 有独立槽位。
+    Custom,
+}
+
+/// 自定义网页获取服务：`POST <url>` 发 `{"url": ...}`，期望回 `{"title", "content"}`（Markdown）。
+/// Key 不在这里（密钥链独立槽位，可留空）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomFetchApi {
+    /// 完整的抓取端点，如 `https://fetch.example.com/v1/fetch`。留空 = 未配置。
+    pub url: String,
+    /// 是否也把内网 / 本机地址交给它抓。默认 `false`：这些地址只在本机读取，主机名不外泄；
+    /// 自建在同一内网的服务才有理由打开。带账号密码的网址无论如何都不会发出。
+    pub send_private: bool,
 }
 
 /// Which Bing host `web_search` uses for browser/html modes.
@@ -359,6 +373,9 @@ pub struct ExperimentalSettings {
     /// Which backend `http_get` uses. Independent of search mode.
     #[serde(default)]
     pub http_fetch_mode: HttpFetchMode,
+    /// `http_fetch_mode == Custom` 时使用的地址与内网策略。
+    #[serde(default)]
+    pub http_fetch_custom: CustomFetchApi,
     /// 多机操控的「可跨机目标机器」集合（SavedConnection id 列表，空 = 仅
     /// 当前机器可执行）。双端多机操控恒开启（无开关），Agent 工具（bash /
     /// upload_file / download_file / subagent）可携带 `host` 参数；目标机器
@@ -381,6 +398,7 @@ impl Default for ExperimentalSettings {
             web_search_custom: CustomSearchApi::default(),
             web_search_endpoint: WebSearchEndpoint::Cn,
             http_fetch_mode: HttpFetchMode::Browser,
+            http_fetch_custom: CustomFetchApi::default(),
             multi_host_connection_ids: Vec::new(),
         }
     }
@@ -1196,6 +1214,38 @@ mod tests {
             serde_json::from_str(r#"{"webSearchApiProvider":"brave"}"#).expect("old config");
         assert_eq!(old.web_search_custom, CustomSearchApi::default());
         assert!(old.web_search_custom.url.is_empty());
+    }
+
+    #[test]
+    fn experimental_settings_custom_fetch_api_roundtrip_and_old_config_default() {
+        let s = ExperimentalSettings {
+            http_fetch_mode: HttpFetchMode::Custom,
+            http_fetch_custom: CustomFetchApi {
+                url: "https://fetch.example.com/v1/fetch".into(),
+                send_private: true,
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).expect("serialize");
+        assert!(json.contains("\"httpFetchMode\":\"custom\""), "{json}");
+        assert!(
+            json.contains("\"httpFetchCustom\":{\"url\":\"https://fetch.example.com/v1/fetch\",\"sendPrivate\":true}"),
+            "{json}"
+        );
+        let parsed: ExperimentalSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed, s);
+
+        // 旧配置没有这个字段：回落为「未配置」且内网地址不外发（最保守的默认）。
+        let old: ExperimentalSettings =
+            serde_json::from_str(r#"{"httpFetchMode":"deepseek"}"#).expect("old config");
+        assert_eq!(old.http_fetch_custom, CustomFetchApi::default());
+        assert!(old.http_fetch_custom.url.is_empty());
+        assert!(!old.http_fetch_custom.send_private);
+        // 只填了地址的配置：send_private 缺省为 false，不是 true。
+        let partial: ExperimentalSettings =
+            serde_json::from_str(r#"{"httpFetchCustom":{"url":"https://x.example/f"}}"#)
+                .expect("partial");
+        assert!(!partial.http_fetch_custom.send_private);
     }
 
     #[test]

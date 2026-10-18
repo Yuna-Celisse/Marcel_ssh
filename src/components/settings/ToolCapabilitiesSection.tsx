@@ -17,6 +17,10 @@ import { useConnectionStore } from '@/stores/connectionStore';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatConnLabel } from '@/lib/privacy';
 import {
+  CUSTOM_FETCH_DESCRIPTION,
+  CUSTOM_FETCH_KEY_DESCRIPTION,
+  CUSTOM_FETCH_PRIVATE_DESCRIPTION,
+  CUSTOM_FETCH_URL_PLACEHOLDER,
   CUSTOM_URL_PLACEHOLDER,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_SHARED_NOTE,
@@ -25,6 +29,7 @@ import {
   searchKeyDescription,
 } from '@/lib/webSearchProviders';
 import { useCustomSearchApi } from '@/hooks/useCustomSearchApi';
+import { useCustomFetchApi } from '@/hooks/useCustomFetchApi';
 import {
   clearToolApiKey,
   saveToolApiKey,
@@ -161,6 +166,10 @@ export function ToolCapabilitiesSection() {
   const customForm = useCustomSearchApi(
     experimental.webSearchCustom ?? { url: '', protocol: 'brave' },
     (next) => updateExperimental({ webSearchCustom: next }),
+  );
+  const customFetchForm = useCustomFetchApi(
+    experimental.httpFetchCustom ?? { url: '', sendPrivate: false },
+    (next) => updateExperimental({ httpFetchCustom: next }),
   );
   const protocolHint = SEARCH_API_PROTOCOLS.find((p) => p.value === customForm.protocol)?.hint;
 
@@ -329,9 +338,9 @@ export function ToolCapabilitiesSection() {
           <SettingItem
             id="exp-httpfetch-mode"
             label="获取方式"
-            description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截；DeepSeek 抓取由 DeepSeek 服务器代抓并转成 Markdown。浏览器或 DeepSeek 失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
+            description="本机浏览器渲染 DOM（推荐）；裸 HTTP 更快但易被站点拦截；DeepSeek 抓取由 DeepSeek 服务器代抓并转成 Markdown；自定义可接入你自己的抓取服务。浏览器或远端服务失败时会自动降级为本机裸 HTTP GET，并在结果中标注「已降级」"
             sectionId="settings-experimental"
-            keywords={['http', 'fetch', 'browser', 'html', 'deepseek', '网页获取', '浏览器', '降级']}
+            keywords={['http', 'fetch', 'browser', 'html', 'deepseek', 'custom', '自定义', '网页获取', '浏览器', '降级']}
           >
             <Select
               value={httpFetchMode}
@@ -340,6 +349,7 @@ export function ToolCapabilitiesSection() {
                 { value: 'browser', label: '本机浏览器（推荐）' },
                 { value: 'html', label: '裸 HTTP GET' },
                 { value: 'deepseek', label: 'DeepSeek 抓取' },
+                { value: 'custom', label: '自定义' },
               ]}
               className="w-52"
             />
@@ -355,6 +365,58 @@ export function ToolCapabilitiesSection() {
             >
               <ToolApiKeyInput slot="deepseek" placeholder="输入 DeepSeek API Key" />
             </SettingItem>
+          )}
+
+          {httpFetchMode === 'custom' && (
+            <>
+              <SettingItem
+                id="exp-httpfetch-custom-url"
+                label="自定义接口地址"
+                description={CUSTOM_FETCH_DESCRIPTION}
+                sectionId="settings-experimental"
+                keywords={['custom', 'url', '自定义', '地址', '自建', '网页获取']}
+              >
+                <div className="flex flex-1 flex-col gap-1">
+                  <input
+                    type="url"
+                    value={customFetchForm.urlDraft}
+                    onChange={(e) => customFetchForm.setUrlDraft(e.target.value)}
+                    onBlur={customFetchForm.commitUrl}
+                    placeholder={CUSTOM_FETCH_URL_PLACEHOLDER}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  {customFetchForm.check.error && (
+                    <p className="text-xs text-red-400">{customFetchForm.check.error}</p>
+                  )}
+                  {customFetchForm.check.warning && (
+                    <p className="text-xs text-amber-300/90">{customFetchForm.check.warning}</p>
+                  )}
+                </div>
+              </SettingItem>
+              <SettingItem
+                id="exp-httpfetch-custom-key"
+                label="API Key（可选）"
+                description={CUSTOM_FETCH_KEY_DESCRIPTION}
+                sectionId="settings-experimental"
+                keywords={['key', '密钥', '自定义', '网页获取']}
+              >
+                <ToolApiKeyInput slot="customFetch" placeholder="可留空（自建服务无需 Key）" />
+              </SettingItem>
+              <SettingItem
+                id="exp-httpfetch-custom-private"
+                label="内网地址也交给它抓"
+                description={CUSTOM_FETCH_PRIVATE_DESCRIPTION}
+                sectionId="settings-experimental"
+                keywords={['private', 'lan', '内网', '本机', '隐私', '网页获取']}
+              >
+                <Toggle
+                  checked={customFetchForm.sendPrivate}
+                  onChange={customFetchForm.setSendPrivate}
+                />
+              </SettingItem>
+            </>
           )}
         </>
       )}

@@ -82,31 +82,9 @@ pub async fn search(
     }
 }
 
-/// The user typed this address, so it is trusted to point anywhere — but a key goes
-/// with every request, so what is accepted is kept narrow: an `http(s)` URL with a
-/// host and **no embedded credentials** (those would be written to settings.json in
-/// the clear; the key has its own keychain field).
+/// See [`deepseek_api::validate_endpoint_url`]; the search flavour of the error text.
 pub(crate) fn validate_custom_url(raw: &str) -> Result<String, AppError> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Err(AppError::Agent(
-            "custom search API URL is not configured; set it in Settings → Agent tools".into(),
-        ));
-    }
-    let parsed = url::Url::parse(raw)
-        .map_err(|e| AppError::Agent(format!("custom search API URL is invalid: {}", e)))?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
-        return Err(AppError::Agent(
-            "custom search API URL must be an http:// or https:// address".into(),
-        ));
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(AppError::Agent(
-            "custom search API URL must not embed a username or password; put the key in the API Key field"
-                .into(),
-        ));
-    }
-    Ok(parsed.to_string())
+    deepseek_api::validate_endpoint_url(raw, "custom search API")
 }
 
 fn http_client() -> Result<Client, AppError> {
@@ -321,7 +299,10 @@ async fn search_deepseek(
     let timeout = Duration::from_secs(TIMEOUT_SECS);
     let body = match custom_url {
         None => deepseek_api::post_json("search", api_key, &payload, timeout).await?,
-        Some(url) => deepseek_api::post_json_custom(url, api_key, &payload, timeout).await?,
+        Some(url) => {
+            deepseek_api::post_json_custom(url, "custom search API", api_key, &payload, timeout)
+                .await?
+        }
     };
 
     Ok(SearchOutcome {

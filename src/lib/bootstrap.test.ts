@@ -31,6 +31,7 @@ describe('hydrateBootstrapData', () => {
       hasWebSearchApiKey: false,
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
+      hasCustomFetchApiKey: false,
       hasJevApiKey: false,
     });
     useConnectionStore.setState({ connections: [], loading: false, loaded: false, error: null });
@@ -44,6 +45,7 @@ describe('hydrateBootstrapData', () => {
       hasWebSearchApiKey: true,
       hasDeepseekToolsApiKey: true,
       hasCustomSearchApiKey: true,
+      hasCustomFetchApiKey: true,
       hasJevApiKey: true,
       channelKeyStatus: [],
       connections: [],
@@ -58,6 +60,7 @@ describe('hydrateBootstrapData', () => {
     // 启动快照是它的唯一来源：漏转发会让设置页把已配的 DeepSeek Key 显示成没配。
     expect(state.hasDeepseekToolsApiKey).toBe(true);
     expect(state.hasCustomSearchApiKey).toBe(true);
+    expect(state.hasCustomFetchApiKey).toBe(true);
     // 没走降级路径：快照成功时不该再单独拉一次设置。
     expect(getSettings).not.toHaveBeenCalled();
   });
@@ -69,6 +72,7 @@ describe('hydrateBootstrapData', () => {
       hasWebSearchApiKey: false,
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
+      hasCustomFetchApiKey: false,
       hasJevApiKey: false,
       channelKeyStatus: [],
       connections: [],
@@ -87,6 +91,7 @@ describe('hydrateBootstrapData', () => {
       hasWebSearchApiKey: false,
       hasDeepseekToolsApiKey: false,
       hasCustomSearchApiKey: false,
+      hasCustomFetchApiKey: false,
       hasJevApiKey: false,
       channelKeyStatus: [],
       connections: [],

@@ -242,6 +242,35 @@ pub fn delete_custom_search_api_key() -> Result<(), AppError> {
         .map_err(|e| AppError::Config(format!("删除自定义搜索 API Key 失败：{}", e)))
 }
 
+/// Store the key of the user-configured ("custom") page-fetch service in the system keychain.
+///
+/// 与自定义搜索 Key 也分开：搜索与抓取是两个互不相干的设置，各指向各的地址，
+/// 共用就等于把一个服务的凭据发给另一个。
+pub fn save_custom_fetch_api_key(api_key: &str) -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    entry
+        .set_password(api_key)
+        .map_err(|e| AppError::Config(format!("保存自定义抓取 API Key 到密钥链失败：{}", e)))?;
+    Ok(())
+}
+
+/// Retrieve the custom fetch API key. Returns `Ok(None)` if not found.
+pub fn get_custom_fetch_api_key() -> Result<Option<String>, AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::get_optional_password(&entry)
+        .map_err(|e| AppError::Config(format!("读取自定义抓取 API Key 失败：{}", e)))
+}
+
+/// Remove the custom fetch API key. Missing entries are treated as success.
+pub fn delete_custom_fetch_api_key() -> Result<(), AppError> {
+    let entry = store_impl::entry(SERVICE, "custom_fetch_api_key")
+        .map_err(|e| AppError::Config(format!("密钥链初始化失败：{}", e)))?;
+    store_impl::delete_if_exists(&entry)
+        .map_err(|e| AppError::Config(format!("删除自定义抓取 API Key 失败：{}", e)))
+}
+
 /// Store the TypeSafe (Jev) API key in the system keychain.
 ///
 /// 全局一份凭据（不像 LLM 渠道按 `channel_id` 分）：命令审批引擎只有一个，

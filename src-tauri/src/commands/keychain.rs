@@ -151,6 +151,21 @@ pub async fn config_delete_custom_search_api_key() -> Result<(), AppError> {
     Ok(())
 }
 
+/// Save the custom page-fetch service key (optional) to the system keychain.
+/// 原始 Key 永不回传 WebView，前端只通过 `hasCustomFetchApiKey` 知道配没配。
+#[tauri::command]
+pub async fn config_save_custom_fetch_api_key(api_key: String) -> Result<(), AppError> {
+    keychain::save_custom_fetch_api_key(&api_key)?;
+    Ok(())
+}
+
+/// Remove the custom page-fetch service key from the system keychain.
+#[tauri::command]
+pub async fn config_delete_custom_fetch_api_key() -> Result<(), AppError> {
+    keychain::delete_custom_fetch_api_key()?;
+    Ok(())
+}
+
 /// Save the DeepSeek tools API key (web search + web fetch) to the system keychain.
 /// 原始 Key 永不回传 WebView，前端只通过 `hasDeepseekToolsApiKey` 知道配没配。
 #[tauri::command]

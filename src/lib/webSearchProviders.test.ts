@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CUSTOM_FETCH_DESCRIPTION,
+  CUSTOM_FETCH_KEY_DESCRIPTION,
+  CUSTOM_FETCH_PRIVATE_DESCRIPTION,
   CUSTOM_KEY_DESCRIPTION,
   DEEPSEEK_FETCH_DESCRIPTION,
   DEEPSEEK_KEY_DESCRIPTION,
   SEARCH_API_PROTOCOLS,
   WEB_SEARCH_API_PROVIDERS,
-  checkCustomSearchUrl,
+  checkCustomEndpointUrl,
   searchKeyDescription,
 } from './webSearchProviders';
 
@@ -62,32 +65,32 @@ describe('DEEPSEEK_FETCH_DESCRIPTION', () => {
   });
 });
 
-describe('checkCustomSearchUrl', () => {
+describe('checkCustomEndpointUrl', () => {
   it('treats an empty field as "not filled in yet", not as an error', () => {
-    expect(checkCustomSearchUrl('')).toEqual({ ok: false });
-    expect(checkCustomSearchUrl('   ')).toEqual({ ok: false });
+    expect(checkCustomEndpointUrl('')).toEqual({ ok: false });
+    expect(checkCustomEndpointUrl('   ')).toEqual({ ok: false });
   });
 
   it('accepts http(s) addresses with a host', () => {
-    expect(checkCustomSearchUrl('https://search.example.com/v1/search')).toEqual({ ok: true });
-    expect(checkCustomSearchUrl('  https://search.example.com  ').ok).toBe(true);
+    expect(checkCustomEndpointUrl('https://search.example.com/v1/search')).toEqual({ ok: true });
+    expect(checkCustomEndpointUrl('  https://search.example.com  ').ok).toBe(true);
   });
 
   it('rejects non-http schemes, bare words and credentials embedded in the URL', () => {
     for (const bad of ['ftp://example.com', 'file:///etc/passwd', 'javascript:alert(1)']) {
-      const r = checkCustomSearchUrl(bad);
+      const r = checkCustomEndpointUrl(bad);
       expect(r.ok, bad).toBe(false);
       expect(r.error, bad).toBeTruthy();
     }
-    expect(checkCustomSearchUrl('search.example.com').error).toContain('格式');
+    expect(checkCustomEndpointUrl('search.example.com').error).toContain('格式');
     // settings.json is plaintext; secrets belong in the keychain.
-    const cred = checkCustomSearchUrl('https://user:pass@example.com/search');
+    const cred = checkCustomEndpointUrl('https://user:pass@example.com/search');
     expect(cred.ok).toBe(false);
     expect(cred.error).toContain('API Key');
   });
 
   it('warns about cleartext http to the public internet but not to local or LAN hosts', () => {
-    const pub = checkCustomSearchUrl('http://search.example.com/q');
+    const pub = checkCustomEndpointUrl('http://search.example.com/q');
     expect(pub.ok).toBe(true);
     expect(pub.warning).toContain('明文 http');
 
@@ -100,9 +103,24 @@ describe('checkCustomSearchUrl', () => {
       'http://[::1]:8080/',
       'http://nas.local/search',
     ]) {
-      expect(checkCustomSearchUrl(local), local).toEqual({ ok: true });
+      expect(checkCustomEndpointUrl(local), local).toEqual({ ok: true });
     }
     // 172.32.x is public, not RFC1918.
-    expect(checkCustomSearchUrl('http://172.32.0.1/').warning).toBeTruthy();
+    expect(checkCustomEndpointUrl('http://172.32.0.1/').warning).toBeTruthy();
+  });
+});
+
+describe('custom fetch copy', () => {
+  it('says where URLs go, which wire format is expected, and that failure degrades locally', () => {
+    expect(CUSTOM_FETCH_DESCRIPTION).toContain('网址会发给这个服务');
+    expect(CUSTOM_FETCH_DESCRIPTION).toContain('content');
+    expect(CUSTOM_FETCH_DESCRIPTION).toContain('降级');
+  });
+
+  it('keeps the key optional and isolated, and the private-address opt-in off by default', () => {
+    expect(CUSTOM_FETCH_KEY_DESCRIPTION).toContain('可留空');
+    expect(CUSTOM_FETCH_KEY_DESCRIPTION).toContain('只会发给你填的这个地址');
+    expect(CUSTOM_FETCH_PRIVATE_DESCRIPTION).toContain('默认关闭');
+    expect(CUSTOM_FETCH_PRIVATE_DESCRIPTION).toContain('带账号密码的网址无论如何都不会发出');
   });
 });

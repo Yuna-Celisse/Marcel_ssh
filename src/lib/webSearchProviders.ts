@@ -54,11 +54,11 @@ export interface CustomUrlCheck {
 }
 
 /**
- * 检查自定义搜索地址，规则与后端 `validate_custom_url` 一致：只收 http/https、必须有主机、
+ * 检查自定义服务地址（搜索与网页获取共用），规则与后端 `validate_endpoint_url` 一致：只收 http/https、必须有主机、
  * 不许内嵌用户名密码（配置文件是明文，Key 该走密钥链）。空串视为「还没填」，不报错。
- * 明文 http 到公网主机会把查询词与 Key 暴露在链路上，提示一下；本机/内网地址不提示。
+ * 明文 http 到公网主机会把请求内容与 Key 暴露在链路上，提示一下；本机/内网地址不提示。
  */
-export function checkCustomSearchUrl(raw: string): CustomUrlCheck {
+export function checkCustomEndpointUrl(raw: string): CustomUrlCheck {
   const text = raw.trim();
   if (!text) return { ok: false };
   let parsed: URL;
@@ -76,7 +76,7 @@ export function checkCustomSearchUrl(raw: string): CustomUrlCheck {
   if (parsed.protocol === 'http:' && !isLocalHost(parsed.hostname)) {
     return {
       ok: true,
-      warning: '使用的是明文 http，搜索词和 Key 会在网络上裸传；除内网自建服务外建议改用 https。',
+      warning: '使用的是明文 http，请求内容和 Key 会在网络上裸传；除内网自建服务外建议改用 https。',
     };
   }
   return { ok: true };
@@ -99,6 +99,19 @@ export const DEEPSEEK_KEY_DESCRIPTION =
 /** 「获取方式 = DeepSeek 抓取」的说明：数据去向、需要 Key、计费、内网例外都要讲清。 */
 export const DEEPSEEK_FETCH_DESCRIPTION =
   '由 DeepSeek 服务器代为抓取公网网页并转成 Markdown，需要 DeepSeek API Key，按成功请求计费。内网 / 本机地址不会发给 DeepSeek，始终在本机读取。';
+
+/** 「获取方式 = 自定义」的说明：数据去向、协议、内网策略都要讲清。 */
+export const CUSTOM_FETCH_DESCRIPTION =
+  '由你自己的抓取服务代为抓取网页：向填写的地址 POST {"url": 网址}，期望返回 {"title", "content"}（content 为 Markdown），格式与 DeepSeek 抓取相同。网址会发给这个服务，请只填你信任的地址。失败时自动降级为本机裸 HTTP。';
+
+/** 自定义抓取 Key：可留空，且与其它 Key 完全隔离。 */
+export const CUSTOM_FETCH_KEY_DESCRIPTION =
+  '可留空（自建服务常常不鉴权）。有 Key 时以 Bearer 方式发送。加密保存在本设备，只会发给你填的这个地址，不与搜索或 DeepSeek 的 Key 混用。';
+
+export const CUSTOM_FETCH_PRIVATE_DESCRIPTION =
+  '默认关闭：内网 / 本机地址只在本机读取，主机名不会外泄。仅当你的抓取服务部署在同一内网、确实需要代抓内网页面时再打开。带账号密码的网址无论如何都不会发出。';
+
+export const CUSTOM_FETCH_URL_PLACEHOLDER = 'https://fetch.example.com/v1/fetch';
 
 /** 获取方式的 DeepSeek Key 行补充一句：它和搜索那一行是同一把 Key，别让人以为要填两遍。 */
 export const DEEPSEEK_KEY_SHARED_NOTE = '与「搜索 API = DeepSeek 搜索」共用同一把 Key。';

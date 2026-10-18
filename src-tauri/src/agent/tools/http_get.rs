@@ -3,6 +3,8 @@
 //! Backend follows settings → experimentalSettings.httpFetchMode:
 //! - `browser`: local headless Chrome/Edge via CDP (rendered DOM)
 //! - `html`: bare HTTP GET via reqwest
+//! - `custom`: the user's own fetch service, speaking the same wire format as
+//!   `deepseek`; internal addresses stay local unless the user opted in.
 //! - `deepseek`: DeepSeek's server-side fetch (`/v1/tools/fetch`), which returns
 //!   Markdown directly. Only **public** URLs are sent to it; private/LAN/loopback
 //!   addresses and URLs carrying credentials are read locally (see
@@ -33,7 +35,8 @@ use crate::agent::tools::browser_cdp;
 use crate::agent::tools::deepseek_api;
 use crate::agent::tools::web_result::{is_blank_content, is_bot_block, FallbackNote, WebBackend};
 use crate::agent::tools::{truncate_output, AgentTool, ToolContext, ToolOutput};
-use crate::config::settings::HttpFetchMode;
+use crate::config::keychain;
+use crate::config::settings::{CustomFetchApi, HttpFetchMode};
 use crate::error::AppError;
 
 const MAX_OUTPUT_BYTES: usize = 24_000;
@@ -102,10 +105,11 @@ impl AgentTool for HttpGetTool {
          (HTTP mode is concurrent; browser mode reuses one local browser session). \
          Use this to read detailed content from URLs returned by the `web_search` tool. \
          Backend follows Settings → 网页获取方式: browser uses local Chrome/Edge, \
-         html uses bare HTTP GET, deepseek has DeepSeek's servers fetch public pages \
-         (private/LAN/localhost addresses are always fetched locally). \
+         html uses bare HTTP GET, deepseek has DeepSeek's servers fetch public pages, custom uses the user's own \
+         fetch service (private/LAN/localhost addresses are fetched locally unless \
+         the user opted in for their own service). \
          Requests are sent from this computer (where Marcel SSH runs), not from the \
-         remote server; in deepseek mode public pages are fetched by DeepSeek instead. \
+         remote server; in deepseek/custom mode pages are fetched by that remote service instead. \
          IMPORTANT: When you need to read multiple pages, ALWAYS use the `urls` array \
          instead of calling this tool repeatedly. Returns readable Markdown by default, \
          preserving headings, lists, code blocks, tables, links, and basic HTTP metadata. \
@@ -228,6 +232,10 @@ impl AgentTool for HttpGetTool {
         let batch = match mode {
             HttpFetchMode::Browser => fetch_all_browser(&owned, format).await,
             HttpFetchMode::Deepseek => fetch_all_deepseek(&owned, format).await,
+            HttpFetchMode::Custom => {
+                let config = resolve_custom_fetch(ctx).await;
+                fetch_all_custom(&owned, format, &config).await
+            }
             HttpFetchMode::Html => FetchBatch {
                 results: fetch_all_html(&urls_to_fetch, format).await,
                 fallback: None,
@@ -334,6 +342,7 @@ impl AgentTool for HttpGetTool {
                 HttpFetchMode::Browser => WebBackend::Browser.label(),
                 HttpFetchMode::Html => WebBackend::Html.label(),
                 HttpFetchMode::Deepseek => WebBackend::Deepseek.label(),
+                HttpFetchMode::Custom => WebBackend::Custom.label(),
             },
             "urls_fetched": urls_to_fetch.len(),
             "success": success_count,
@@ -505,34 +514,58 @@ async fn finish_browser_batch(
     FetchBatch { results, fallback }
 }
 
-// ── DeepSeek fetch ──────────────────────────────────────────────────────────
+// ── Server-side fetch (DeepSeek / custom service) ───────────────────────────
 // https://api-docs.deepseek.com/zh-cn/guides/search  (POST /v1/tools/fetch)
 //
-// The page is fetched by DeepSeek's servers, not by this computer. That changes
+// The page is fetched by someone else's servers, not by this computer. That changes
 // two things the other backends never had to think about:
 //
 // - **What may leave the machine.** A URL handed to a third party is disclosed to
-//   it. Private/LAN/loopback addresses (which DeepSeek could not reach anyway,
-//   and which name internal hosts) and URLs with embedded credentials are read
-//   locally, never sent. See [`is_private_target`].
+//   it. Private/LAN/loopback addresses (which a remote service could not reach
+//   anyway, and which name internal hosts) and URLs with embedded credentials are
+//   read locally, never sent. See [`is_private_target`]. The one exception is the
+//   user's own custom service with `send_private` switched on (a fetcher living on
+//   the same LAN); credentials in a URL still never leave.
 // - **What a failure means.** A datacenter IP is blocked more often than a home
-//   one, and the account can run out of balance or rate limit, so any DeepSeek
+//   one, and the account can run out of balance or rate limit, so any remote
 //   failure — including a verification page or an empty body — degrades to a
 //   local HTTP GET with the reason in the result, the same contract as the
 //   browser backend.
+//
+// The custom service speaks DeepSeek's wire format (`{"url"}` in, `{"title",
+// "content"}` out) so there is exactly one parser for both.
 
 /// Pages in flight at once. Fetch is limited to 5 QPS per account (plus a
 /// per-target-domain limit); a wider fan-out only trades pages for 429s.
-const DEEPSEEK_FETCH_CONCURRENCY: usize = 4;
+const REMOTE_FETCH_CONCURRENCY: usize = 4;
 /// Timeout of one request; the 429/5xx retry in `deepseek_api` sits underneath.
-const DEEPSEEK_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+const REMOTE_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Cap per page including retries, so one stuck page cannot hold the batch.
-const DEEPSEEK_PAGE_BUDGET: Duration = Duration::from_secs(50);
+const REMOTE_PAGE_BUDGET: Duration = Duration::from_secs(50);
 
 #[derive(Debug, Deserialize)]
-struct DeepseekFetchResponse {
+struct RemoteFetchResponse {
     title: Option<String>,
     content: Option<String>,
+}
+
+/// The service the remote part of a batch goes to, with what it needs to be called.
+struct RemoteFetcher {
+    backend: WebBackend,
+    /// `None` = DeepSeek's official endpoint; `Some` = the user's validated address.
+    endpoint: Option<String>,
+    /// May be empty for a custom service (then no `Authorization` header is sent).
+    api_key: String,
+}
+
+impl RemoteFetcher {
+    /// How errors and notes refer to the service.
+    fn name(&self) -> &'static str {
+        match self.backend {
+            WebBackend::Custom => "custom fetch service",
+            _ => "DeepSeek fetch",
+        }
+    }
 }
 
 /// Fetch a batch through DeepSeek, then read locally whatever never left the
@@ -541,78 +574,148 @@ async fn fetch_all_deepseek(urls: &[String], format: OutputFormat) -> FetchBatch
     let remote: Vec<usize> = (0..urls.len())
         .filter(|&i| !is_private_target(&urls[i]))
         .collect();
+    let fetcher = deepseek_api::load_api_key()
+        .map(|api_key| RemoteFetcher {
+            backend: WebBackend::Deepseek,
+            endpoint: None,
+            api_key,
+        })
+        .map_err(|e| e.to_string());
+    fetch_all_remote(urls, format, WebBackend::Deepseek, remote, fetcher).await
+}
+
+/// Same, through the user's own service. A bad address or an unreadable key is a
+/// failure of the remote part (stated in the result, pages read locally instead),
+/// not of the tool call.
+async fn fetch_all_custom(
+    urls: &[String],
+    format: OutputFormat,
+    config: &CustomFetchApi,
+) -> FetchBatch {
+    let remote: Vec<usize> = (0..urls.len())
+        .filter(|&i| !must_stay_local(&urls[i], config.send_private))
+        .collect();
+    let fetcher = custom_fetcher(config).map_err(|e| e.to_string());
+    fetch_all_remote(urls, format, WebBackend::Custom, remote, fetcher).await
+}
+
+fn custom_fetcher(config: &CustomFetchApi) -> Result<RemoteFetcher, AppError> {
+    let endpoint = deepseek_api::validate_endpoint_url(&config.url, "custom fetch API")?;
+    // The key is optional: self-hosted services are often unauthenticated.
+    let api_key = keychain::get_custom_fetch_api_key()?
+        .map(|key| key.trim().to_string())
+        .unwrap_or_default();
+    Ok(RemoteFetcher {
+        backend: WebBackend::Custom,
+        endpoint: Some(endpoint),
+        api_key,
+    })
+}
+
+async fn fetch_all_remote(
+    urls: &[String],
+    format: OutputFormat,
+    backend: WebBackend,
+    remote: Vec<usize>,
+    fetcher: Result<RemoteFetcher, String>,
+) -> FetchBatch {
     let mut outcomes: Vec<Option<Result<FetchedPage, String>>> =
         (0..urls.len()).map(|_| None).collect();
 
     if !remote.is_empty() {
-        let fetched = match deepseek_api::load_api_key() {
-            Ok(key) => {
+        let fetched = match fetcher {
+            Ok(fetcher) => {
                 let targets: Vec<&str> = remote.iter().map(|&i| urls[i].as_str()).collect();
-                fetch_many_deepseek(&key, targets).await
+                fetch_many_remote(&fetcher, targets).await
             }
-            Err(e) => {
-                let reason = e.to_string();
-                remote.iter().map(|_| Err(reason.clone())).collect()
-            }
+            Err(reason) => remote.iter().map(|_| Err(reason.clone())).collect(),
         };
         for (&i, outcome) in remote.iter().zip(fetched) {
             outcomes[i] = Some(outcome);
         }
     }
-    finish_deepseek_batch(urls, outcomes, format).await
+    finish_remote_batch(urls, outcomes, format, backend).await
 }
 
-/// Results in request order. Pages go out in waves of [`DEEPSEEK_FETCH_CONCURRENCY`]
+/// Results in request order. Pages go out in waves of [`REMOTE_FETCH_CONCURRENCY`]
 /// rather than all at once; a batch is normally at most a handful of URLs.
-async fn fetch_many_deepseek(api_key: &str, urls: Vec<&str>) -> Vec<Result<FetchedPage, String>> {
+async fn fetch_many_remote(
+    fetcher: &RemoteFetcher,
+    urls: Vec<&str>,
+) -> Vec<Result<FetchedPage, String>> {
     let mut results = Vec::with_capacity(urls.len());
-    for wave in urls.chunks(DEEPSEEK_FETCH_CONCURRENCY) {
+    for wave in urls.chunks(REMOTE_FETCH_CONCURRENCY) {
         let fetches = wave
             .iter()
-            .map(|url| fetch_page_deepseek_budgeted(api_key, url));
+            .map(|url| fetch_page_remote_budgeted(fetcher, url));
         results.extend(join_all(fetches).await);
     }
     results
 }
 
-async fn fetch_page_deepseek_budgeted(api_key: &str, url: &str) -> Result<FetchedPage, String> {
-    match tokio::time::timeout(DEEPSEEK_PAGE_BUDGET, fetch_page_deepseek(api_key, url)).await {
+async fn fetch_page_remote_budgeted(
+    fetcher: &RemoteFetcher,
+    url: &str,
+) -> Result<FetchedPage, String> {
+    match tokio::time::timeout(REMOTE_PAGE_BUDGET, fetch_page_remote(fetcher, url)).await {
         Ok(result) => result.map_err(|e| e.to_string()),
         Err(_elapsed) => Err(format!(
-            "DeepSeek fetch exceeded its {:.0}s budget for {}",
-            DEEPSEEK_PAGE_BUDGET.as_secs_f32(),
+            "{} exceeded its {:.0}s budget for {}",
+            fetcher.name(),
+            REMOTE_PAGE_BUDGET.as_secs_f32(),
             extract_domain(url)
         )),
     }
 }
 
-async fn fetch_page_deepseek(api_key: &str, url: &str) -> Result<FetchedPage, AppError> {
-    let body = deepseek_api::post_json(
-        "fetch",
-        api_key,
-        &json!({ "url": url }),
-        DEEPSEEK_FETCH_TIMEOUT,
-    )
-    .await?;
-    let page = parse_deepseek_page(url, &body)?;
+async fn fetch_page_remote(fetcher: &RemoteFetcher, url: &str) -> Result<FetchedPage, AppError> {
+    let payload = json!({ "url": url });
+    let body = match &fetcher.endpoint {
+        None => {
+            deepseek_api::post_json("fetch", &fetcher.api_key, &payload, REMOTE_FETCH_TIMEOUT)
+                .await?
+        }
+        Some(endpoint) => {
+            deepseek_api::post_json_custom(
+                endpoint,
+                "custom fetch service",
+                &fetcher.api_key,
+                &payload,
+                REMOTE_FETCH_TIMEOUT,
+            )
+            .await?
+        }
+    };
+    let page = parse_remote_page(url, &body, fetcher.backend)?;
     // A verification page or an empty body is a failed fetch, not a page: reporting
     // it as success would hide the local HTTP GET that may well get through.
     if let Some(vendor) = page.challenge {
         return Err(AppError::Agent(format!(
-            "DeepSeek received a bot-verification page ({vendor}) instead of the content"
+            "{} received a bot-verification page ({vendor}) instead of the content",
+            fetcher.name()
         )));
     }
     if page.blank_content {
-        return Err(AppError::Agent(
-            "DeepSeek returned a page with no readable content".to_string(),
-        ));
+        return Err(AppError::Agent(format!(
+            "{} returned a page with no readable content",
+            fetcher.name()
+        )));
     }
     Ok(page)
 }
 
-fn parse_deepseek_page(url: &str, body: &str) -> Result<FetchedPage, AppError> {
-    let parsed: DeepseekFetchResponse = serde_json::from_str(body)
-        .map_err(|e| AppError::Agent(format!("invalid DeepSeek response: {}", e)))?;
+fn parse_remote_page(url: &str, body: &str, backend: WebBackend) -> Result<FetchedPage, AppError> {
+    let parsed: RemoteFetchResponse = serde_json::from_str(body).map_err(|e| {
+        AppError::Agent(format!(
+            "invalid {} response: {}",
+            if backend == WebBackend::Custom {
+                "custom fetch service"
+            } else {
+                "DeepSeek"
+            },
+            e
+        ))
+    })?;
     let content = cleanup_markdown(&parsed.content.unwrap_or_default());
     let title = parsed
         .title
@@ -624,11 +727,11 @@ fn parse_deepseek_page(url: &str, body: &str) -> Result<FetchedPage, AppError> {
 
     Ok(FetchedPage {
         requested_url: url.to_string(),
-        // DeepSeek reports neither redirects nor the page's own status code, so
+        // The service reports neither redirects nor the page's own status code, so
         // neither is invented here: `status: None` renders as "unknown".
         final_url: url.to_string(),
         status: None,
-        status_text: status_text_for(None, WebBackend::Deepseek),
+        status_text: status_text_for(None, backend),
         content_type: "text/markdown; charset=utf-8".to_string(),
         title,
         content,
@@ -638,19 +741,20 @@ fn parse_deepseek_page(url: &str, body: &str) -> Result<FetchedPage, AppError> {
         markdown_bytes,
         redirected: false,
         http_error: false,
-        provider: WebBackend::Deepseek.label(),
+        provider: backend.label(),
         challenge,
         blank_content,
     })
 }
 
-/// `outcomes[i]`: `None` = never sent to DeepSeek (private target), `Some(Ok)` =
-/// DeepSeek's page, `Some(Err)` = DeepSeek failed. The last two are the only ones
-/// that count towards the fallback note; the first is by design, not a degradation.
-async fn finish_deepseek_batch(
+/// `outcomes[i]`: `None` = never sent to the remote service (kept local), `Some(Ok)` =
+/// its page, `Some(Err)` = it failed. The last two are the only ones that count
+/// towards the fallback note; the first is by design, not a degradation.
+async fn finish_remote_batch(
     urls: &[String],
     outcomes: Vec<Option<Result<FetchedPage, String>>>,
     format: OutputFormat,
+    backend: WebBackend,
 ) -> FetchBatch {
     let sent = outcomes.iter().flatten().count();
     let reasons: Vec<&str> = outcomes
@@ -660,14 +764,20 @@ async fn finish_deepseek_batch(
             _ => None,
         })
         .collect();
+    let service = if backend == WebBackend::Custom {
+        "the custom fetch service"
+    } else {
+        "DeepSeek"
+    };
     let fallback = reasons.first().map(|first| {
         FallbackNote::new(
-            WebBackend::Deepseek.label(),
+            backend.label(),
             WebBackend::Html.label(),
             format!(
-                "{} of {} page(s) failed on DeepSeek: {}",
+                "{} of {} page(s) failed on {}: {}",
                 reasons.len(),
                 sent,
+                service,
                 first
             ),
         )
@@ -688,6 +798,26 @@ async fn finish_deepseek_batch(
         })
         .collect();
     FetchBatch { results, fallback }
+}
+
+/// Whether `target` stays on this machine for the custom service. Without
+/// `send_private` this is exactly [`is_private_target`]. With it, internal addresses
+/// may go to the user's own service, but anything we cannot vouch for as a plain
+/// web address — other schemes, unparsable text, embedded credentials — still never
+/// leaves.
+fn must_stay_local(target: &str, send_private: bool) -> bool {
+    if !send_private {
+        return is_private_target(target);
+    }
+    match url::Url::parse(target) {
+        Ok(parsed) => {
+            !matches!(parsed.scheme(), "http" | "https")
+                || parsed.host().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+        }
+        Err(_) => true,
+    }
 }
 
 /// Whether `target` must be read from this machine instead of being handed to a
@@ -771,6 +901,19 @@ fn is_private_v6(ip: Ipv6Addr) -> bool {
         || (seg[0] & 0xffc0) == 0xfe80
 }
 
+async fn resolve_custom_fetch(ctx: &ToolContext) -> CustomFetchApi {
+    match ctx.app_handle.try_state::<crate::AppState>() {
+        Some(state) => state
+            .settings
+            .read()
+            .await
+            .experimental_settings
+            .http_fetch_custom
+            .clone(),
+        None => CustomFetchApi::default(),
+    }
+}
+
 async fn resolve_fetch_mode(ctx: &ToolContext) -> HttpFetchMode {
     // Mobile (Android) 无法启动本地 Chrome/Edge 走 CDP：browser 设置必然失败，
     // 一律落到裸 HTTP GET（html）。DeepSeek 获取是纯 HTTP，手机上完全可用，按设置生效。
@@ -778,8 +921,10 @@ async fn resolve_fetch_mode(ctx: &ToolContext) -> HttpFetchMode {
     {
         if let Some(state) = ctx.app_handle.try_state::<crate::AppState>() {
             let settings = state.settings.read().await;
-            if settings.experimental_settings.http_fetch_mode == HttpFetchMode::Deepseek {
-                return HttpFetchMode::Deepseek;
+            // 纯 HTTP 的两种服务端抓取手机上都能用，按设置生效。
+            let mode = settings.experimental_settings.http_fetch_mode;
+            if matches!(mode, HttpFetchMode::Deepseek | HttpFetchMode::Custom) {
+                return mode;
             }
         }
         return HttpFetchMode::Html;
@@ -853,6 +998,9 @@ fn status_text_for(status: Option<u16>, backend: WebBackend) -> String {
         // DeepSeek hands back extracted Markdown, never the page's own HTTP status.
         None if backend == WebBackend::Deepseek => {
             "page status not reported (fetched by DeepSeek)".to_string()
+        }
+        None if backend == WebBackend::Custom => {
+            "page status not reported (fetched by the custom fetch service)".to_string()
         }
         None => "no HTTP response (browser)".to_string(),
     }
@@ -1886,12 +2034,14 @@ mod tests {
             (HttpFetchMode::Browser, WebBackend::Browser.label()),
             (HttpFetchMode::Html, WebBackend::Html.label()),
             (HttpFetchMode::Deepseek, WebBackend::Deepseek.label()),
+            (HttpFetchMode::Custom, WebBackend::Custom.label()),
         ] {
             assert_eq!(format!("{:?}", mode).to_ascii_lowercase(), expected);
         }
         assert_eq!(WebBackend::Browser.label(), "browser");
         assert_eq!(WebBackend::Html.label(), "html");
         assert_eq!(WebBackend::Deepseek.label(), "deepseek");
+        assert_eq!(WebBackend::Custom.label(), "custom");
     }
 
     // ── DeepSeek fetch ──────────────────────────────────────────────────────
@@ -1958,8 +2108,12 @@ mod tests {
 
     #[test]
     fn deepseek_page_is_markdown_with_an_honest_unknown_status() {
-        let page =
-            parse_deepseek_page("https://example.com/article", DEEPSEEK_FETCH_SAMPLE).unwrap();
+        let page = parse_remote_page(
+            "https://example.com/article",
+            DEEPSEEK_FETCH_SAMPLE,
+            WebBackend::Deepseek,
+        )
+        .unwrap();
         assert_eq!(page.provider, "deepseek");
         assert_eq!(page.title.as_deref(), Some("Example article"));
         assert!(page.content.contains("Article content."));
@@ -1989,17 +2143,18 @@ mod tests {
 
     #[test]
     fn deepseek_page_tolerates_missing_fields_and_rejects_garbage() {
-        let page = parse_deepseek_page("https://example.com/", "{}").unwrap();
+        let page = parse_remote_page("https://example.com/", "{}", WebBackend::Deepseek).unwrap();
         assert!(page.blank_content);
         assert_eq!(page.title, None);
-        assert!(parse_deepseek_page("https://example.com/", "oops").is_err());
+        assert!(parse_remote_page("https://example.com/", "oops", WebBackend::Deepseek).is_err());
     }
 
     #[test]
     fn deepseek_page_that_is_a_verification_interstitial_is_recognised() {
-        let page = parse_deepseek_page(
+        let page = parse_remote_page(
             "https://baike.baidu.com/item/x",
             r#"{"title":"百度安全验证","content":"请完成安全验证"}"#,
+            WebBackend::Deepseek,
         )
         .unwrap();
         assert_eq!(page.challenge, Some("百度安全验证"));
@@ -2011,7 +2166,8 @@ mod tests {
         let (local_url, h1) = serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
         let (failed_url, h2) = serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
         let public = "https://example.com/article".to_string();
-        let deepseek_page = parse_deepseek_page(&public, DEEPSEEK_FETCH_SAMPLE).unwrap();
+        let deepseek_page =
+            parse_remote_page(&public, DEEPSEEK_FETCH_SAMPLE, WebBackend::Deepseek).unwrap();
 
         let urls = vec![local_url, public, failed_url];
         let outcomes = vec![
@@ -2021,7 +2177,13 @@ mod tests {
                 "DeepSeek fetch HTTP 402: Insufficient Balance".to_string()
             )),
         ];
-        let batch = finish_deepseek_batch(&urls, outcomes, OutputFormat::Markdown).await;
+        let batch = finish_remote_batch(
+            &urls,
+            outcomes,
+            OutputFormat::Markdown,
+            WebBackend::Deepseek,
+        )
+        .await;
 
         let providers: Vec<_> = batch
             .results
@@ -2051,10 +2213,130 @@ mod tests {
     #[tokio::test]
     async fn deepseek_batch_of_only_private_urls_is_not_a_degradation() {
         let (url, handle) = serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
-        let batch = finish_deepseek_batch(&[url], vec![None], OutputFormat::Markdown).await;
+        let batch = finish_remote_batch(
+            &[url],
+            vec![None],
+            OutputFormat::Markdown,
+            WebBackend::Deepseek,
+        )
+        .await;
 
         assert!(batch.fallback.is_none());
         assert_eq!(batch.provider(), "html");
+        handle.join().expect("server thread");
+    }
+
+    // ── Custom fetch service ────────────────────────────────────────────────
+
+    #[test]
+    fn custom_service_keeps_private_urls_local_unless_the_user_opts_in() {
+        let private = [
+            "http://localhost:8080/",
+            "http://192.168.1.10/wiki",
+            "http://nas/",
+            "http://100.101.102.103/",
+        ];
+        for target in private {
+            assert!(
+                must_stay_local(target, false),
+                "{target} stays local by default"
+            );
+            assert!(
+                !must_stay_local(target, true),
+                "{target} may go to the user's own service"
+            );
+        }
+        // Public addresses go to the service either way.
+        for send_private in [false, true] {
+            assert!(!must_stay_local("https://example.com/a", send_private));
+        }
+        // Whatever we cannot vouch for as a plain web address never leaves, opt-in or not.
+        for target in [
+            "https://user:pass@example.com/",
+            "https://user@192.168.1.5/",
+            "ftp://example.com/file",
+            "file:///etc/passwd",
+            "not a url",
+            "",
+        ] {
+            assert!(
+                must_stay_local(target, true),
+                "{target:?} must never be sent"
+            );
+            assert!(
+                must_stay_local(target, false),
+                "{target:?} must never be sent"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_page_is_labelled_and_worded_for_the_custom_service() {
+        let page = parse_remote_page(
+            "https://example.com/article",
+            DEEPSEEK_FETCH_SAMPLE,
+            WebBackend::Custom,
+        )
+        .unwrap();
+        assert_eq!(page.provider, "custom");
+        assert_eq!(page.status, None);
+        let chunk = make_chunk(&page.content, 0, 20_000);
+        let rendered = format_page_output(&page, &chunk, true);
+        assert!(
+            rendered.contains("page status not reported (fetched by the custom fetch service)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("DeepSeek"), "{rendered}");
+
+        let err = match parse_remote_page("https://example.com/", "oops", WebBackend::Custom) {
+            Err(e) => e,
+            Ok(_) => panic!("garbage must not parse"),
+        };
+        assert!(err.to_string().contains("custom fetch service"), "{err}");
+        assert!(!err.to_string().contains("DeepSeek"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn custom_batch_failure_is_attributed_to_the_custom_service() {
+        let (local_url, handle) =
+            serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
+        let batch = finish_remote_batch(
+            &[local_url],
+            vec![Some(Err(
+                "custom fetch service HTTP 502 Bad Gateway: down".to_string()
+            ))],
+            OutputFormat::Markdown,
+            WebBackend::Custom,
+        )
+        .await;
+
+        let note = batch.fallback.as_ref().expect("a failure is stated");
+        assert_eq!((note.from, note.to), ("custom", "html"));
+        assert!(
+            note.reason.contains("the custom fetch service"),
+            "{}",
+            note.reason
+        );
+        assert!(!note.reason.contains("DeepSeek"), "{}", note.reason);
+        assert_eq!(batch.provider(), "html");
+        handle.join().expect("server thread");
+    }
+
+    /// An unset address is a stated degradation: the page is still read locally.
+    #[tokio::test]
+    async fn custom_mode_without_an_address_degrades_loudly_to_a_local_read() {
+        let (url, handle) = serve_once("200 OK", "text/html; charset=utf-8", LOCAL_FIXTURE_PAGE);
+        // Loopback fixture + send_private: it *would* be sent, so this exercises the
+        // "no usable address" path rather than the keep-local path.
+        let config = CustomFetchApi {
+            url: String::new(),
+            send_private: true,
+        };
+        let batch = fetch_all_custom(&[url], OutputFormat::Markdown, &config).await;
+
+        let note = batch.fallback.as_ref().expect("missing address is stated");
+        assert!(note.reason.contains("not configured"), "{}", note.reason);
+        assert!(batch.results[0].is_ok(), "the page was read locally");
         handle.join().expect("server thread");
     }
 
