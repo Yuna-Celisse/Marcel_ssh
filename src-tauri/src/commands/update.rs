@@ -183,6 +183,23 @@ fn pick_assets(target: &serde_json::Value) -> ReleaseAssets {
     }
 }
 
+/// 从一份已解析的 latest.json 拼出本平台的发布信息：版本对象 + 按平台取资产。
+///
+/// 每份检查源的结果都经它拼装，保证「版本号从哪个对象读」与「资产字段从哪个对象读」
+/// 永远是同一份口径 —— 分开拼装时最容易出的错，就是版本号读了 `android` 而资产字段
+/// 回退到了顶层（安卓会因此拿到一个装不上的 exe）。
+fn release_from(latest: &serde_json::Value, is_android: bool) -> LatestRelease {
+    let (version, release_url) = pick_latest(latest, is_android);
+    let assets = asset_target(latest, is_android)
+        .map(pick_assets)
+        .unwrap_or_default();
+    LatestRelease {
+        version,
+        release_url,
+        assets,
+    }
+}
+
 /// Open a URL in the system browser.
 ///
 /// Uses `ShellExt::open` so Android hits the shell plugin Intent path
@@ -200,8 +217,9 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
         .map_err(|e| AppError::Other(format!("打开浏览器失败: {}", e)))
 }
 
-/// 检查源列表：GitHub raw 为主，jsDelivr 各入口为国内网络 fallback。依次尝试，
-/// 第一个成功者生效。
+/// 检查源列表：GitHub raw 为主，jsDelivr 各入口为国内网络 fallback。
+/// **并发拉取全部源、取版本最高者**（不是「第一个成功者生效」，原因见
+/// `check_for_update`）。
 ///
 /// **为什么列多个 jsDelivr 域名**：jsDelivr 是一组指向不同边缘节点的入口域名
 /// —— `cdn` 走 Cloudflare、`fastly` 走 Fastly、`gcore` 走 GCore。它们返回同一份
@@ -216,7 +234,10 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
 /// 改动要等最多 12 小时才被用户看到 —— 实测发 v1.7.1 时 `@main` 仍返回 12
 /// 小时前的旧内容（无镜像字段），而 `@v1.7.1` 立刻是新内容。raw 主源不走
 /// CDN、无缓存，所以覆盖快的是它；jsDelivr 作为兜底，晚几个小时拿到新版本
-/// 可以接受（拿不到就继续等下一个检查周期，不影响正确性）。
+/// 可以接受。**注意各入口的缓存互相独立**：同一时刻可能有的已是新版、有的还是
+/// 12 小时前的旧版（实测 2026-10-18 发 v1.8.0 时 `fastly`/`gcore` 已更新而
+/// `cdn`/`testingcf` 仍是 v1.7.2）——所以必须并发取最高版本，不能「第一个成功
+/// 者生效」，否则只要第一个入口是旧缓存，后面的新内容就永远轮不到。
 pub const CHECK_URLS: &[&str] = &[
     "https://raw.githubusercontent.com/q541810/Marcel_ssh/main/latest.json",
     "https://cdn.jsdelivr.net/gh/q541810/Marcel_ssh@main/latest.json",
@@ -226,6 +247,18 @@ pub const CHECK_URLS: &[&str] = &[
 ];
 
 /// 拉取并解析 latest.json（command 与后台调度器共用入口）。
+///
+/// **并发拉取全部检查源，取版本最高的那份。** 检查源之间不是「同一份内容的多个
+/// 副本」：jsDelivr 的分支缓存由各个边缘节点独立维护，同一时刻可能有的已是新版、
+/// 有的还是 12 小时前的旧版。所以只能全拉回来再比版本 —— 逐源尝试、第一个成功者
+/// 生效的写法，在国内线路上（raw 常不可达）会停在第一个 jsDelivr 入口的旧缓存上
+/// 直接返回旧版本，后面明明有新版的入口根本轮不到，用户得等到该边缘节点缓存过期。
+///
+/// 取「版本最高」即真值：旧源只可能报出**更旧**的版本（`latest.json` 是我们自己
+/// 仓库里的文件，不存在「某些源报出更新的版本」这种需要分辨真伪的情况）。就算镜像
+/// 被完全接管也换不来一次安装：桌面包另有 sha256 + minisign 验签、安卓包由系统
+/// 安装器强制校验签名，镜像与实际内容从来不需要被信任 —— 同
+/// `commands/market.rs` 的 `market_list`。
 pub async fn check_for_update() -> Result<LatestRelease, AppError> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -250,61 +283,75 @@ pub async fn check_for_update() -> Result<LatestRelease, AppError> {
     #[cfg(not(debug_assertions))]
     let check_urls: Vec<String> = CHECK_URLS.iter().map(|s| s.to_string()).collect();
 
-    let mut last_err: Option<AppError> = None;
-    // 逐源尝试，只记住**最后一个**失败原因对用户报（见 all_failed 分支）。
-    // 用户看到「无法检查更新: xxx」时无从判断是哪个源挂了、还是全挂了 —— 一条
-    // jsDelivr 的超时信息会让人以为「jsDelivr 没了」，实际可能是所有源都不通
-    // （国内网络常见）。所以全部失败时改为报「已试 N 个源均不可达」，并把
-    // 逐源原因留在日志里。
-    for url in &check_urls {
-        let resp = match client.get(url).send().await {
-            Ok(r) => r,
-            Err(e) => {
-                log::warn!("更新检查源不可达 {}: {}", url, e);
-                last_err = Some(AppError::Update(e.to_string()));
-                continue;
-            }
-        };
-        if !resp.status().is_success() {
-            log::warn!("更新检查源返回 {} {}", url, resp.status());
-            last_err = Some(AppError::Update(format!("返回 {}", resp.status())));
-            continue;
-        }
-        let latest: serde_json::Value = match resp.json().await {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("更新检查源响应解析失败 {}: {}", url, e);
-                last_err = Some(AppError::Update(format!("解析失败: {}", e)));
-                continue;
-            }
-        };
+    let is_android = cfg!(target_os = "android");
 
-        let is_android = cfg!(target_os = "android");
-        let (latest_version, release_url) = pick_latest(&latest, is_android);
-        // 资产字段严格按平台取：Android 绝不继承顶层的桌面包字段。
-        let assets = asset_target(&latest, is_android)
-            .map(pick_assets)
-            .unwrap_or_default();
-        return Ok(LatestRelease {
-            version: latest_version,
-            release_url,
-            assets,
-        });
+    // 并发拉全部源，单个源失败不影响其它源（`join_all` 保留输入顺序，
+    // 所以「最后错误」仍是确定的那一条，不随完成先后抖动）。
+    let fetches = check_urls.iter().map(|url| {
+        let client = client.clone();
+        async move {
+            let resp = client.get(url).send().await.map_err(|e| {
+                log::warn!("更新检查源不可达 {}: {}", url, e);
+                format!("{} {}", url, e)
+            })?;
+            if !resp.status().is_success() {
+                log::warn!("更新检查源返回 {} {}", url, resp.status());
+                return Err(format!("{} 返回 {}", url, resp.status()));
+            }
+            let latest: serde_json::Value = resp.json().await.map_err(|e| {
+                log::warn!("更新检查源响应解析失败 {}: {}", url, e);
+                format!("{} 解析失败 {}", url, e)
+            })?;
+            Ok(release_from(&latest, is_android))
+        }
+    });
+
+    let (best, last_err) = select_freshest(futures::future::join_all(fetches).await);
+    if let Some(best) = best {
+        return Ok(best);
     }
 
     // 全部源都失败：报「试了几个 + 最后一个原因」，让用户知道这不是单源故障，
     // 也别把某个域名当成唯一依赖（它随时可能被网络掐掉）。
-    let detail = last_err
-        .map(|e| match e {
-            AppError::Update(m) => m,
-            other => format!("{}", other),
-        })
-        .unwrap_or_else(|| "原因不明".into());
+    let detail = last_err.unwrap_or_else(|| "原因不明".into());
     Err(AppError::Update(format!(
         "无法检查更新：已尝试 {} 个更新源均不可达（最后错误：{}）。请检查网络连接后重试",
         check_urls.len(),
         detail
     )))
+}
+
+/// 从并发拉回的候选里挑出**版本最高**的那份，并带回「最后一个失败原因」
+/// （全部失败时用它给用户报，见 `check_for_update`）。
+///
+/// 版本号解析不出的候选（不该出现，比如源被替换成别的内容）：只在还没拿到任何
+/// 结果时暂时采用，之后任何可解析版本都能顶掉它 —— 与 `has_update` 的宽容口径
+/// 一致，不让一个畸形响应把正常结果挤掉；若所有候选都解析不出，行为退化成
+/// 「第一个成功者生效」，等价于旧逻辑。
+fn select_freshest(
+    outcomes: Vec<Result<LatestRelease, String>>,
+) -> (Option<LatestRelease>, Option<String>) {
+    let mut best: Option<LatestRelease> = None;
+    let mut best_version: Option<semver::Version> = None;
+    let mut last_err: Option<String> = None;
+    for outcome in outcomes {
+        match outcome {
+            Ok(release) => {
+                let parsed = semver::Version::parse(&release.version).ok();
+                let take = match (&best_version, &parsed) {
+                    (Some(cur), Some(new)) => new > cur,
+                    (None, Some(_)) => true,
+                    (_, None) => best.is_none(),
+                };
+                if take {
+                    best_version = parsed;
+                    best = Some(release);
+                }
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    (best, last_err)
 }
 
 fn has_update(current_version: &str, latest_version: &str) -> bool {
@@ -442,20 +489,6 @@ mod tests {
         let (v, url) = pick_latest(&latest, true);
         assert_eq!(v, "");
         assert_eq!(url, DEFAULT_RELEASE_URL);
-    }
-
-    /// 与 `check_for_update` 相同的组合方式（版本对象 + 按平台取资产），
-    /// 保证测试覆盖的是真实拼接路径而不是各部分单独成立的假象。
-    fn release_from(latest: &serde_json::Value, is_android: bool) -> LatestRelease {
-        let (version, release_url) = pick_latest(latest, is_android);
-        let assets = asset_target(latest, is_android)
-            .map(pick_assets)
-            .unwrap_or_default();
-        LatestRelease {
-            version,
-            release_url,
-            assets,
-        }
     }
 
     /// 桌面：顶层扩展字段齐全 → 四项全解析出来，且具备静默下载条件。
@@ -743,5 +776,88 @@ mod tests {
                 url
             );
         }
+    }
+
+    /// 回归（2026-10-18，发 v1.8.0 当天撞上）：**旧缓存的源排在前面时，
+    /// 不能把新版本挡掉。**
+    ///
+    /// 实测五个检查源同一时刻返回的版本并不一致：raw / `fastly` / `gcore` 已是
+    /// 1.8.0，而 `cdn`（第 1 个 jsDelivr 入口）与 `testingcf` 仍是 12 小时前的
+    /// 1.7.2。旧逻辑「第一个成功者生效」在国内线路上（raw 常不可达）就停在
+    /// `cdn` 的 1.7.2 上，用户要等该边缘节点的缓存过期才收得到更新。
+    #[test]
+    fn freshest_source_wins_regardless_of_order() {
+        let stale = release_from(&json!({ "version": "1.7.2" }), false);
+        let fresh = release_from(&json!({ "version": "1.8.0" }), false);
+
+        // 真实情况：旧的排在新源前面 —— 也必须拿到新的
+        let (best, _) = select_freshest(vec![Ok(stale.clone()), Ok(fresh.clone())]);
+        assert_eq!(best.unwrap().version, "1.8.0");
+
+        let (best, _) = select_freshest(vec![Ok(fresh.clone()), Ok(stale.clone())]);
+        assert_eq!(best.unwrap().version, "1.8.0");
+
+        // 夹在中间也一样（并发完成顺序不定）
+        let (best, _) = select_freshest(vec![
+            Ok(stale),
+            Ok(fresh),
+            Ok(release_from(&json!({ "version": "1.7.0" }), false)),
+        ]);
+        assert_eq!(best.unwrap().version, "1.8.0");
+    }
+
+    /// 比较走 semver 而不是字符串序：1.10.0 必须大于 1.9.0。
+    #[test]
+    fn freshest_compares_versions_as_semver() {
+        let (best, _) = select_freshest(vec![
+            Ok(release_from(&json!({ "version": "1.9.0" }), false)),
+            Ok(release_from(&json!({ "version": "1.10.0" }), false)),
+        ]);
+        assert_eq!(best.unwrap().version, "1.10.0");
+    }
+
+    /// 单源失败、畸形版本号都不该让正常结果丢失；全失败才返回 None。
+    #[test]
+    fn freshest_tolerates_failures_and_malformed_versions() {
+        // 有失败源 + 正常源 → 正常源生效，最后一个原因同时带回
+        let (best, err) = select_freshest(vec![
+            Err("raw 不可达".to_string()),
+            Ok(release_from(&json!({ "version": "1.8.0" }), false)),
+        ]);
+        assert_eq!(best.unwrap().version, "1.8.0");
+        assert_eq!(err.as_deref(), Some("raw 不可达"));
+
+        // 畸形版本号先到、正常版本后到 → 正常的顶掉它
+        let (best, _) = select_freshest(vec![
+            Ok(release_from(&json!({ "version": "dev" }), false)),
+            Ok(release_from(&json!({ "version": "1.8.0" }), false)),
+        ]);
+        assert_eq!(best.unwrap().version, "1.8.0");
+
+        // 全都解析不出 → 退化成「第一个成功者生效」，仍要给出一份结果
+        let (best, _) = select_freshest(vec![Ok(release_from(&json!({}), false))]);
+        assert_eq!(best.unwrap().version, "");
+
+        // 全部失败 → 无结果，只带回最后一个原因
+        let (best, err) = select_freshest(vec![
+            Err("a 超时".to_string()),
+            Err("b 返回 404".to_string()),
+        ]);
+        assert!(best.is_none());
+        assert_eq!(err.as_deref(), Some("b 返回 404"));
+    }
+
+    /// 每个候选各按平台取版本：桌面源与安卓源混着比时，安卓只比 `android` 里的
+    /// 版本号，不能拿顶层的比。
+    #[test]
+    fn freshest_respects_platform_target_per_candidate() {
+        let doc = json!({
+            "version": "1.8.0",
+            "android": { "version": "1.7.5" }
+        });
+        let (best, _) = select_freshest(vec![Ok(release_from(&doc, true))]);
+        assert_eq!(best.unwrap().version, "1.7.5");
+        let (best, _) = select_freshest(vec![Ok(release_from(&doc, false))]);
+        assert_eq!(best.unwrap().version, "1.8.0");
     }
 }
