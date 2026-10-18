@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { Loader2 } from 'lucide-react';
+import { Loader2, MoreVertical } from 'lucide-react';
+import FileEntryIcon from './FileEntryIcon';
 import MobileCompressSheet from './MobileCompressSheet';
 import MobileFileEditor from './MobileFileEditor';
 import MobileImageViewer from './MobileImageViewer';
@@ -48,7 +49,6 @@ import {
   batchDeleteProgressText,
   canOpenEntry,
   canQuickDelete,
-  entryBadge,
   entrySubtitle,
   filesEmptyStateReason,
   filesListLoadingMode,
@@ -133,10 +133,12 @@ export default function MobileFilesHost({
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFile, setShowNewFile] = useState(false);
   const [newFileName, setNewFileName] = useState('');
-  const [selectedEntry, setSelectedEntry] = useState<SftpFileEntry | null>(
-    null,
-  );
-  // 选择模式（多选）：与单选操作条互斥——进入选择模式时清空 selectedEntry
+  // 单个条目的操作面板（行尾「⋯」打开）。操作入口不再是点一下后插到列表上方的
+  // 操作条：那条一出现就把整张列表顶下去，第二下点按落到别的文件上。
+  // actionEntry 在面板收起后保留，退出动画期间面板内容不能先一步消失。
+  const [actionEntry, setActionEntry] = useState<SftpFileEntry | null>(null);
+  const [actionOpen, setActionOpen] = useState(false);
+  // 选择模式（多选）：进入时收起单项操作面板
   const [selectMode, setSelectMode] = useState(false);
   const [multiSelected, setMultiSelected] = useState<Set<string>>(new Set());
   // 删除确认支持批量（对齐桌面 deleteConfirm: SftpFileEntry[]）
@@ -182,7 +184,7 @@ export default function MobileFilesHost({
     );
     setCurrentPath(remembered);
     setPathReady(true);
-    setSelectedEntry(null);
+    setActionOpen(false);
     setSelectMode(false);
     setMultiSelected(new Set());
     setError(null);
@@ -240,14 +242,14 @@ export default function MobileFilesHost({
         setEntries([]);
         // 这里**不**清 error：掉线瞬间产生的失败提示（如「会话已断开，任务已
         // 跳过」）正要靠它显示；切到另一个会话时由下面的路径恢复分支清空。
-        setSelectedEntry(null);
+        setActionOpen(false);
         setSelectMode(false);
         setMultiSelected(new Set());
       }
       return;
     }
     void loadDirectory(currentPath);
-    setSelectedEntry(null);
+    setActionOpen(false);
     // 切换目录时退出选择模式（对齐桌面：路径变化清空 selected）
     setSelectMode(false);
     setMultiSelected(new Set());
@@ -383,23 +385,19 @@ export default function MobileFilesHost({
         setMultiSelected((prev) => toggleSelectionName(prev, entry.name));
         return;
       }
+      // 点一下就办事：目录进入、文件打开，点按本身不改变任何布局。
+      // 其余操作走行尾「⋯」。
       if (entry.is_dir) {
         navigateTo(joinRemotePath(currentPath, entry.name));
         return;
       }
-      // Tap selected file again → open; first tap selects for actions.
-      if (selectedEntry?.name === entry.name) {
-        openFile(entry);
-        return;
-      }
-      setSelectedEntry(entry);
+      openFile(entry);
     },
-    [currentPath, navigateTo, openFile, selectedEntry, selectMode],
+    [currentPath, navigateTo, openFile, selectMode],
   );
 
-  // 进入选择模式：清空单选，避免两条操作条同时出现（状态互斥）
   const enterSelectMode = useCallback((initial?: SftpFileEntry) => {
-    setSelectedEntry(null);
+    setActionOpen(false);
     setSelectMode(true);
     setMultiSelected(initial ? new Set([initial.name]) : new Set());
   }, []);
@@ -412,16 +410,6 @@ export default function MobileFilesHost({
   const handleToggleHidden = useCallback(() => {
     void updateSettings({ fileManagerShowHidden: !showHidden });
   }, [showHidden, updateSettings]);
-
-  const handleCopyPath = useCallback(async () => {
-    if (!selectedEntry) return;
-    const fullPath = joinRemotePath(currentPath, selectedEntry.name);
-    try {
-      await writeText(fullPath);
-    } catch (err) {
-      setError(`复制路径失败：${getErrorMessage(err)}`);
-    }
-  }, [selectedEntry, currentPath]);
 
   // 批量复制路径（对齐桌面 handleCopyPath(entries)：多行拼接）
   const handleCopyPaths = useCallback(
@@ -450,7 +438,6 @@ export default function MobileFilesHost({
       await sftpRename(sessionId, oldPath, newPath);
       setRenameEntry(null);
       setRenameValue('');
-      setSelectedEntry(null);
       // 从选择模式发起时同样收尾，避免留下指向旧名字的勾选
       exitSelectMode();
       await loadDirectory(currentPath);
@@ -510,17 +497,20 @@ export default function MobileFilesHost({
     }
   }, [sessionId, currentPath, uploadFile, loadDirectory, keepAliveEnabled]);
 
-  const handleDownload = useCallback(async () => {
-    if (!selectedEntry || selectedEntry.is_dir) return;
-    const remote = joinRemotePath(currentPath, selectedEntry.name);
-    try {
-      await startDownload(selectedEntry, remote);
-    } catch (err) {
-      // Android 上取消保存对话框是 reject 而非返回 null，不当作错误
-      if (isDialogCancelled(err)) return;
-      setError(`下载失败：${getErrorMessage(err)}`);
-    }
-  }, [selectedEntry, currentPath, startDownload]);
+  const handleDownload = useCallback(
+    async (entry: SftpFileEntry) => {
+      if (entry.is_dir) return;
+      const remote = joinRemotePath(currentPath, entry.name);
+      try {
+        await startDownload(entry, remote);
+      } catch (err) {
+        // Android 上取消保存对话框是 reject 而非返回 null，不当作错误
+        if (isDialogCancelled(err)) return;
+        setError(`下载失败：${getErrorMessage(err)}`);
+      }
+    },
+    [currentPath, startDownload],
+  );
 
   const handleMkdir = useCallback(async () => {
     const name = newFolderName.trim();
@@ -557,7 +547,6 @@ export default function MobileFilesHost({
     async (targets: SftpFileEntry[], quick: boolean) => {
       if (targets.length === 0 || !sessionId) return;
       setDeleteConfirm([]);
-      setSelectedEntry(null);
       exitSelectMode();
       const errors: string[] = [];
       try {
@@ -597,7 +586,6 @@ export default function MobileFilesHost({
       setOpStatus(`正在解压「${entry.name}」…`);
       try {
         await sftpExtractArchive(sessionId, archivePath, targetDir);
-        setSelectedEntry(null);
         await loadDirectory(currentPath);
       } catch (err) {
         setError(`解压失败：${getErrorMessage(err)}`);
@@ -611,8 +599,14 @@ export default function MobileFilesHost({
   // 错误横幅在两个分支（正常 / 空状态）里都要渲染。
   // 主要是为了断连态：传输失败、后端拒绝（「会话已断开，任务已跳过」）常常正是
   // 在连接掉线那一刻产生的，早退分支若把它挡在门外，setError 了也永远看不见。
-  const errorBanner = error ? (
-    <div className="flex flex-shrink-0 items-center justify-between border-b border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+  // 正常分支里它接在列表下方（edge=bottom），理由见列表后的注释。
+  const errorBanner = (edge: 'top' | 'bottom') =>
+    error ? (
+    <div
+      className={`flex flex-shrink-0 items-center justify-between border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300 ${
+        edge === 'top' ? 'border-b' : 'border-t'
+      }`}
+    >
       <span className="min-w-0 flex-1 break-words">{error}</span>
       <button
         type="button"
@@ -633,7 +627,7 @@ export default function MobileFilesHost({
         className="flex h-full min-h-0 flex-col bg-zinc-950"
         data-region="mobile-files"
       >
-        {errorBanner}
+        {errorBanner('top')}
         <div
           className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
           style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 0px))' }}
@@ -739,11 +733,160 @@ export default function MobileFilesHost({
         </div>
       </header>
 
+      <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {listLoadingMode === 'empty' ? (
+          <div
+            className="flex h-40 flex-col items-center justify-center gap-2 text-sm text-zinc-500"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+            <span>加载中…</span>
+          </div>
+        ) : filteredEntries.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-sm text-zinc-500">
+            空目录
+          </div>
+        ) : (
+          <ul className="divide-y divide-zinc-800/80">
+            {filteredEntries.map((entry) => {
+              const selected = selectMode && multiSelected.has(entry.name);
+              return (
+                <li
+                  key={`${entry.is_dir ? 'd' : 'f'}:${entry.name}`}
+                  className={`flex items-center pr-1 ${
+                    selected ? 'bg-indigo-500/10' : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleEntryTap(entry)}
+                    onContextMenu={(e) => {
+                      // 长按：进入选择模式并勾选该条目；已在选择模式则切换勾选
+                      e.preventDefault();
+                      if (selectMode) {
+                        setMultiSelected((prev) =>
+                          toggleSelectionName(prev, entry.name),
+                        );
+                      } else {
+                        enterSelectMode(entry);
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-zinc-900"
+                  >
+                    {selectMode && (
+                      <span
+                        className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${
+                          selected
+                            ? 'border-indigo-500 bg-indigo-500 text-white'
+                            : 'border-zinc-600 bg-zinc-800 text-transparent'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg
+                          className="h-3 w-3"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M2 6l3 3 5-5" />
+                        </svg>
+                      </span>
+                    )}
+                    <FileEntryIcon entry={entry} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-zinc-100">
+                        {entry.name}
+                        {entry.is_dir ? '/' : ''}
+                      </span>
+                      <span className="block text-[11px] text-zinc-500">
+                        {entrySubtitle(entry)}
+                      </span>
+                    </span>
+                  </button>
+                  {!selectMode && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActionEntry(entry);
+                        setActionOpen(true);
+                      }}
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-zinc-800"
+                      aria-label={`${entry.name} 的更多操作`}
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {listLoadingMode === 'overlay' && (
+          <div
+            className="pointer-events-none absolute inset-0 flex items-start justify-center bg-zinc-950/40 pt-10"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="flex items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 shadow-lg">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+              刷新中…
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/*
+        进度、提示、选择操作条一律接在列表**下方**：它们随时会冒出来（传输完成、
+        长按进选择模式），放在列表上方就会把列表整体往下顶，手指正要点的那一行
+        跑掉。接在下方只是列表底边上移，屏幕上已有的行一动不动。
+      */}
+      {opStatus && (
+        <div
+          className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-300"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-indigo-400" />
+          <span className="min-w-0 flex-1 truncate">{opStatus}</span>
+        </div>
+      )}
+
+      {completion && (
+        <div className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-300">
+          <span className="min-w-0 flex-1 break-all">
+            {transferCompletionNotice(completion).text}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              void writeText(transferCompletionNotice(completion).path).catch(
+                (err) => setError(`复制路径失败：${getErrorMessage(err)}`),
+              );
+            }}
+            className="flex-shrink-0 rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600"
+          >
+            复制路径
+          </button>
+          <button
+            type="button"
+            onClick={() => setCompletion(null)}
+            className="flex-shrink-0 px-1 text-zinc-500"
+            aria-label="关闭完成提示"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {errorBanner('bottom')}
+
       {uploadItem && (
         <TransferBar
-          tone="upload"
           statusText={uploadItem.statusText}
-          status="uploading"
           written={uploadItem.written}
           total={uploadItem.total}
           onCancel={
@@ -755,9 +898,7 @@ export default function MobileFilesHost({
       )}
       {downloadItem && (
         <TransferBar
-          tone="download"
           statusText={downloadItem.statusText}
-          status="downloading"
           written={downloadItem.written}
           total={downloadItem.total}
           onCancel={
@@ -768,119 +909,8 @@ export default function MobileFilesHost({
         />
       )}
 
-      {errorBanner}
-
-      {completion && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
-          <span className="min-w-0 flex-1 break-all">
-            {transferCompletionNotice(completion).text}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              void writeText(transferCompletionNotice(completion).path).catch(
-                (err) => setError(`复制路径失败：${getErrorMessage(err)}`),
-              );
-            }}
-            className="flex-shrink-0 rounded-md bg-emerald-600/30 px-2 py-0.5 text-xs text-emerald-100 active:bg-emerald-600/50"
-          >
-            复制路径
-          </button>
-          <button
-            type="button"
-            onClick={() => setCompletion(null)}
-            className="flex-shrink-0 text-emerald-400"
-            aria-label="关闭完成提示"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {opStatus && (
-        <div
-          className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-800 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-300"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-indigo-400" />
-          <span className="min-w-0 flex-1 truncate">{opStatus}</span>
-        </div>
-      )}
-
-      {selectedEntry && !selectMode && (
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
-            {selectedEntry.name}
-          </span>
-          {!selectedEntry.is_dir && (
-            <>
-              {canOpenEntry(selectedEntry) && (
-                <button
-                  type="button"
-                  onClick={() => openFile(selectedEntry)}
-                  className="rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs text-white active:bg-indigo-500"
-                >
-                  打开
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleDownload()}
-                disabled={downloadBusy}
-                className="rounded-lg bg-emerald-700 px-2.5 py-1.5 text-xs text-white active:bg-emerald-600 disabled:opacity-50"
-              >
-                下载
-              </button>
-              {isArchiveFile(selectedEntry.name) && (
-                <button
-                  type="button"
-                  onClick={() => setExtractEntry(selectedEntry)}
-                  className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600"
-                >
-                  解压
-                </button>
-              )}
-            </>
-          )}
-          {selectedEntry.is_dir && (
-            <button
-              type="button"
-              onClick={() => setCompressEntry(selectedEntry)}
-              className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600"
-            >
-              压缩
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              setRenameEntry(selectedEntry);
-              setRenameValue(selectedEntry.name);
-            }}
-            className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600"
-          >
-            重命名
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCopyPath()}
-            className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600"
-          >
-            复制路径
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeleteConfirm([selectedEntry])}
-            className="rounded-lg bg-red-900/50 px-2.5 py-1.5 text-xs text-red-300 active:bg-red-900/80"
-          >
-            删除
-          </button>
-        </div>
-      )}
-
       {selectMode && (
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2">
           <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
             已选 {multiSelected.size} 个
           </span>
@@ -902,8 +932,7 @@ export default function MobileFilesHost({
               ? '全不选'
               : '全选'}
           </button>
-          {/* 单选一个条目时补上单项操作：目录在移动端点按即进入，长按进入的
-              选择模式是它唯一的操作入口（对齐桌面右键菜单的压缩为 / 重命名）。 */}
+          {/* 单选一个条目时补上单项操作（对齐桌面右键菜单的压缩为 / 重命名）。 */}
           {soleSelected && (
             <>
               <button
@@ -965,113 +994,91 @@ export default function MobileFilesHost({
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {listLoadingMode === 'empty' ? (
-          <div
-            className="flex h-40 flex-col items-center justify-center gap-2 text-sm text-zinc-500"
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-            <span>加载中…</span>
-          </div>
-        ) : filteredEntries.length === 0 ? (
-          <div className="flex h-32 items-center justify-center text-sm text-zinc-500">
-            空目录
-          </div>
-        ) : (
-          <ul className="divide-y divide-zinc-800/80">
-            {filteredEntries.map((entry) => {
-              const selected = selectMode
-                ? multiSelected.has(entry.name)
-                : selectedEntry?.name === entry.name;
-              return (
-                <li key={`${entry.is_dir ? 'd' : 'f'}:${entry.name}`}>
-                  <button
-                    type="button"
-                    onClick={() => handleEntryTap(entry)}
-                    onContextMenu={(e) => {
-                      // 长按：进入选择模式并勾选该条目；已在选择模式则切换勾选
-                      e.preventDefault();
-                      if (selectMode) {
-                        setMultiSelected((prev) =>
-                          toggleSelectionName(prev, entry.name),
-                        );
-                      } else {
-                        enterSelectMode(entry);
-                      }
-                    }}
-                    className={`flex w-full items-center gap-3 px-3 py-3 text-left active:bg-zinc-900 ${
-                      selected ? 'bg-indigo-500/10' : ''
-                    }`}
-                  >
-                    {selectMode && (
-                      <span
-                        className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${
-                          selected
-                            ? 'border-indigo-500 bg-indigo-500 text-white'
-                            : 'border-zinc-600 bg-zinc-800 text-transparent'
-                        }`}
-                        aria-hidden
-                      >
-                        <svg
-                          className="h-3 w-3"
-                          viewBox="0 0 12 12"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M2 6l3 3 5-5" />
-                        </svg>
-                      </span>
-                    )}
-                    <span
-                      className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-[10px] font-medium ${
-                        entry.is_dir
-                          ? 'bg-amber-500/15 text-amber-300'
-                          : entry.is_symlink
-                            ? 'bg-cyan-500/15 text-cyan-300'
-                            : 'bg-zinc-800 text-zinc-400'
-                      }`}
-                      aria-hidden
-                    >
-                      {entryBadge(entry)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-zinc-100">
-                        {entry.name}
-                        {entry.is_dir ? '/' : ''}
-                      </span>
-                      <span className="block text-[11px] text-zinc-500">
-                        {entrySubtitle(entry)}
-                      </span>
-                    </span>
-                    {entry.is_dir && !selectMode && (
-                      <span className="flex-shrink-0 text-zinc-600" aria-hidden>
-                        ›
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {listLoadingMode === 'overlay' && (
-          <div
-            className="pointer-events-none absolute inset-0 flex items-start justify-center bg-zinc-950/40 pt-10"
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <div className="flex items-center gap-2 rounded-full border border-zinc-700/80 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 shadow-lg">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />
-              刷新中…
-            </div>
+      <MobileSheet
+        open={actionOpen}
+        onClose={() => setActionOpen(false)}
+        title={actionEntry ? actionEntry.name : ''}
+      >
+        {actionEntry && (
+          <div className="flex flex-col gap-2 px-4 pb-4">
+            {canOpenEntry(actionEntry) &&
+              openFileKind(actionEntry.name) !== 'binary' && (
+                <SheetAction
+                  onClick={() => {
+                    setActionOpen(false);
+                    openFile(actionEntry);
+                  }}
+                >
+                  打开
+                </SheetAction>
+              )}
+            {!actionEntry.is_dir && (
+              <SheetAction
+                disabled={downloadBusy}
+                onClick={() => {
+                  setActionOpen(false);
+                  void handleDownload(actionEntry);
+                }}
+              >
+                下载
+              </SheetAction>
+            )}
+            {!actionEntry.is_dir && isArchiveFile(actionEntry.name) && (
+              <SheetAction
+                onClick={() => {
+                  setActionOpen(false);
+                  setExtractEntry(actionEntry);
+                }}
+              >
+                解压
+              </SheetAction>
+            )}
+            {actionEntry.is_dir && (
+              <SheetAction
+                onClick={() => {
+                  setActionOpen(false);
+                  setCompressEntry(actionEntry);
+                }}
+              >
+                压缩
+              </SheetAction>
+            )}
+            <SheetAction
+              onClick={() => {
+                setActionOpen(false);
+                setRenameEntry(actionEntry);
+                setRenameValue(actionEntry.name);
+              }}
+            >
+              重命名
+            </SheetAction>
+            <SheetAction
+              onClick={() => {
+                setActionOpen(false);
+                void handleCopyPaths([actionEntry]);
+              }}
+            >
+              复制路径
+            </SheetAction>
+            <SheetAction
+              danger
+              onClick={() => {
+                setActionOpen(false);
+                setDeleteConfirm([actionEntry]);
+              }}
+            >
+              删除
+            </SheetAction>
+            <button
+              type="button"
+              onClick={() => setActionOpen(false)}
+              className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            >
+              取消
+            </button>
           </div>
         )}
-      </div>
+      </MobileSheet>
 
       <MobileSheet
         open={showNewFolder}
@@ -1158,9 +1165,14 @@ export default function MobileFilesHost({
             <button
               type="button"
               onClick={() => void runDelete(deleteConfirm, true)}
-              className="rounded-xl bg-red-600 px-4 py-3 text-sm font-medium text-white active:bg-red-500"
+              className="rounded-xl bg-zinc-800 px-4 py-3 text-left active:bg-zinc-700"
             >
-              快速删除（打包成rm，大目录快）
+              <span className="block text-sm font-medium text-red-400">
+                快速删除
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                打包成一条 rm 命令执行，大目录更快
+              </span>
             </button>
           )}
           <button
@@ -1392,41 +1404,21 @@ export default function MobileFilesHost({
 }
 
 function TransferBar({
-  tone,
   statusText,
-  status,
   written,
   total,
   onCancel,
 }: {
-  tone: 'upload' | 'download';
   statusText: string;
-  status: string;
   written: number;
   total: number;
   onCancel?: () => void;
 }) {
-  const active = status === 'uploading' || status === 'downloading';
   const pct = transferProgressPercent(written, total);
-  const bg = tone === 'upload' ? 'bg-indigo-500/10' : 'bg-emerald-500/10';
-  const bar = tone === 'upload' ? 'bg-indigo-500' : 'bg-emerald-500';
-  const text =
-    status === 'error'
-      ? 'text-red-300'
-      : status === 'done'
-        ? 'text-emerald-300'
-        : status === 'cancelled'
-          ? 'text-zinc-400'
-          : tone === 'upload'
-            ? 'text-indigo-300'
-            : 'text-emerald-300';
-
   return (
-    <div
-      className={`flex flex-shrink-0 flex-col gap-1 border-b border-zinc-800 px-3 py-2 ${bg}`}
-    >
+    <div className="flex flex-shrink-0 flex-col gap-1 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className={`min-w-0 flex-1 truncate text-xs ${text}`}>
+        <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
           {statusText}
         </span>
         {onCancel && (
@@ -1439,14 +1431,40 @@ function TransferBar({
           </button>
         )}
       </div>
-      {active && total > 0 && (
+      {total > 0 && (
         <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-700">
           <div
-            className={`h-full rounded-full transition-all duration-200 ${bar}`}
+            className="h-full rounded-full bg-indigo-500 transition-all duration-200"
             style={{ width: `${pct}%` }}
           />
         </div>
       )}
     </div>
+  );
+}
+
+/** 条目操作面板里的一项，与本页其它面板（新建、解压）的选项同一个样子。 */
+function SheetAction({
+  children,
+  danger = false,
+  disabled = false,
+  onClick,
+}: {
+  children: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-xl bg-zinc-800 px-4 py-3 text-left text-sm active:bg-zinc-700 disabled:opacity-40 ${
+        danger ? 'text-red-400' : 'text-zinc-100'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

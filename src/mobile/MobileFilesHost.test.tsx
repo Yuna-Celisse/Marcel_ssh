@@ -57,7 +57,11 @@ vi.mock('./MobileCompressSheet', () => ({
     <div data-compress-dir={remoteDir} />
   ),
 }));
-vi.mock('./MobileFileEditor', () => ({ default: () => null }));
+vi.mock('./MobileFileEditor', () => ({
+  default: ({ filePath }: { filePath: string }) => (
+    <div data-editor-path={filePath} />
+  ),
+}));
 vi.mock('./MobileImageViewer', () => ({ default: () => null }));
 vi.mock('./MobileTerminalHost', () => ({ default: () => null }));
 vi.mock('./MobileAgentHost', () => ({ default: () => null }));
@@ -145,6 +149,13 @@ function findButton(label: string): HTMLButtonElement {
   const button = [...container.querySelectorAll('button')].find((b) =>
     b.textContent?.includes(label),
   );
+  expect(button, `未找到「${label}」按钮`).toBeTruthy();
+  return button as HTMLButtonElement;
+}
+
+/** 图标按钮没有文字，按 aria-label 找 */
+function findByLabel(label: string): HTMLButtonElement {
+  const button = container.querySelector(`button[aria-label="${label}"]`);
   expect(button, `未找到「${label}」按钮`).toBeTruthy();
   return button as HTMLButtonElement;
 }
@@ -529,7 +540,7 @@ describe('目录的压缩 / 重命名入口', () => {
  * 用一个总布尔禁用会把另一条道白白堵死。
  */
 describe('上传 / 下载互不阻塞', () => {
-  it('上传进行中时下载按钮仍可用（反之亦然）', async () => {
+  it('上传进行中时下载入口仍可用（反之亦然）', async () => {
     await mountFilesTab();
     await putTransfer('u-active', {
       kind: 'upload',
@@ -539,14 +550,9 @@ describe('上传 / 下载互不阻塞', () => {
 
     expect(findButton('上传').disabled).toBe(true);
 
-    // 选中一个文件 → 单选操作条出现
-    const fileRow = [...container.querySelectorAll('button')].find((b) =>
-      b.textContent?.includes('a.txt') && b.textContent?.includes('12 B'),
-    );
-    expect(fileRow).toBeTruthy();
-    await click(fileRow as HTMLButtonElement);
-
-    expect(findButton('下载').disabled).toBe(false);
+    // 文件行尾「⋯」打开条目操作面板（面板挂在 body 上）
+    await click(findByLabel('a.txt 的更多操作'));
+    expect(findBodyButton('下载').disabled).toBe(false);
   });
 
   it('下载进行中时上传按钮仍可用', async () => {
@@ -561,6 +567,63 @@ describe('上传 / 下载互不阻塞', () => {
   });
 });
 
+/**
+ * 点按不能改变布局：曾经「点一下选中、再点一下打开」，选中会在列表上方插出一条
+ * 操作栏把整张列表顶下去，第二次点按就落在别的文件上。现在点一下就办事，
+ * 操作入口收进行尾「⋯」面板。
+ */
+describe('点按直接打开，不引入位移', () => {
+  it('点一下文件就打开它，且列表上方不会冒出操作条', async () => {
+    await mountFilesTab();
+    const before = [...container.querySelectorAll('li')].map((li) => li.textContent);
+
+    const row = [...container.querySelectorAll('li button')].find((b) =>
+      b.textContent?.includes('a.txt'),
+    );
+    await click(row as HTMLButtonElement);
+
+    expect(
+      container.querySelector('[data-editor-path]')?.getAttribute('data-editor-path'),
+    ).toBe('/home/user/a.txt');
+    // 列表内容与顺序原封不动，也没有任何单项操作按钮冒出来
+    expect([...container.querySelectorAll('li')].map((li) => li.textContent)).toEqual(
+      before,
+    );
+    for (const label of ['重命名', '压缩', '解压', '删除']) {
+      expect(
+        [...container.querySelectorAll('button')].some(
+          (b) => b.textContent === label,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('点一下目录就进入', async () => {
+    await mountFilesTab();
+    const row = [...container.querySelectorAll('li button')].find((b) =>
+      b.textContent?.includes('docs'),
+    );
+    await click(row as HTMLButtonElement);
+    expect(mocks.sftpListDir).toHaveBeenLastCalledWith('s1', '/home/user/docs');
+  });
+
+  it('行尾「⋯」给出该条目的操作：文件有下载、目录有压缩', async () => {
+    await mountFilesTab();
+
+    await click(findByLabel('a.txt 的更多操作'));
+    expect(findBodyButton('下载')).toBeTruthy();
+    expect(
+      [...document.body.querySelectorAll('button')].some(
+        (b) => b.textContent === '压缩',
+      ),
+    ).toBe(false);
+    await click(findBodyButton('关闭'));
+
+    await click(findByLabel('docs 的更多操作'));
+    expect(findBodyButton('压缩')).toBeTruthy();
+  });
+});
+
 /** 软链接的 is_file 在 lstat 语义下是 false —— 不能因此变成死按钮 */
 describe('软链接打开', () => {
   const LINK: SftpFileEntry = {
@@ -572,17 +635,16 @@ describe('软链接打开', () => {
     mode: 0o777,
   };
 
-  it('软链接标注为 LINK，并可进入「打开」流程', async () => {
+  it('软链接用链接图标标出，并可进入「打开」流程', async () => {
     mocks.sftpListDir.mockResolvedValue([LINK]);
     await mountFilesTab();
 
-    expect(container.textContent).toContain('LINK');
+    expect(container.querySelector('[data-kind="link"]')).toBeTruthy();
     expect(container.textContent).toContain('符号链接');
 
     const row = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('link.txt'),
     );
-    await click(row as HTMLButtonElement);
     await click(row as HTMLButtonElement);
 
     // 文本类软链接 → 打开编辑器（Mock 为空组件），不应静默无反应
@@ -604,7 +666,6 @@ describe('软链接打开', () => {
     const row = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('pipe'),
     );
-    await click(row as HTMLButtonElement);
     await click(row as HTMLButtonElement);
 
     expect(container.textContent).toContain('不是普通文件');
