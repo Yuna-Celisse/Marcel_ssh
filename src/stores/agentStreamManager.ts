@@ -21,6 +21,7 @@ import {
   handleRetrying,
   handleToolOutput,
   handleToolCallDelta,
+  settleComposing,
   handleModelApprovalStart,
   handleModelApprovalDone,
   handleCompactionStart,
@@ -293,11 +294,13 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'subTaskStart')) {
+        settleComposing(handler, conversationId);
         handleSubTaskStart(handler, taskId, ev as unknown as SubTaskStartPayload);
         return;
       }
 
       if (hasEventType(ev, 'modelApprovalStart')) {
+        settleComposing(handler, conversationId);
         handleModelApprovalStart(handler, taskId, conversationId, ev as unknown as ModelApprovalStartPayload);
         return;
       }
@@ -325,6 +328,7 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'toolOutput')) {
+        settleComposing(handler, conversationId);
         const outputEv = ev as unknown as { type: 'toolOutput'; toolCallId: string; chunk: string };
         handleToolOutput(handler, taskId, conversationId, outputEv.toolCallId, outputEv.chunk);
         return;
@@ -338,6 +342,7 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'done')) {
+        settleComposing(handler, conversationId);
         handleDone(handler, taskId, conversationId, loadingAssistantId);
         cleanupTaskListeners(taskId);
         onTurnFinished(conversationId, taskId);
@@ -345,6 +350,7 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'cancelled')) {
+        settleComposing(handler, conversationId);
         // 取消终止（后端取消路径）：**不能**走 handleDone——那会把在飞的工具
         // 卡片当成"没跑完的调用"删掉、把回合写成 completed 进而折叠。
         handleCancelled(handler, taskId, conversationId, loadingAssistantId);
@@ -354,6 +360,7 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'error')) {
+        settleComposing(handler, conversationId);
         handleError(handler, taskId, conversationId, loadingAssistantId, ev);
         cleanupTaskListeners(taskId);
         onTurnFinished(conversationId, taskId);
@@ -399,6 +406,8 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'contextUsage')) {
+        // 本轮模型输出已结束：还没写完标记的（无参数工具）此刻必须亮出卡片
+        settleComposing(handler, conversationId);
         // 按**订阅这条流时用的会话 id**落桶：子 agent 的流订阅时用的是它自己
         // 的子会话 id，所以父子天然分开；而后端给的读数里子会话已经并进父会话，
         // 这里再累加就会算两遍。

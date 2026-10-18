@@ -17,6 +17,7 @@ const { listenCallbacks, handlers } = vi.hoisted(() => ({
     handleThinkingDelta: vi.fn(),
     handleDone: vi.fn(),
     handleCancelled: vi.fn(),
+    settleComposing: vi.fn(),
     handleError: vi.fn(),
     handleRetrying: vi.fn(),
     handleToolOutput: vi.fn(),

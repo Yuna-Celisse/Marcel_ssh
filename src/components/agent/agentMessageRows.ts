@@ -16,6 +16,11 @@ export function messageGroup(message: AgentMessage): ToolGroupKind | null {
   return 'tools';
 }
 
+/** 参数还在流式撰写中的工具消息：不渲染卡片，改由状态条气泡代表。 */
+export function isComposingTool(message: AgentMessage): boolean {
+  return message.role === 'tool' && !!message.isExecuting && !!message.isComposing;
+}
+
 interface Options {
   foldTurns: boolean;
   tailActive: boolean;
@@ -36,9 +41,12 @@ export function buildMessageRows(messages: AgentMessage[], options: Options) {
     // toolCalls only preserves the LLM transcript; it does not render a card.
     // Finished reasoning is likewise retained in history but not displayed.
     // Neither may split tools that are adjacent on screen.
-    const visible = source.filter((m) => m.role !== 'assistant'
+    // A tool whose arguments are still being written has no card yet: the run
+    // status bar shows a "composing" bubble for it (see AgentRunStatus).
+    const visible = source.filter((m) => (m.role !== 'assistant'
       || m.isLoading || m.content || m.toolCall
-      || (m.isThinking && m.reasoningContent && !options.hideThinkingDisplay));
+      || (m.isThinking && m.reasoningContent && !options.hideThinkingDisplay))
+      && !isComposingTool(m));
     for (let i = 0; i < visible.length;) {
       const kind = messageGroup(visible[i]);
       let end = i + 1;

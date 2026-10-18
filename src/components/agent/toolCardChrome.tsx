@@ -85,6 +85,7 @@ export function ToolCardFrame({
   expanded = false,
   onToggle,
   containerRef,
+  materialize = false,
   children,
 }: {
   /** 决定图标（走 toolCatalog 的图标表；表里没有的工具落到默认齿轮）。 */
@@ -104,12 +105,14 @@ export function ToolCardFrame({
   onToggle?: () => void;
   /** 容器 ref（工具卡要量宽度决定标题行放得下多少字）。 */
   containerRef?: (node: HTMLDivElement | null) => void;
+  /** 刚由「正在撰写」气泡变形而来：播登场动画。 */
+  materialize?: boolean;
   children?: ReactNode;
 }) {
   return (
     <div
       ref={containerRef}
-      className={`min-w-0 max-w-full rounded-md ${CONTAINER_TONE_CLASS[tone]}`}
+      className={`min-w-0 max-w-full rounded-md ${CONTAINER_TONE_CLASS[tone]}${materialize ? ' tool-card-materialize' : ''}`}
     >
       <button
         type="button"

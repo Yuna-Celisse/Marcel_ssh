@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import {
   handleToolCallStart,
   handleToolCallDelta,
+  settleComposing,
   handleToolResult,
   handleTextDelta,
   handleThinkingDelta,
@@ -111,6 +112,25 @@ describe('agentStreamHandlers', () => {
       expect(msgs[0].isExecuting).toBe(true);
       expect(msgs[0].toolResult?.toolName).toBe('execute_command');
       expect(msgs[0].toolResult?.toolCallId).toBe('tc-start-1');
+    });
+
+    it('参数撰写期间标记 isComposing，写完整参数后落旗；兜底可一次收全部', () => {
+      const handler = mockHandler({ [convId]: [] });
+      handleToolCallStart(handler, taskId, convId, { type: 'toolCallStart', id: 'tc-c1', name: 'execute_command' });
+      expect(handler._messages[convId][0].isComposing).toBe(true);
+
+      handleToolCallDelta(handler, taskId, convId, { type: 'toolCallDelta', id: 'tc-c1', argumentsDelta: '{"command":"l' });
+      expect(handler._messages[convId][0].isComposing).toBe(true);
+
+      handleToolCallDelta(handler, taskId, convId, { type: 'toolCallDelta', id: 'tc-c1', argumentsDelta: 's"}' });
+      expect(handler._messages[convId][0].isComposing).toBe(false);
+      expect(handler._messages[convId][0].toolResult?.arguments).toEqual({ command: 'ls' });
+
+      // 无参数工具没有 delta：靠兜底收尾
+      handleToolCallStart(handler, taskId, convId, { type: 'toolCallStart', id: 'tc-c2', name: 'execute_command' });
+      expect(handler._messages[convId][1].isComposing).toBe(true);
+      settleComposing(handler, convId);
+      expect(handler._messages[convId][1].isComposing).toBe(false);
     });
 
     it('clears reasoning from last assistant message', () => {

@@ -529,6 +529,12 @@ export interface AgentMessage {
   isThinking?: boolean;
   /** Tool call is currently executing, show loading spinner */
   isExecuting?: boolean;
+  /**
+   * 模型还在撰写这次工具调用的参数（流式中）：卡片先不显示，由「任务运行中」
+   * 状态条分裂出的「正在撰写」气泡代表；参数写完置 false（卡片此时才登场并播
+   * 变形动画）。undefined = 非流式来源（历史/重载），一律按已写完处理。
+   */
+  isComposing?: boolean;
   /** Whether this system message is a retrying indicator (auto-removed on success) */
   isRetrying?: boolean;
   /** Reasoning/thinking content from the model (DeepSeek thinking mode). Passed back to API. */

@@ -102,6 +102,8 @@ export function handleToolCallStart(
     content: '',
     timestamp: new Date().toISOString(),
     isExecuting: true,
+    // 有流式预览的工具（render_html）本来就靠卡片实时展示撰写过程，不走气泡
+    isComposing: !toolPartialPreview(ev.name),
     toolResult: {
       toolName: ev.name,
       summary: '',
@@ -200,6 +202,9 @@ export function handleToolCallDelta(
     // 「完整但 parse 失败」（坏转义等）同样定局：不再反复 parse，预览
     // 照常走，最终参数由 toolResult 权威收尾。
     tracker.decided = parsed === null ? 'failed' : 'parsed';
+    // 参数写完（不论能否 parse）：「正在撰写」气泡到此为止，卡片登场。
+    // parsed 的话下面回填参数那一笔会顺带落旗；failed 没有回填，单独落。
+    if (parsed === null) settleComposing(handler, conversationId, pendingMsgId);
   }
   if (tracker.decided === 'parsed') {
     // 完整参数已在到达那一刻发布（末片即时，不受下面 150ms 门影响）。
@@ -254,9 +259,28 @@ export function handleToolCallDelta(
     const newMsgs = [...convMsgs];
     newMsgs[idx] = {
       ...msg,
+      // 完整参数到达 = 撰写结束；partial 预览（__streaming）阶段仍在撰写
+      ...(tracker.decided === 'parsed' ? { isComposing: false } : {}),
       toolResult: { ...msg.toolResult, arguments: finalArgs },
     };
     return newMsgs;
+  });
+}
+
+/**
+ * 撰写态收尾：`messageId` 给定只收这一条，省略则收该会话所有还在撰写的工具卡。
+ * 没有变化时原样返回消息数组，不引发多余渲染。
+ *
+ * 为什么需要「收全部」的兜底：无参数工具可能一个 delta 都没有，卡片永远等不到
+ * 「参数写完」；这类调用靠本轮结束信号（contextUsage / 首条工具输出 / 审批 /
+ * 子 agent 启动 / 终态）收尾，保证工具一旦开始执行就一定看得到卡片。
+ */
+export function settleComposing(handler: StreamHandler, conversationId: string, messageId?: string) {
+  handler.updateMessages(conversationId, (convMsgs) => {
+    if (!convMsgs.some((m) => m.isComposing && (!messageId || m.id === messageId))) return convMsgs;
+    return convMsgs.map((m) =>
+      m.isComposing && (!messageId || m.id === messageId) ? { ...m, isComposing: false } : m,
+    );
   });
 }
 
@@ -436,6 +460,7 @@ export function handleToolResult(
         newMsgs[pendingIdx] = {
           ...newMsgs[pendingIdx],
           isExecuting: false,
+          isComposing: false,
           modelApproval: undefined,
           toolResult: {
             toolName: tr.toolName,
