@@ -78,7 +78,7 @@ impl SkillTool {
         };
         let mut prompt = skill.prompt.clone();
         if crate::skills::builtin::is_builtin_skill_id(&skill.id) {
-            prompt.push_str(&builtin_platform_section());
+            prompt.push_str(&builtin_skill_additions(&skill.id, cfg!(mobile)));
         }
         Self {
             name,
@@ -151,17 +151,30 @@ impl SkillTool {
     }
 }
 
-/// 内置教学 skill 调用时追加的平台说明。
+/// 内置 skill 调用时追加在正文后的内容：平台说明；手机端调用 visualize 时再加
+/// 一段手机专属规则。
 ///
-/// 文本在 `templates/skill/平台说明.hbs`，桌面/移动走 `is_mobile` 分支——同一份
-/// 模板的两个分支都能在桌面构建的测试里跑到（`#[cfg]` 两份副本做不到）。前面的
-/// `\n\n` 分隔符由这里补，模板文件只放正文。存储层（skills.json）始终保存纯净
-/// 内容，注入只发生在工具调用时。
-fn builtin_platform_section() -> String {
-    format!(
+/// 文本在 `templates/skill/平台说明.hbs`（桌面/移动走 `is_mobile` 分支）与
+/// `templates/skill/可视化_移动端.hbs`（只在手机端追加，无分支）。`mobile` 作为
+/// 参数而不是在这里读 `cfg!(mobile)`，是为了桌面构建的测试也能把手机分支跑到
+/// （`#[cfg]` 两份副本做不到）。前面的 `\n\n` 分隔符由这里补，模板文件只放正文。
+/// 存储层（skills.json）始终保存纯净内容，注入只发生在工具调用时。
+///
+/// `builtin_skills/visualize.md` 是两端共用的创作契约，手机专属约束一律走模板，
+/// 不要写进那份正文（`visualize_skill_keeps_authoring_contract_and_single_example`
+/// 钉着它的内容）。
+fn builtin_skill_additions(skill_id: &str, mobile: bool) -> String {
+    let mut out = format!(
         "\n\n{}",
-        TemplateManager.render_fragment("平台说明", &json!({ "is_mobile": cfg!(mobile) }))
-    )
+        TemplateManager.render_fragment("平台说明", &json!({ "is_mobile": mobile }))
+    );
+    if mobile && skill_id == crate::skills::builtin::VISUALIZE_SKILL_ID {
+        out.push_str(&format!(
+            "\n\n{}",
+            TemplateManager.render_fragment("可视化_移动端", &json!({}))
+        ));
+    }
+    out
 }
 
 #[async_trait]
@@ -217,6 +230,29 @@ mod tests {
             "平台段必须包含具体平台名"
         );
         assert!(tool.prompt.contains("正文内容"), "原 prompt 必须保留");
+    }
+
+    #[test]
+    fn visualize_mobile_rules_attach_only_to_visualize_on_mobile() {
+        use crate::skills::builtin::VISUALIZE_SKILL_ID;
+        let marker = "手机端可视化规则";
+
+        let on_mobile = builtin_skill_additions(VISUALIZE_SKILL_ID, true);
+        assert!(on_mobile.contains("移动版"), "平台说明仍须保留");
+        assert!(on_mobile.contains(marker), "手机端调用 visualize 必须带手机规则");
+        assert!(
+            on_mobile.find("用户当前平台") < on_mobile.find(marker),
+            "平台说明在前、手机规则在后"
+        );
+
+        assert!(
+            !builtin_skill_additions(VISUALIZE_SKILL_ID, false).contains(marker),
+            "桌面端不应拿到手机规则"
+        );
+        assert!(
+            !builtin_skill_additions("builtin.agent-modes", true).contains(marker),
+            "其它内置 skill 不应拿到手机规则"
+        );
     }
 
     #[test]

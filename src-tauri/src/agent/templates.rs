@@ -19,6 +19,7 @@
 //! | 插件扩展指令 | `templates/agent/插件指令.hbs` | 有插件 `systemPromptSection` | system prompt |
 //! | 压缩前言 / 压缩指令 | `templates/context/压缩前言.hbs`、`压缩指令.hbs` | 每次上下文压缩 | 摘要专用 LLM 调用（带常规请求同一份 tools schema） |
 //! | 技能平台说明 | `templates/skill/平台说明.hbs` | 调用内置教学 skill | skill 工具结果 |
+//! | 可视化手机端规则 | `templates/skill/可视化_移动端.hbs` | 手机端调用 `builtin.visualize` | skill 工具结果 |
 //! | 命令审批 | `templates/approval/审批.hbs` | 启用模型审批且用户未自定义 | 审批专用 LLM 调用（chat 引擎） |
 //! | 审批（Plan 追加） | `templates/approval/审批规划.hbs` | 同上 + Plan 模式 | 审批专用 LLM 调用（**两个引擎共用**） |
 //! | 命令审批（Jev） | `templates/approval/审批Jev.hbs` | 启用模型审批 + 引擎选 Jev + 用户未自定义 | Jev 的 `instructions`（不走 chat） |
@@ -63,6 +64,9 @@
 //!   再写八段，`<analysis>` 在回注前由 `summarizer::sanitize_summary` 剥离，
 //!   不进上下文/不落库/不展示）
 //! - 技能里的平台措辞 → `templates/skill/平台说明.hbs`
+//! - 手机上画交互可视化的版面 / 触摸 / 输入规则 → `templates/skill/可视化_移动端.hbs`
+//!   （只在手机端追加到 `builtin.visualize` 正文后；`builtin_skills/visualize.md`
+//!   是两端共用的创作契约，手机专属约束不要写进去）
 //! - 命令审批判据 → 分两个引擎，各自的判据模板不同，但**不变的规则由护栏测试
 //!   钉住**（`approval_invariants_shared_by_both_engines`）：
 //!   - chat 引擎 → `templates/approval/审批.hbs`（含 JSON 输出格式）
@@ -131,7 +135,8 @@ impl TemplateManager {
         let _ =
             reg.register_template_string("多机", include_str!("../../templates/agent/多机.hbs"));
         // 系统指令类片段：不经 render_agent_prompt 组装，由各自的调用点用
-        // `render_fragment` 渲染（子 agent 约束、压缩指令与前言、技能平台说明）。
+        // `render_fragment` 渲染（子 agent 约束、压缩指令与前言、技能平台说明、
+        // 可视化手机端规则）。
         let _ = reg.register_template_string(
             "子agent_只读",
             include_str!("../../templates/agent/子agent_只读.hbs"),
@@ -157,6 +162,10 @@ impl TemplateManager {
         let _ = reg.register_template_string(
             "平台说明",
             include_str!("../../templates/skill/平台说明.hbs"),
+        );
+        let _ = reg.register_template_string(
+            "可视化_移动端",
+            include_str!("../../templates/skill/可视化_移动端.hbs"),
         );
         reg
     }
@@ -681,6 +690,31 @@ mod tests {
         let mobile = TemplateManager.render_fragment("平台说明", &json!({ "is_mobile": true }));
         assert!(mobile.contains("**移动版（Android）**"));
         assert!(!mobile.contains("**桌面版**"));
+    }
+
+    #[test]
+    fn visualize_mobile_rules_cover_the_touch_contract() {
+        // 模板只在手机端追加，没有 is_mobile 分支；桌面构建里直接渲染即可钉住内容。
+        let text = TemplateManager.render_fragment("可视化_移动端", &json!({}));
+        for required in [
+            "500px",
+            "`wide`",
+            "hover",
+            "Pointer Events",
+            "44×44px",
+            "touch-action: none",
+            "pan-y",
+            "preventDefault",
+            "输入框",
+            "12px",
+            "内联 SVG",
+        ] {
+            assert!(
+                text.contains(required),
+                "可视化手机端规则缺少要点 {required}：{text}"
+            );
+        }
+        assert!(!text.is_empty(), "模板渲染失败会得到空串");
     }
 
     #[test]

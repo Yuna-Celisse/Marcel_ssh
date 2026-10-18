@@ -18,6 +18,10 @@ pub fn is_builtin_skill_id(id: &str) -> bool {
     id.starts_with(BUILTIN_SKILL_PREFIX)
 }
 
+/// 交互可视化 skill 的 id。它与 `render_html` 工具同开同关，且手机端调用时会
+/// 追加手机专属规则（见 `agent/tools/skill.rs`），所以多处按 id 认它。
+pub const VISUALIZE_SKILL_ID: &str = "builtin.visualize";
+
 struct BuiltinSkillDef {
     id: &'static str,
     /// SKILL.md 内容（含 YAML frontmatter），编译期嵌入二进制。
@@ -38,7 +42,7 @@ const BUILTIN_SKILLS: &[BuiltinSkillDef] = &[
         content: include_str!("../../builtin_skills/extensions.md"),
     },
     BuiltinSkillDef {
-        id: "builtin.visualize",
+        id: VISUALIZE_SKILL_ID,
         content: include_str!("../../builtin_skills/visualize.md"),
     },
 ];

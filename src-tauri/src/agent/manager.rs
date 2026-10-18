@@ -443,7 +443,8 @@ impl AgentManager {
             .collect::<Vec<_>>();
 
         if !crate::agent::tools::html_render_enabled(&experimental_settings) {
-            enabled_skills.retain(|skill| skill.id != "builtin.visualize");
+            enabled_skills
+                .retain(|skill| skill.id != crate::skills::builtin::VISUALIZE_SKILL_ID);
         }
         (enabled_skills, enabled_mcp_servers, experimental_settings)
     }
