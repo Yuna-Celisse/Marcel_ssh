@@ -9,6 +9,14 @@ import MobileImageViewer from './MobileImageViewer';
 import MobilePathBar from './MobilePathBar';
 import MobileSheet from './ui/MobileSheet';
 import { useSftpDownload } from '@/hooks/useSftpDownload';
+import { useFileClipboardStore } from '@/stores/fileClipboardStore';
+import {
+  clipboardLabel,
+  pasteBlockedReason,
+  pasteClipboard,
+  pasteProgressText,
+  renamedNotice,
+} from '@/lib/filePaste';
 import { useSftpUpload } from '@/hooks/useSftpUpload';
 import { useTransferStore, selectActiveOf } from '@/stores/transferStore';
 import { cancelTransfer } from '@/stores/transferScheduler';
@@ -145,6 +153,9 @@ export default function MobileFilesHost({
   const [deleteConfirm, setDeleteConfirm] = useState<SftpFileEntry[]>([]);
   // 删除/解压等长操作的进度提示条
   const [opStatus, setOpStatus] = useState<string | null>(null);
+  const clipboard = useFileClipboardStore((s) => s.clipboard);
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const pasteBlocked = pasteBlockedReason(clipboard, sessionId);
   const [extractEntry, setExtractEntry] = useState<SftpFileEntry | null>(null);
   const [compressEntry, setCompressEntry] = useState<SftpFileEntry | null>(
     null,
@@ -577,6 +588,53 @@ export default function MobileFilesHost({
     [sessionId, currentPath, loadDirectory, exitSelectMode],
   );
 
+  // 复制 / 剪切：只记进共享剪贴板（对齐桌面 handleClip），不动远端
+  const handleClip = useCallback(
+    (targets: SftpFileEntry[], cut: boolean) => {
+      if (targets.length === 0 || !sessionId) return;
+      setPasteNotice(null);
+      useFileClipboardStore.getState().set({
+        sessionId,
+        dir: currentPath,
+        items: targets.map((e) => ({ name: e.name, isDir: e.is_dir })),
+        cut,
+      });
+      exitSelectMode();
+    },
+    [sessionId, currentPath, exitSelectMode],
+  );
+
+  // 粘贴进 destDir（对齐桌面 handlePaste：默认当前目录，也可粘贴进某个文件夹）
+  const handlePaste = useCallback(
+    async (destDir: string = currentPath) => {
+      const clip = useFileClipboardStore.getState().clipboard;
+      if (!clip || !sessionId || pasteBlockedReason(clip, sessionId)) return;
+      setPasteNotice(null);
+      try {
+        const result = await pasteClipboard(clip, destDir, (i, n) =>
+          setOpStatus(pasteProgressText(i, n, clip.cut)),
+        );
+        // 剪切成功的项已搬走，剪贴板作废；失败的项留着方便重试
+        if (clip.cut) {
+          const failed = new Set(result.failed);
+          const left = clip.items.filter((it) => failed.has(it.name));
+          if (left.length === 0) useFileClipboardStore.getState().clear();
+          else useFileClipboardStore.getState().set({ ...clip, items: left });
+        }
+        if (result.errors.length > 0) {
+          setError(
+            `部分${clip.cut ? '移动' : '复制'}失败：${result.errors.join('；')}`,
+          );
+        }
+        setPasteNotice(renamedNotice(result));
+        await loadDirectory(currentPath);
+      } finally {
+        setOpStatus(null);
+      }
+    },
+    [sessionId, currentPath, loadDirectory],
+  );
+
   // 解压（对齐桌面 handleExtract：两种目标模式由调用方传入）
   const handleExtract = useCallback(
     async (entry: SftpFileEntry, targetDir: string) => {
@@ -855,6 +913,50 @@ export default function MobileFilesHost({
         </div>
       )}
 
+      {clipboard && !opStatus && (
+        <div className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-300">
+          <span className="min-w-0 flex-1 truncate">
+            {clipboardLabel(clipboard)}
+          </span>
+          <button
+            type="button"
+            onClick={() => void handlePaste()}
+            disabled={pasteBlocked != null}
+            className="flex-shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs text-white active:bg-indigo-500 disabled:opacity-40"
+          >
+            粘贴到此处
+          </button>
+          <button
+            type="button"
+            onClick={() => useFileClipboardStore.getState().clear()}
+            className="flex-shrink-0 px-1 text-zinc-500"
+            aria-label="清空剪贴板"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {pasteBlocked != null && clipboard && (
+        <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-900/80 px-3 py-1.5 text-[11px] text-amber-300/90">
+          {pasteBlocked}
+        </div>
+      )}
+
+      {pasteNotice && (
+        <div className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-amber-300">
+          <span className="min-w-0 flex-1 break-all">{pasteNotice}</span>
+          <button
+            type="button"
+            onClick={() => setPasteNotice(null)}
+            className="flex-shrink-0 px-1 text-zinc-500"
+            aria-label="关闭提示"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {completion && (
         <div className="flex flex-shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-300">
           <span className="min-w-0 flex-1 break-all">
@@ -911,7 +1013,7 @@ export default function MobileFilesHost({
 
       {selectMode && (
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-t border-zinc-800 bg-zinc-900/80 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
+          <span className="flex-shrink-0 whitespace-nowrap text-xs text-zinc-300">
             已选 {multiSelected.size} 个
           </span>
           <button
@@ -960,6 +1062,32 @@ export default function MobileFilesHost({
               )}
             </>
           )}
+          <button
+            type="button"
+            onClick={() =>
+              handleClip(
+                filteredEntries.filter((e) => multiSelected.has(e.name)),
+                false,
+              )
+            }
+            disabled={multiSelected.size === 0}
+            className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600 disabled:opacity-40"
+          >
+            复制
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              handleClip(
+                filteredEntries.filter((e) => multiSelected.has(e.name)),
+                true,
+              )
+            }
+            disabled={multiSelected.size === 0}
+            className="rounded-lg bg-zinc-700 px-2.5 py-1.5 text-xs text-zinc-100 active:bg-zinc-600 disabled:opacity-40"
+          >
+            剪切
+          </button>
           <button
             type="button"
             onClick={() =>
@@ -1052,6 +1180,33 @@ export default function MobileFilesHost({
             >
               重命名
             </SheetAction>
+            <SheetAction
+              onClick={() => {
+                setActionOpen(false);
+                handleClip([actionEntry], false);
+              }}
+            >
+              复制
+            </SheetAction>
+            <SheetAction
+              onClick={() => {
+                setActionOpen(false);
+                handleClip([actionEntry], true);
+              }}
+            >
+              剪切
+            </SheetAction>
+            {actionEntry.is_dir && clipboard && (
+              <SheetAction
+                disabled={pasteBlocked != null}
+                onClick={() => {
+                  setActionOpen(false);
+                  void handlePaste(joinRemotePath(currentPath, actionEntry.name));
+                }}
+              >
+                粘贴到此文件夹
+              </SheetAction>
+            )}
             <SheetAction
               onClick={() => {
                 setActionOpen(false);

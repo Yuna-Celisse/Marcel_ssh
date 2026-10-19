@@ -1073,6 +1073,19 @@ export async function sftpRename(
 }
 
 /**
+ * 远端复制 / 剪切粘贴一项到 `destDir`（同一台服务器内，数据不经本机）。
+ * 返回落地名：目标已有同名项时后端自动加序号（不覆盖）。
+ */
+export async function sftpPasteEntry(
+  sessionId: string,
+  srcPath: string,
+  destDir: string,
+  cut: boolean,
+): Promise<string> {
+  return invoke("sftp_paste_entry", { sessionId, srcPath, destDir, cut });
+}
+
+/**
  * 读取文件内容（编辑器用）。`hasBom` 表示原文带 UTF-8 BOM（后端已剥掉 BOM 再给
  * content），保存时必须原样回传，否则会静默丢掉 BOM。旧后端没有该字段，按无 BOM 处理。
  */

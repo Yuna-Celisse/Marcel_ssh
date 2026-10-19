@@ -17,6 +17,7 @@ import type { StoredTransferItem } from '@/stores/transferStore';
 const mocks = vi.hoisted(() => ({
   sftpListDir: vi.fn(),
   sftpRename: vi.fn(async () => {}),
+  sftpPasteEntry: vi.fn(async () => 'a (1).txt'),
   saveSettings: vi.fn(async () => {}),
   writeText: vi.fn(async () => {}),
 }));
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/tauri', () => ({
   sftpListDir: mocks.sftpListDir,
   sftpRename: mocks.sftpRename,
+  sftpPasteEntry: mocks.sftpPasteEntry,
   saveSettings: mocks.saveSettings,
   mobileSetAppForeground: vi.fn(async () => {}),
   sftpExtractArchive: vi.fn(async () => {}),
@@ -98,6 +100,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTransferStore } from '@/stores/transferStore';
 import { resetBackHandlers } from './backHandler';
+import { useFileClipboardStore } from '@/stores/fileClipboardStore';
 import { FILE_MANAGER_PATH_MEMORY_STORAGE_KEY } from '@/lib/fileManagerPathMemory';
 
 const SESSION = {
@@ -227,6 +230,8 @@ beforeEach(() => {
   mocks.sftpListDir.mockReset();
   mocks.sftpListDir.mockResolvedValue([DIR, FILE]);
   mocks.sftpRename.mockClear();
+  mocks.sftpPasteEntry.mockClear();
+  useFileClipboardStore.getState().clear();
   mocks.saveSettings.mockClear();
   mocks.writeText.mockClear();
   // 目录记忆落在 localStorage：用例之间必须清空，否则上一条用例的导航会变成下一条的起点。
@@ -669,5 +674,53 @@ describe('软链接打开', () => {
     await click(row as HTMLButtonElement);
 
     expect(container.textContent).toContain('不是普通文件');
+  });
+});
+
+describe('复制 / 剪切 + 粘贴', () => {
+  it('复制后在当前目录粘贴，重名落地名有提示，复制不清空剪贴板', async () => {
+    await mountFilesTab();
+    await click(findByLabel('a.txt 的更多操作'));
+    await click(findBodyButton('复制'));
+
+    expect(container.textContent).toContain('已复制「a.txt」');
+    await click(findButton('粘贴到此处'));
+
+    expect(mocks.sftpPasteEntry).toHaveBeenCalledWith(
+      's1',
+      '/home/user/a.txt',
+      '/home/user',
+      false,
+    );
+    expect(container.textContent).toContain('已另存为：「a (1).txt」');
+    expect(useFileClipboardStore.getState().clipboard).not.toBeNull();
+  });
+
+  it('剪切粘贴成功后剪贴板作废', async () => {
+    mocks.sftpPasteEntry.mockResolvedValueOnce('a.txt');
+    await mountFilesTab();
+    await click(findByLabel('a.txt 的更多操作'));
+    await click(findBodyButton('剪切'));
+    await click(findButton('粘贴到此处'));
+
+    expect(mocks.sftpPasteEntry).toHaveBeenCalledWith(
+      's1',
+      '/home/user/a.txt',
+      '/home/user',
+      true,
+    );
+    expect(useFileClipboardStore.getState().clipboard).toBeNull();
+  });
+
+  it('剪贴板来自另一台服务器时粘贴按钮置灰', async () => {
+    useFileClipboardStore.getState().set({
+      sessionId: 'other',
+      dir: '/x',
+      items: [{ name: 'f', isDir: false }],
+      cut: false,
+    });
+    await mountFilesTab();
+    expect(findButton('粘贴到此处').disabled).toBe(true);
+    expect(container.textContent).toContain('另一台服务器');
   });
 });

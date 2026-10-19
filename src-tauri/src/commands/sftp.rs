@@ -17,6 +17,8 @@ use crate::AppState;
 // 模块挂在 sftp.rs 之下（#[path] 指向平级文件），commands/mod.rs 无需改动。
 #[path = "sftp_folder_upload.rs"]
 mod sftp_folder_upload;
+#[path = "sftp_paste.rs"]
+mod sftp_paste;
 #[path = "sftp_sysopen.rs"]
 mod sftp_sysopen;
 
@@ -205,6 +207,20 @@ pub async fn sftp_rename(
         })
         .await?
         .map_err(|e| AppError::Ssh(format!("重命名失败: {}", e)))
+}
+
+/// 文件管理器「复制 / 剪切 + 粘贴」：把 `src_path` 搬进 `dest_dir`，返回最终名字
+/// （重名时自动加序号，不覆盖）。逐项调用，由前端聚合每项的成败。
+#[tauri::command]
+pub async fn sftp_paste_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    src_path: String,
+    dest_dir: String,
+    cut: bool,
+) -> Result<String, AppError> {
+    sftp_paste::paste_entry(&app, &state, &session_id, &src_path, &dest_dir, cut).await
 }
 
 /// 把解压命令的输出翻成给用户的错误文案。

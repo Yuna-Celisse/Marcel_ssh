@@ -40,6 +40,14 @@ import { useFileTree } from '@/hooks/useFileTree';
 import FileEditorModal from './FileEditorModal';
 import ImagePreviewModal from './ImagePreviewModal';
 import CompressModal from './CompressModal';
+import { useFileClipboardStore } from '@/stores/fileClipboardStore';
+import {
+  clipboardLabel,
+  pasteBlockedReason,
+  pasteClipboard,
+  pasteProgressText,
+  renamedNotice,
+} from '@/lib/filePaste';
 
 interface FileManagerPanelProps {
   sessionId: string;
@@ -81,6 +89,10 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
   const [pendingFolderUpload, setPendingFolderUpload] = useState<{ localPath: string; folderName: string } | null>(null);
   const [extractConfirm, setExtractConfirm] = useState<SftpFileEntry | null>(null);
   const [compressEntry, setCompressEntry] = useState<SftpFileEntry | null>(null);
+  const clipboard = useFileClipboardStore((s) => s.clipboard);
+  const [pasteStatus, setPasteStatus] = useState<string | null>(null);
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const pasteBlocked = pasteBlockedReason(clipboard, sessionId);
   const menuRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -609,6 +621,66 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
     }
   };
 
+  /** 复制 / 剪切：只记进剪贴板，不动远端。 */
+  const handleClip = (targets: SftpFileEntry[], cut: boolean) => {
+    setMenuEntry(null);
+    setMenuTargets([]);
+    if (targets.length === 0) return;
+    setPasteNotice(null);
+    useFileClipboardStore.getState().set({
+      sessionId,
+      dir: currentPath,
+      items: targets.map((e) => ({ name: e.name, isDir: e.is_dir })),
+      cut,
+    });
+  };
+
+  /** 粘贴进 destDir（默认当前目录；右键文件夹可粘贴到该文件夹里）。 */
+  const handlePaste = async (destDir: string = currentPath) => {
+    const clip = useFileClipboardStore.getState().clipboard;
+    setMenuEntry(null);
+    setMenuTargets([]);
+    if (!clip || pasteBlockedReason(clip, sessionId) || pasteStatus) return;
+    setPasteNotice(null);
+    try {
+      const result = await pasteClipboard(clip, destDir, (i, n) =>
+        setPasteStatus(pasteProgressText(i, n, clip.cut)),
+      );
+      // 剪切成功的项已经搬走，剪贴板作废；失败的项留着，方便换个目录重试。
+      if (clip.cut) {
+        const failed = new Set(result.failed);
+        const left = clip.items.filter((it) => failed.has(it.name));
+        if (left.length === 0) useFileClipboardStore.getState().clear();
+        else useFileClipboardStore.getState().set({ ...clip, items: left });
+      }
+      if (result.errors.length > 0) {
+        setError(`部分${clip.cut ? '移动' : '复制'}失败：${result.errors.join('；')}`);
+      }
+      setPasteNotice(renamedNotice(result));
+      if (currentPathRef.current === currentPath) await loadDirectory(currentPath);
+    } finally {
+      setPasteStatus(null);
+    }
+  };
+
+  /** 面板内快捷键：Ctrl/⌘ + C / X / V。输入框里放行，免得抢走文字编辑。 */
+  const handlePanelKeyDown = (e: React.KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+    const key = e.key.toLowerCase();
+    if (key === 'c' || key === 'x') {
+      const targets = filteredEntries.filter((en) => selected.has(en.name));
+      if (targets.length === 0) return;
+      e.preventDefault();
+      handleClip(targets, key === 'x');
+    } else if (key === 'v') {
+      if (!clipboard || pasteBlocked) return;
+      e.preventDefault();
+      void handlePaste();
+    }
+  };
+
   const handleExtract = async (targetDir: string) => {
     const entry = extractConfirm;
     if (!entry) return;
@@ -626,7 +698,12 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
   };
 
   return (
-    <div ref={panelRef} className="flex flex-col h-full">
+    <div
+      ref={panelRef}
+      className="flex flex-col h-full outline-none"
+      tabIndex={-1}
+      onKeyDown={handlePanelKeyDown}
+    >
       <div ref={toolbarRef} className="flex items-center gap-1.5 border-b border-zinc-800 px-3 py-2 flex-shrink-0">
         <button
           type="button"
@@ -815,6 +892,42 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
           >
             取消
           </button>
+        </div>
+      )}
+
+      {(clipboard || pasteStatus) && (
+        <div className="flex items-center gap-2 border-b border-zinc-800 bg-indigo-500/10 px-3 py-1.5 text-xs text-zinc-300 flex-shrink-0">
+          <span className="min-w-0 flex-1 truncate">
+            {pasteStatus ?? (clipboard ? clipboardLabel(clipboard) : '')}
+          </span>
+          {!pasteStatus && clipboard && (
+            <>
+              <button
+                type="button"
+                onClick={() => void handlePaste()}
+                disabled={pasteBlocked != null}
+                title={pasteBlocked ?? '粘贴到当前目录（Ctrl+V）'}
+                className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600"
+              >
+                粘贴到此处
+              </button>
+              <button
+                type="button"
+                onClick={() => useFileClipboardStore.getState().clear()}
+                className="text-zinc-500 hover:text-zinc-200 transition-colors"
+                aria-label="清空剪贴板"
+              >
+                ✕
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {pasteNotice && (
+        <div className="flex items-center justify-between px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-300 flex-shrink-0">
+          <span>{pasteNotice}</span>
+          <button type="button" onClick={() => setPasteNotice(null)} className="ml-2 text-amber-400 hover:text-amber-200 transition-colors">✕</button>
         </div>
       )}
 
@@ -1007,6 +1120,20 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => handleClip(filteredEntries.filter((e) => selected.has(e.name)), false)}
+                className="rounded-md bg-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-600 transition-colors"
+              >
+                复制
+              </button>
+              <button
+                type="button"
+                onClick={() => handleClip(filteredEntries.filter((e) => selected.has(e.name)), true)}
+                className="rounded-md bg-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-600 transition-colors"
+              >
+                剪切
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   const targets = filteredEntries.filter((e) => selected.has(e.name));
                   handleCopyPath(targets);
@@ -1153,6 +1280,31 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
             <div className="px-2 py-1.5 text-xs text-zinc-400">
               已选 {menuTargets.length} 个
             </div>
+          )}
+          <button
+            type="button"
+            onClick={() => handleClip(menuTargets, false)}
+            className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+          >
+            复制
+          </button>
+          <button
+            type="button"
+            onClick={() => handleClip(menuTargets, true)}
+            className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+          >
+            剪切
+          </button>
+          {clipboard && menuTargets.length === 1 && menuEntry.is_dir && (
+            <button
+              type="button"
+              disabled={pasteBlocked != null}
+              title={pasteBlocked ?? undefined}
+              onClick={() => void handlePaste(joinRemotePath(currentPath, menuEntry.name))}
+              className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              粘贴到此文件夹
+            </button>
           )}
           <button
             type="button"
