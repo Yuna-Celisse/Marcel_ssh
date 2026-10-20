@@ -3,8 +3,9 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use russh::client::{self};
+use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
 use russh::keys::PrivateKeyWithHashAlg;
+use russh::MethodKind;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
@@ -572,10 +573,24 @@ impl SshManager {
         auth_method: &AuthMethod,
     ) -> Result<(), AppError> {
         let auth_success = match auth_method {
-            AuthMethod::Password { password } => handle
-                .authenticate_password(username, password)
-                .await
-                .map_err(|e| AppError::Ssh(format!("密码认证错误: {}", e)))?,
+            AuthMethod::Password { password } => {
+                let first = handle
+                    .authenticate_password(username, password)
+                    .await
+                    .map_err(|e| AppError::Ssh(format!("密码认证错误: {}", e)))?;
+                match first {
+                    // 有些服务器（serv00 等 FreeBSD 主机）关掉了 `password` 方法，只认
+                    // `keyboard-interactive`——OpenSSH 客户端两种都会试，所以命令行能连、
+                    // 我们只发 `password` 就被拒。服务器在拒绝时会列出还能用的方法，
+                    // 列了就照 OpenSSH 的做法再用同一份密码走一遍键盘交互。
+                    AuthResult::Failure {
+                        remaining_methods, ..
+                    } if remaining_methods.contains(&MethodKind::KeyboardInteractive) => {
+                        Self::authenticate_keyboard_interactive(handle, username, password).await?
+                    }
+                    other => other.success(),
+                }
+            }
             AuthMethod::PrivateKey {
                 key_id,
                 key_path,
@@ -593,9 +608,10 @@ impl SshManager {
                     )
                     .await
                     .map_err(|e| AppError::Ssh(format!("密钥认证错误: {}", e)))?
+                    .success()
             }
         };
-        if !auth_success.success() {
+        if !auth_success {
             // 区分两次失败：密码被拒不等于密钥被拒，能照做的下一步完全不同。
             //
             // 两条都走**结构化原因码**（前端只认 `data.code`，中文字面量一律不作判据）：
@@ -616,6 +632,35 @@ impl SshManager {
             });
         }
         Ok(())
+    }
+
+    /// 用同一份密码走 keyboard-interactive：服务器每问一轮（`InfoRequest`），
+    /// 就给每个提示填这份密码。轮数封顶，防止恶意/异常服务器无限追问。
+    async fn authenticate_keyboard_interactive(
+        handle: &mut client::Handle<Client>,
+        username: &str,
+        password: &str,
+    ) -> Result<bool, AppError> {
+        const MAX_ROUNDS: usize = 4;
+        let to_err = |e: russh::Error| AppError::Ssh(format!("密码认证错误: {}", e));
+        let mut response = handle
+            .authenticate_keyboard_interactive_start(username, None)
+            .await
+            .map_err(to_err)?;
+        for _ in 0..MAX_ROUNDS {
+            match response {
+                KeyboardInteractiveAuthResponse::Success => return Ok(true),
+                KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+                KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                    let answers = prompts.iter().map(|_| password.to_string()).collect();
+                    response = handle
+                        .authenticate_keyboard_interactive_respond(answers)
+                        .await
+                        .map_err(to_err)?;
+                }
+            }
+        }
+        Ok(matches!(response, KeyboardInteractiveAuthResponse::Success))
     }
 
     /// Send input data to the session's shell channel.
@@ -1500,6 +1545,104 @@ mod shared_sftp_tests {
             "  中位数节省 {:.1} ms（{:.0}%）",
             d_med - s_med,
             (d_med - s_med) / d_med * 100.0
+        );
+    }
+}
+
+/// 只开 keyboard-interactive、关掉 `password` 方法的服务器（serv00 等 FreeBSD 主机的做法）：
+/// 只发 `password` 会被拒，必须回退到键盘交互用同一份密码重试。
+#[cfg(test)]
+mod keyboard_interactive_tests {
+    use std::borrow::Cow;
+
+    use russh::server::{self, Auth, Response};
+    use russh::MethodSet;
+
+    use super::*;
+
+    const PROMPTS: &[(Cow<'static, str>, bool)] = &[(Cow::Borrowed("Password: "), false)];
+
+    struct KbdOnly;
+
+    impl server::Handler for KbdOnly {
+        type Error = russh::Error;
+
+        async fn auth_keyboard_interactive<'a>(
+            &'a mut self,
+            _user: &str,
+            _submethods: &str,
+            response: Option<Response<'a>>,
+        ) -> Result<Auth, Self::Error> {
+            match response {
+                None => Ok(Auth::Partial {
+                    name: Cow::Borrowed(""),
+                    instructions: Cow::Borrowed(""),
+                    prompts: Cow::Borrowed(PROMPTS),
+                }),
+                Some(mut answers) => {
+                    let ok = answers.next().is_some_and(|a| &a[..] == b"secret");
+                    Ok(if ok { Auth::Accept } else { Auth::reject() })
+                }
+            }
+        }
+    }
+
+    async fn connect() -> client::Handle<Client> {
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let key = russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[7; 32]);
+        let config = server::Config {
+            keys: vec![key.into()],
+            methods: MethodSet::from(&[MethodKind::KeyboardInteractive][..]),
+            ..Default::default()
+        };
+        tokio::spawn(async move {
+            let session = server::run_stream(Arc::new(config), server_io, KbdOnly)
+                .await
+                .unwrap();
+            let _ = session.await;
+        });
+        let client = Client {
+            host: "127.0.0.1".into(),
+            port: 22,
+            store: KnownHostsStore::in_memory(),
+            trust_new: true,
+            verdict: Arc::new(TokioMutex::new(None)),
+            tofu_record_error: Arc::new(TokioMutex::new(None)),
+        };
+        client::connect_stream(Arc::new(client::Config::default()), client_io, client)
+            .await
+            .unwrap()
+    }
+
+    fn password(p: &str) -> AuthMethod {
+        AuthMethod::Password {
+            password: p.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn password_falls_back_to_keyboard_interactive() {
+        let mut handle = connect().await;
+        SshManager::authenticate(&mut handle, "tester", &password("secret"))
+            .await
+            .expect("password 方法被关掉时应回退到 keyboard-interactive 并成功");
+    }
+
+    #[tokio::test]
+    async fn wrong_password_is_still_reported_as_rejected() {
+        let mut handle = connect().await;
+        let err = SshManager::authenticate(&mut handle, "tester", &password("nope"))
+            .await
+            .expect_err("错误密码必须失败");
+        assert!(
+            matches!(
+                err,
+                AppError::KeyAuth {
+                    code: KeyAuthCode::Rejected,
+                    ..
+                }
+            ),
+            "回退失败后仍要给出结构化的『密码被拒』，前端据此重新追问：{err:?}"
         );
     }
 }
