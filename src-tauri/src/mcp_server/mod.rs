@@ -1,18 +1,18 @@
 // MCP Server 模块入口
 //
-// Marcel SSH 作为 MCP Server 对外暴露 SSH/SFTP 能力（桌面专属，移动端不做）。
+// Marcel SSH 作为 MCP Server 对外暴露 SSH/SFTP 能力。
 //
 // 两种 transport，请求分发共用一份（见 `McpServer::handle_request`）：
-//   - stdio（`stdio_transport.rs`）：客户端启动本进程，走管道。主流接法。
+//   - stdio（`stdio_transport.rs`）：客户端启动本进程，走管道。主流接法，仅桌面
+//     （Android 上没有「客户端启动本进程」这回事）。
 //   - HTTP（`http_transport.rs`）：常驻端口 + 强制 Bearer 令牌，见该文件的安全说明。
+//     桌面与 Android 共用；Android 由设置页开关启停，保活见前端 `mobileBridge` 的 hold。
 
 pub mod agent_task;
 pub mod cli;
 pub mod external_executor;
-#[cfg(desktop)]
 pub mod http_transport;
 pub mod protocol;
-#[cfg(desktop)]
 pub mod runtime;
 pub mod sftp_ops;
 pub mod stdio_transport;
@@ -157,12 +157,11 @@ impl McpServer {
         stdio_transport::run_stdio_server(self).await
     }
 
-    /// 运行 HTTP transport server（桌面专属，见 `http_transport`）。
+    /// 运行 HTTP transport server（见 `http_transport`）。
     ///
     /// 与 stdio 的**唯一**差别是传输层；请求分发走同一个
     /// [`Self::handle_request`]，所以两种接入方式的工具语义、错误码、
     /// 返回结构逐字一致，不会出现「stdio 能用、HTTP 上行为不同」。
-    #[cfg(desktop)]
     pub async fn run_http(&self, cfg: http_transport::HttpConfig) -> Result<(), AppError> {
         http_transport::run_http_server(self, cfg).await
     }

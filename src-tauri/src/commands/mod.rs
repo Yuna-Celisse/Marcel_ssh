@@ -10,8 +10,7 @@ pub mod keychain;
 pub mod market;
 pub mod mcp;
 /// MCP **server**（对外服务）的设置命令，与上面的 `mcp`（client）方向相反。
-/// 桌面专属：移动端不做 MCP server，整个模块编译不进去。
-#[cfg(desktop)]
+/// 桌面与 Android 共用（Android 只有 HTTP 接入，stdio 配置不提供）。
 pub mod mcp_server;
 pub mod memory;
 pub mod plugin;

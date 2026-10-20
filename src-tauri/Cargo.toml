@@ -56,6 +56,9 @@ tauri-plugin-opener = "^2"
 # APK「后台下载 + 一键拉起系统安装器」，两端都要 sha256 校验安装包完整性与
 # 磁盘剩余空间预检（minisign 验签仅 Windows 需要，见下方 target 段）。
 sha2 = "0.10"
+# MCP Server 的 HTTP transport（mcp_server/http_transport.rs，桌面与 Android 共用）。
+# 纯 Rust 实现，Android 交叉编译无额外原生依赖。
+axum = { version = "^0.8", default-features = false, features = ["http1", "json", "tokio"] }
 fs4 = "0.8"
 # 私钥库（ssh/key_store.rs）：导入的私钥用 AES-256-GCM 加密后再落盘。
 # 选 RustCrypto 而非 ring 是因为它纯 Rust，Android 交叉编译不会有构建脚本意外。
@@ -69,10 +72,6 @@ aes-gcm = "0.10"
 # 未配置代理时自动直连。Android 不启用（市场功能仅桌面）。
 [target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "^0.12", default-features = false, features = ["json", "stream", "native-tls", "system-proxy", "charset", "gzip", "brotli", "deflate"] }
-# MCP Server 的 HTTP transport（mcp_server/http_transport.rs，仅桌面）。
-# 纯 Rust 实现，Android 交叉编译不需要——移动端本就只做 MCP client，
-# 不做 server，所以放在 not-android 段里，不给 Android 构建增重。
-axum = { version = "^0.8", default-features = false, features = ["http1", "json", "tokio"] }
 # 桌面密钥链：Windows Credential Manager / macOS+iOS Keychain / Linux Secret Service
 keyring = { version = "^4", default-features = false, features = [
     "v1",

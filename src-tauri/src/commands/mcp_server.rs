@@ -4,9 +4,9 @@
 // 去连别人的 MCP server。这里是反方向：Marcel SSH 自己当 server，供外部
 // agent（Claude Code / zcode / DSH）接入。
 //
-// 桌面专属：整个 `mcp_server` 模块都是 `#[cfg(desktop)]`，所以移动端
-// 编译不到这里——移动端不做 MCP server 是既定决策，用「模块不存在」表达
-// 比用「运行时报错」诚实。
+// 桌面与 Android 共用。Android 只有 HTTP 接入：stdio 是「客户端启动本进程」
+// 的模型，手机上没有这回事，所以 `mcp_server_client_config` 在 Android 上
+// 不给 stdio 片段（`None`），而不是塞一份不可能连上的配置。
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -25,10 +25,10 @@ use crate::AppState;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpClientConfig {
-    /// Marcel SSH 可执行文件的绝对路径（stdio 接入要写进 `command`）
-    pub executable_path: String,
-    /// stdio 接入的完整配置 JSON（推荐方式，无需常驻任何东西）
-    pub stdio: String,
+    /// Marcel SSH 可执行文件的绝对路径（stdio 接入要写进 `command`）；Android 为 `None`
+    pub executable_path: Option<String>,
+    /// stdio 接入的完整配置 JSON（桌面推荐方式，无需常驻任何东西）；Android 为 `None`
+    pub stdio: Option<String>,
     /// HTTP 接入的配置 JSON；服务没在跑时为 `None`
     pub http: Option<String>,
 }
@@ -109,20 +109,25 @@ pub fn mcp_server_regenerate_token() -> Result<String, AppError> {
 /// 生成可直接粘贴的客户端配置。
 #[tauri::command]
 pub fn mcp_server_client_config() -> McpClientConfig {
-    let exe = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        // 拿不到路径也要给出一份能用的模板：留个占位符让用户自己填，
-        // 总好过整个功能不可用。
-        .unwrap_or_else(|_| "<Marcel SSH 可执行文件路径>".to_string());
-
-    let stdio = serde_json::json!({
-        "mcpServers": {
-            "marcel-ssh": {
-                "command": exe,
-                "args": ["--mcp-server"]
+    #[cfg(desktop)]
+    let (executable_path, stdio) = {
+        let exe = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            // 拿不到路径也要给出一份能用的模板：留个占位符让用户自己填，
+            // 总好过整个功能不可用。
+            .unwrap_or_else(|_| "<Marcel SSH 可执行文件路径>".to_string());
+        let stdio = serde_json::json!({
+            "mcpServers": {
+                "marcel-ssh": {
+                    "command": exe,
+                    "args": ["--mcp-server"]
+                }
             }
-        }
-    });
+        });
+        (Some(exe), Some(to_pretty(stdio)))
+    };
+    #[cfg(not(desktop))]
+    let (executable_path, stdio): (Option<String>, Option<String>) = (None, None);
 
     let http = runtime::status().map(|info| {
         serde_json::json!({
@@ -137,8 +142,8 @@ pub fn mcp_server_client_config() -> McpClientConfig {
     });
 
     McpClientConfig {
-        executable_path: exe,
-        stdio: to_pretty(stdio),
+        executable_path,
+        stdio,
         http: http.map(to_pretty),
     }
 }
@@ -160,10 +165,12 @@ pub fn mcp_server_defaults() -> serde_json::Value {
 mod tests {
     use super::*;
 
+    #[cfg(desktop)]
     #[test]
     fn client_config_contains_stdio_block_with_executable() {
         let cfg = mcp_server_client_config();
-        let parsed: serde_json::Value = serde_json::from_str(&cfg.stdio).unwrap();
+        let stdio = cfg.stdio.as_deref().expect("桌面应提供 stdio 配置");
+        let parsed: serde_json::Value = serde_json::from_str(stdio).unwrap();
         let entry = &parsed["mcpServers"]["marcel-ssh"];
         // 粘贴给客户端的就是这两项，缺一个都连不上
         assert_eq!(entry["command"], serde_json::json!(cfg.executable_path));

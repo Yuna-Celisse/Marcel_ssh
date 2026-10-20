@@ -1,4 +1,4 @@
-// MCP over HTTP（桌面专属）
+// MCP over HTTP（桌面与 Android 共用）
 //
 // ─────────────────────────── 安全前提（先读这段）───────────────────────────
 //
@@ -243,11 +243,36 @@ pub async fn start_http_server(
             bind: cfg.bind.to_string(),
             port: cfg.port,
             token: cfg.token,
-            url: format!("http://{}/mcp", addr),
+            url: advertised_url(cfg.bind, cfg.port, detect_lan_ip()),
         },
         shutdown: Some(tx),
         join,
     })
+}
+
+/// 展示给用户 / 写进客户端配置的端点地址。
+///
+/// 绑定 `0.0.0.0`（或 `::`）表示「所有网卡」，它是监听用的通配地址，**不能拿来连**：
+/// 客户端配置里写 `http://0.0.0.0:8765/mcp` 只会让用户困惑。这种情况换成
+/// 本机的局域网地址；探测不到就原样返回（至少没骗人）。
+fn advertised_url(bind: IpAddr, port: u16, lan_ip: Option<IpAddr>) -> String {
+    let host = if bind.is_unspecified() {
+        lan_ip.unwrap_or(bind)
+    } else {
+        bind
+    };
+    format!("http://{}/mcp", SocketAddr::new(host, port))
+}
+
+/// 探测本机出口网卡的 IP（局域网地址）。
+///
+/// 对 UDP socket 做 `connect` 只是让内核选好路由、并不发包，再读本地地址即可；
+/// 目标取 RFC 5737 文档保留段，不会真的有主机应答。没有网络时返回 `None`。
+fn detect_lan_ip() -> Option<IpAddr> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("192.0.2.1:9").ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    (!ip.is_unspecified() && !ip.is_loopback()).then_some(ip)
 }
 
 /// 绑定监听地址，把常见的失败翻译成人能看懂的话。
@@ -363,6 +388,28 @@ mod tests {
             token: "t".into(),
         };
         assert!(cfg.is_loopback());
+    }
+
+    #[test]
+    fn advertised_url_replaces_wildcard_bind_with_lan_ip() {
+        let lan: IpAddr = "192.168.1.23".parse().unwrap();
+        let any: IpAddr = "0.0.0.0".parse().unwrap();
+        // 通配地址不能拿来连：有局域网 IP 就换成它
+        assert_eq!(
+            advertised_url(any, 8765, Some(lan)),
+            "http://192.168.1.23:8765/mcp"
+        );
+        // 探测不到时原样返回，不编造地址
+        assert_eq!(advertised_url(any, 8765, None), "http://0.0.0.0:8765/mcp");
+        // 明确指定的地址永远照用，哪怕探测到了别的
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        assert_eq!(
+            advertised_url(loopback, 9000, Some(lan)),
+            "http://127.0.0.1:9000/mcp"
+        );
+        // IPv6 要带方括号
+        let v6: IpAddr = "::1".parse().unwrap();
+        assert_eq!(advertised_url(v6, 9000, None), "http://[::1]:9000/mcp");
     }
 
     #[test]
