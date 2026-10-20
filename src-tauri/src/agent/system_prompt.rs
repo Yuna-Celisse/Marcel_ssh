@@ -24,6 +24,7 @@ pub(crate) fn build_system_prompt(
     plan_mode: bool,
     audience: ToolAudience,
     extra_sections: &[String],
+    memory_section: &str,
 ) -> Result<String, AppError> {
     let user_prompt = if user_prompt.chars().count() > USER_PROMPT_MAX_CHARS {
         log::warn!(
@@ -42,6 +43,7 @@ pub(crate) fn build_system_prompt(
         session_id: session_id.to_string(),
         user_prompt,
         plugin_sections: plugin_sections.to_vec(),
+        memory_section: memory_section.to_string(),
     };
     template_manager.render_agent_prompt(
         &vars,
@@ -77,6 +79,7 @@ mod tests {
             plan,
             ToolAudience::Main,
             &[],
+            "",
         )
         .unwrap()
     }

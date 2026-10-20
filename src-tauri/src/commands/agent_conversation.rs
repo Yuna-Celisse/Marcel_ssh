@@ -217,6 +217,17 @@ fn drop_session_models(state: &AppState, ids: &[String]) {
     }
 }
 
+/// 会话被删：清掉长期记忆里只属于这些会话的东西（注入快照、复盘进度与提示行、
+/// 挂着的复盘定时器）。记忆条目本身保留——记忆比会话活得久正是它的意义。
+fn forget_conversations_in_memory(state: &AppState, ids: &[String]) {
+    for id in ids {
+        state.memory.reflector.forget(id);
+        if let Err(e) = state.memory.store.forget_conversation(id) {
+            log::warn!("清理会话 {id} 的记忆附属数据失败: {e}");
+        }
+    }
+}
+
 /// 读取单个会话元数据（含 parent_conversation_id，用于子对话"返回主对话"）。
 #[tauri::command]
 pub async fn agent_get_conversation(
@@ -498,6 +509,7 @@ pub async fn agent_delete_conversation(
         deleted.len()
     );
     drop_session_models(&state, &deleted);
+    forget_conversations_in_memory(&state, &deleted);
 
     Ok(())
 }
@@ -807,6 +819,7 @@ pub async fn agent_delete_conversations_by_session(
         conv_ids.len()
     );
     drop_session_models(&state, &conv_ids);
+    forget_conversations_in_memory(&state, &conv_ids);
 
     Ok(())
 }

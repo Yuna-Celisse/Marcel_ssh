@@ -210,6 +210,10 @@ pub struct ModelSlots {
     /// 上下文压缩摘要模型。空 = 跟随会话主模型。
     #[serde(default)]
     pub summarizer_model_id: String,
+    /// 长期记忆模型：后台复盘与记忆整理助手用它。空 = 跟随主模型
+    /// （**不**回落压缩模型——两件事的取舍不同，用户拍板过）。
+    #[serde(default)]
+    pub memory_model_id: String,
 }
 
 /// 多渠道多模型注册表（AppSettings 内嵌，随设置持久化与同步）。
@@ -441,6 +445,9 @@ impl LlmRegistry {
         if self.slots.summarizer_model_id == model_id {
             self.slots.summarizer_model_id.clear();
         }
+        if self.slots.memory_model_id == model_id {
+            self.slots.memory_model_id.clear();
+        }
     }
 
     /// 自愈：按模型 ID 去重（保留**最后出现**的一条，维持其余相对顺序）。
@@ -660,6 +667,7 @@ impl LlmRegistry {
         for (label, slot_id) in [
             ("命令审核模型", &self.slots.model_approval_model_id),
             ("上下文压缩模型", &self.slots.summarizer_model_id),
+            ("记忆模型", &self.slots.memory_model_id),
         ] {
             if !slot_id.is_empty() && self.find_model(slot_id).is_none() {
                 return Err(AppError::Config(format!(

@@ -157,7 +157,7 @@ pub async fn resolve_target(
 /// - name 相同多条：尝试 `name` / `name:1` / `name:2` … 后缀消歧（第 0 条
 ///   为裸 name，第 i 条为 `name:i`——与 `TabBar` 展示 `dupIndex` 一致）；
 /// - 匹配不到或歧义 → 明确错误。
-async fn resolve_connection(
+pub(crate) async fn resolve_connection(
     state: &AppState,
     host: &str,
     current_conn_id: Option<&str>,
@@ -245,7 +245,7 @@ async fn resolve_connection(
 }
 
 /// 从 `name:N` 拆出基础名与序号；无后缀 → (原串, None)。
-fn split_suffix(host: &str) -> (String, Option<usize>) {
+pub(crate) fn split_suffix(host: &str) -> (String, Option<usize>) {
     match host.rsplit_once(':') {
         Some((base, num)) if !base.is_empty() && !num.is_empty() => {
             if let Ok(n) = num.parse::<usize>() {
@@ -261,7 +261,7 @@ fn split_suffix(host: &str) -> (String, Option<usize>) {
 /// 出现顺序）。这是提示词与解析器之间的唯一契约——解析器 `split_suffix`
 /// 对展示名还原出的 index 必须等于该项在原始列表中的同名序号，模型才能
 /// 精确引用。单独抽成纯函数以便单测锁死该契约。
-fn disambiguated_labels(names: &[String]) -> Vec<String> {
+pub(crate) fn disambiguated_labels(names: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(names.len());
     for (i, name) in names.iter().enumerate() {
         let same_name_count = names.iter().filter(|n| *n == name).count();

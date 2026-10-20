@@ -78,11 +78,38 @@ pub async fn config_apply_connection_order(
 
     let mut store = state.connection_store.write().await;
     let mut candidate = store.clone();
+    let groups_before: Vec<(String, Option<String>)> = store
+        .get_all()
+        .iter()
+        .map(|c| (c.id.clone(), c.group.clone()))
+        .collect();
     let (reordered, appended, ignored) = candidate.apply_order(&pairs);
 
     let path = ConnectionStore::default_file(&state.config_dir);
     tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    let groups_after: Vec<(String, Option<String>)> = candidate
+        .get_all()
+        .iter()
+        .map(|c| (c.id.clone(), c.group.clone()))
+        .collect();
     *store = candidate;
+    drop(store);
+
+    // 分组改名 → 分组记忆跟着搬（认不出来的不动，见 `detect_group_renames`）。
+    let mut moved_any = false;
+    for (from, to) in crate::memory::scope::detect_group_renames(&groups_before, &groups_after) {
+        match state.memory.store.rename_group(&from, &to) {
+            Ok(n) if n > 0 => {
+                moved_any = true;
+                log::info!("分组改名 {from} → {to}：迁移 {n} 条分组记忆");
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("分组改名 {from} → {to}：迁移分组记忆失败: {e}"),
+        }
+    }
+    if moved_any {
+        crate::memory::reflect::emit_changed(state.inner(), crate::memory::Source::User, None);
+    }
 
     if appended > 0 || ignored > 0 {
         log::warn!(
@@ -102,6 +129,7 @@ pub async fn config_apply_connection_order(
 pub async fn config_delete_connection(
     state: State<'_, AppState>,
     id: String,
+    delete_memories: Option<bool>,
 ) -> Result<(), AppError> {
     let mut store = state.connection_store.write().await;
     let mut candidate = store.clone();
@@ -124,6 +152,22 @@ pub async fn config_delete_connection(
     }
     if let Err(e) = keychain::delete_password(&format!("jump:pk:{}", id)) {
         log::warn!("清除跳板机 passphrase 密钥链条目失败（id={}): {}", id, e);
+    }
+    // 删除确认框里勾了「同时删除这台机器的记忆」：作为一批用户改动删掉（可撤销）。
+    // 没勾的话记忆留着，管理页会把它列在「已删除的连接」下。
+    if delete_memories.unwrap_or(false) {
+        match state
+            .memory
+            .store
+            .delete_scope(&crate::memory::ScopeRef::host(id.clone()))
+        {
+            Ok((_, n)) if n > 0 => {
+                log::info!("删除连接 {id}：一并删除 {n} 条机器记忆");
+                crate::memory::reflect::emit_changed(state.inner(), crate::memory::Source::User, None);
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("删除连接 {id} 的记忆失败: {e}"),
+        }
     }
     Ok(())
 }

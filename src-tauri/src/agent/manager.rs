@@ -695,6 +695,17 @@ impl AgentManager {
             }
         }
 
+        // ── 4.6 长期记忆段：主任务取本会话冻结的快照（同一段对话里逐字节不变，
+        //     前缀缓存不被打穿）；子 agent 取目标机器的只读版（本机子 agent 的哨兵
+        //     会话不在 SSH 管理器里，自然只剩全局）。记忆关闭时为空串。
+        let memory_scope = crate::memory::scope::for_session(&self.state, &spec.session_id).await;
+        let memory_section = if spec.role == AgentRole::Main {
+            crate::memory::inject::section_for_main(&self.state, &spec.conversation_id, &memory_scope)
+                .await
+        } else {
+            crate::memory::inject::section_for_sub(&self.state, &memory_scope).await
+        };
+
         // ── 5. 组装 messages（含角色约束段统一拼装） ──
         let messages = build_agent_messages(
             &TemplateManager,
@@ -709,6 +720,7 @@ impl AgentManager {
             &prompt_extra,
             // 手机端的 Browser 会在搜索时降级成 Html，同样属于噪音档，所以只认「不是 Api」。
             experimental_settings.web_search_mode != crate::config::settings::WebSearchMode::Api,
+            &memory_section,
         )?;
 
         // 子任务：冻结"父会话回读窗口"的上界 —— 派发这一刻父会话最后一条已落库
@@ -754,7 +766,22 @@ impl AgentManager {
         );
         if spec.role == AgentRole::Main {
             self.restore_latest_plan(&task_id, &spec.conversation_id);
+            // 后台复盘：本会话还在继续（挂着的空闲定时器作废）；同一台机器上别的
+            // 会话挂着的定时器立即触发——用户已经转去干别的了。
+            self.state.memory.reflector.on_turn_started(
+                &self.state,
+                &spec.conversation_id,
+                memory_scope.connection_id.as_deref(),
+            );
         }
+        // 主任务收尾时挂空闲定时器（见下方 spawn 里的 finalize 之后）。
+        let reflect_hook: Option<(String, String, String)> = (spec.role == AgentRole::Main).then(|| {
+            (
+                spec.conversation_id.clone(),
+                memory_scope.connection_id.clone().unwrap_or_default(),
+                spec.session_id.clone(),
+            )
+        });
 
         // ── 6. spawn + 生命周期 ──
         // 取消通道注册进统一表。guard 必须**活到任务结束**，所以它随下面
@@ -866,6 +893,16 @@ impl AgentManager {
                     turn_state.as_str()
                 );
             }
+            // 长期记忆：这一轮结束，挂空闲定时器（一段时间没有新回合 = 告一段落，
+            // 后台复盘；停止 / 失败的回合同样复盘——教训往往就在那里）。
+            if let Some((conversation_id, connection_id, session_id)) = &reflect_hook {
+                state_cleanup.memory.reflector.on_turn_finished(
+                    &state_cleanup,
+                    conversation_id,
+                    connection_id,
+                    session_id,
+                );
+            }
             prune_terminal_tasks(&state_cleanup, 200);
             result
         });
@@ -930,6 +967,13 @@ impl AgentManager {
                     }
                     Err(join_err) => log::warn!("MCP 刷新任务 panic: {}", join_err),
                 }
+            }
+        }
+        // 长期记忆总开关关着：记忆工具整对摘掉（系统提示词也不会有记忆段，见
+        // `memory::inject`）——不给模型一条注定失败的路。
+        if !self.state.settings.read().await.memory_settings.enabled {
+            for name in crate::agent::tools::MEMORY_TOOLS {
+                registry.remove(name);
             }
         }
         Arc::new(registry)
@@ -1257,6 +1301,7 @@ fn build_agent_messages(
     audience: crate::agent::tools::ToolAudience,
     extra_sections: &[String],
     web_search_noisy: bool,
+    memory_section: &str,
 ) -> Result<Vec<LlmMessage>, AppError> {
     // 提示词段由「已注册工具的声明」推导，不按工具名 hardcode：
     // 声明表里给工具写了 `prompt_section`，它出现在本次注册里就会带上对应段落。
@@ -1282,6 +1327,7 @@ fn build_agent_messages(
         plan_mode,
         audience,
         extra_sections,
+        memory_section,
     )?;
     let mut messages: Vec<LlmMessage> = Vec::with_capacity(history.len() + 2);
     messages.push(LlmMessage::system(system_prompt));

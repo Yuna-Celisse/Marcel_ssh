@@ -205,6 +205,37 @@ impl ConversationDb {
         // 返回界面读数（含子对话）而不是刚写的那一行：事件带的是这个数字。
         sum_with_sub_conversations(&conn, conversation_id).map(Some)
     }
+
+    /// 记一笔**会话之外**的模型调用（后台记忆复盘）的用量：只累加，不碰
+    /// `last_context`——占用环讲的是这段对话的上下文，复盘那次请求不是。
+    ///
+    /// 返回界面读数（含子对话）；会话行不存在时返回 `None`。
+    pub fn add_side_usage(
+        &self,
+        conversation_id: &str,
+        round: &crate::llm::provider::TokenUsage,
+    ) -> RusqliteResult<Option<ConversationUsage>> {
+        let conn = self.conn.lock().unwrap();
+        let raw: Option<String> = match conn
+            .query_row(
+                "SELECT usage_json FROM conversations WHERE id = ?1",
+                [conversation_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+        {
+            None => return Ok(None),
+            Some(v) => v,
+        };
+        let mut usage = ConversationUsage::from_json_column(raw);
+        usage.add_round(round);
+        let json = serde_json::to_string(&usage).unwrap_or_default();
+        conn.execute(
+            "UPDATE conversations SET usage_json = ?1 WHERE id = ?2",
+            (&json, conversation_id),
+        )?;
+        sum_with_sub_conversations(&conn, conversation_id).map(Some)
+    }
 }
 
 #[cfg(test)]

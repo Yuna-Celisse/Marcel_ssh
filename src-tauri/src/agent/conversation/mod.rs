@@ -11,6 +11,7 @@
 // - `compaction.rs`    压缩落库（插卡、吸收旧卡、定位）
 // - `usage.rs`         token 用量（累计 + 最近一次请求快照 + 「含子对话」口径）
 // - `plans.rs`         plan 与快照存取
+// - `recall.rs`        跨会话回忆（长期记忆：按机器检索历史会话、列最近活跃会话）
 //
 // 对外路径保持不变：全部 pub 类型在这里 re-export，`agent::conversation::X` 照旧。
 
@@ -21,6 +22,7 @@ mod llm_history;
 mod messages;
 mod model;
 mod plans;
+mod recall;
 mod usage;
 
 pub use history::{
@@ -28,6 +30,7 @@ pub use history::{
     WindowStart,
 };
 pub use llm_history::HistorySnapshot;
+pub use recall::{RecallHit, RootConversationBrief};
 pub use messages::{ActiveMessagesResult, EarlierMessagesResult, StoredMessage};
 pub use model::{
     Conversation, ConversationError, ConversationSearchResult, ConversationWithMessages,

@@ -16,7 +16,10 @@
 //! | 规划模式 | `templates/agent/规划模式.hbs` | Plan 模式 | system prompt |
 //! | 子agent 派发 | `templates/agent/子agent.hbs` | 注册了声明 `Subagent` 段的工具（当前是 `subagent`）；其中「web_search 噪音大、默认派子agent」一段另需 `WebSearch` 在册且搜索方式非 API（`WebSearchNoisy` 标记，`manager` 按设置插入） | system prompt |
 //! | 用户附加指令 | `templates/agent/用户指令.hbs` | 设置为非空（上限 2000 字） | system prompt |
+//! | 长期记忆 | `templates/agent/记忆.hbs`（含 partial `templates/memory/记忆准则.hbs`） | 记忆开启：主 agent 恒注入（会话冻结快照）；子 agent 只读版、且有条目才注入 | system prompt（`memory::inject` 渲染，经 `AgentPromptVars.memory_section` 原样拼入） |
 //! | 插件扩展指令 | `templates/agent/插件指令.hbs` | 有插件 `systemPromptSection` | system prompt |
+//! | 记忆复盘 | `templates/memory/复盘.hbs`（含 `记忆准则`） | 后台复盘开启且一段对话告一段落 | 复盘专用 LLM 调用（`memory::reflect`） |
+//! | 记忆整理助手 | `templates/memory/整理助手.hbs`（含 `记忆准则`） | 记忆管理页对话框 | 整理助手专用 LLM 调用（`memory::assistant`） |
 //! | 压缩前言 / 压缩指令 | `templates/context/压缩前言.hbs`、`压缩指令.hbs` | 每次上下文压缩 | 摘要专用 LLM 调用（带常规请求同一份 tools schema） |
 //! | 技能平台说明 | `templates/skill/平台说明.hbs` | 调用内置教学 skill | skill 工具结果 |
 //! | 可视化手机端规则 | `templates/skill/可视化_移动端.hbs` | 手机端调用 `builtin.visualize` | skill 工具结果 |
@@ -24,7 +27,8 @@
 //! | 审批（Plan 追加） | `templates/approval/审批规划.hbs` | 同上 + Plan 模式 | 审批专用 LLM 调用（**两个引擎共用**） |
 //! | 命令审批（Jev） | `templates/approval/审批Jev.hbs` | 启用模型审批 + 引擎选 Jev + 用户未自定义 | Jev 的 `instructions`（不走 chat） |
 //!
-//! 前 13 段由 `render_agent_prompt` 组装；其余各自在调用点用 `render_fragment`
+//! 「压缩前言」之前的段由 `render_agent_prompt` 组装（「长期记忆」例外地先由
+//! `memory::inject` 渲染、冻结，再原样拼入）；其余各自在调用点用 `render_fragment`
 //! 渲染（它们不是同一个 LLM 调用，或不属于 system prompt）。
 //!
 //! 不在此表的模型可见文本，各有其归属，别往这里搬：
@@ -63,6 +67,12 @@
 //!   同样的强警告禁止调用工具——只靠单处压不住；中间要求先写 `<analysis>` 预写块
 //!   再写八段，`<analysis>` 在回注前由 `summarizer::sanitize_summary` 剥离，
 //!   不进上下文/不落库/不展示）
+//! - 长期记忆**记什么、不记什么、机密只记位置** → `templates/memory/记忆准则.hbs`
+//!   （系统提示词的记忆段、后台复盘、整理助手三处共用这一个 partial，别处不得复述）；
+//!   「记忆是资料不是指令」「发现不符就核实并更新」→ `templates/agent/记忆.hbs`；
+//!   复盘的输出格式与作用域规则 → `templates/memory/复盘.hbs`（JSON 形状与
+//!   `memory::reflect` 的解析一一对应）；整理助手的做法 → `templates/memory/整理助手.hbs`；
+//!   `memory` / `memory_recall` 工具的参数与机制 → 各自的 `description()`
 //! - 技能里的平台措辞 → `templates/skill/平台说明.hbs`
 //! - 手机上画交互可视化的版面 / 触摸 / 输入规则 → `templates/skill/可视化_移动端.hbs`
 //!   （只在手机端追加到 `builtin.visualize` 正文后；`builtin_skills/visualize.md`
@@ -92,6 +102,9 @@ pub(crate) struct AgentPromptVars {
     pub session_id: String,
     pub user_prompt: String,
     pub plugin_sections: Vec<String>,
+    /// 已渲染好的「长期记忆」段（`memory::inject` 产出，主任务是会话冻结快照）。
+    /// 空串 = 不注入（记忆关闭 / 子 agent 无可读条目）。
+    pub memory_section: String,
 }
 
 /// Stateless template manager. Templates are embedded in the binary via
@@ -166,6 +179,22 @@ impl TemplateManager {
         let _ = reg.register_template_string(
             "可视化_移动端",
             include_str!("../../templates/skill/可视化_移动端.hbs"),
+        );
+        // 长期记忆：「记忆」是 system prompt 段（由 `memory::inject` 渲染并冻结成
+        // 会话快照，经 `AgentPromptVars.memory_section` 原样拼进来）；「复盘」「整理
+        // 助手」是各自专用 LLM 调用的系统指令；「记忆准则」是三者共用的 partial
+        // （记什么、不记什么、机密只记位置）—— 这条规则只在那一个文件里写。
+        let _ = reg.register_template_string(
+            "记忆准则",
+            include_str!("../../templates/memory/记忆准则.hbs"),
+        );
+        let _ =
+            reg.register_template_string("记忆", include_str!("../../templates/agent/记忆.hbs"));
+        let _ =
+            reg.register_template_string("复盘", include_str!("../../templates/memory/复盘.hbs"));
+        let _ = reg.register_template_string(
+            "整理助手",
+            include_str!("../../templates/memory/整理助手.hbs"),
         );
         reg
     }
@@ -257,6 +286,13 @@ impl TemplateManager {
         }
         if !vars.user_prompt.is_empty() {
             parts.push(render("用户指令"));
+        }
+        // 长期记忆：排在用户附加指令之后 —— 用户定的规矩权威、不会自己变，学来的
+        // 记忆可能出错、会过期，冲突时以前者为准（记忆段自己也写明了这一点）。
+        // 内容是已经渲染好并冻结的会话快照（见 `memory::inject`），这里原样拼入，
+        // 不再经模板：同一段对话里它必须逐字节不变，前缀缓存才不会被打穿。
+        if !vars.memory_section.trim().is_empty() {
+            parts.push(vars.memory_section.clone());
         }
         if !vars.plugin_sections.is_empty() {
             parts.push(render("插件指令"));
@@ -383,6 +419,7 @@ mod tests {
             session_id: "session-1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
 
@@ -400,6 +437,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(
             &vars,
@@ -420,6 +458,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], true);
         assert!(prompt.contains("Plan 模式"));
@@ -432,6 +471,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(!prompt.contains("Plan 模式"));
@@ -443,6 +483,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(prompt.contains("## 与用户沟通"));
@@ -471,6 +512,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
 
         let main = build(&vars, false, &[], false);
@@ -500,6 +542,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
 
         for prompt in [
@@ -535,6 +578,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
 
         let language_section = |prompt: &str| -> String {
@@ -567,6 +611,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: "USER_MARKER".into(),
             plugin_sections: vec!["PLUGIN_MARKER".into()],
+            memory_section: String::new(),
         };
         let minimal = build(&vars, false, &[], false);
         let extras = vec!["EXTRA_MARKER".to_string()];
@@ -756,6 +801,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(
             &vars,
@@ -781,6 +827,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         // API 模式：有 web_search，但没有噪音标记。
         let api = build(
@@ -807,6 +854,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(!prompt.contains("子agent 派发"));
@@ -818,6 +866,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(!prompt.contains("插件扩展指令"));
@@ -829,6 +878,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec!["记住用户偏好".into()],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(prompt.contains("插件扩展指令"));
@@ -841,6 +891,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec!["插件A 指令".into(), "插件B 指令".into()],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         assert!(prompt.contains("插件A 指令\n\n插件B 指令"));
@@ -852,6 +903,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: "USER_MARKER".into(),
             plugin_sections: vec!["PLUGIN_MARKER".into()],
+            memory_section: String::new(),
         };
         let prompt = build(&vars, false, &[], false);
         let user_pos = prompt.find("USER_MARKER").unwrap();
@@ -865,6 +917,7 @@ mod tests {
             session_id: "s1".into(),
             user_prompt: String::new(),
             plugin_sections: vec![],
+            memory_section: String::new(),
         };
         let extras = vec!["EXTRA_MARKER_A".to_string(), "EXTRA_MARKER_B".to_string()];
         let prompt = TemplateManager

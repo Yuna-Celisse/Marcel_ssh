@@ -203,6 +203,10 @@ pub async fn agent_compact_conversation(
     let persister =
         ConversationPersister::new(state.conversation_db.clone(), conversation_id.clone());
     let persisted = persister.persist_compaction(outcome);
+    if persisted {
+        // 长期记忆：注入快照随压缩刷新；被压掉的那段复盘。
+        crate::memory::reflect::on_compacted(state.inner(), &conversation_id);
+    }
     log::info!(
         "Manual compaction for conversation {}: {} messages, ~{} tokens (persisted={})",
         conversation_id,

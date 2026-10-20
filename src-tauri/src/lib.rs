@@ -16,6 +16,7 @@ pub mod llm;
 pub mod mcp;
 #[cfg(desktop)]
 pub mod mcp_server;
+pub mod memory;
 pub mod multi_host;
 pub mod notification;
 pub mod plugins;
@@ -169,6 +170,8 @@ pub struct AppState {
     /// 任务终态/停止时级联取消这些传输（只取消传输本身，不动任务）。
     /// 与 `multi_host_targets` 共用 [`crate::child_resources`] 的竞态保证。
     pub agent_transfer_by_task: crate::child_resources::ChildResources,
+    /// 长期记忆（`memory/` 模块）：记忆库、注入快照、后台复盘调度、整理助手。
+    pub memory: std::sync::Arc<crate::memory::MemoryManager>,
 }
 
 impl AppState {
@@ -521,6 +524,7 @@ impl AppState {
         let skill_store_arc = std::sync::Arc::new(TokioRwLock::new(skill_store));
         let mcp_store_arc = std::sync::Arc::new(TokioRwLock::new(mcp_store));
         let mcp_manager = std::sync::Arc::new(McpManager::new());
+        let memory = std::sync::Arc::new(crate::memory::MemoryManager::open(&config_dir));
 
         // SSH 连接管理器 + 命令执行统一管理器（后者注册断连观察者，
         // 必须在 SshManager 构造后立即创建并共享同一句柄）。后台作业
@@ -582,6 +586,7 @@ impl AppState {
             multi_host_targets: crate::child_resources::ChildResources::new(),
             agent_transfer_mutex: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             agent_transfer_by_task: crate::child_resources::ChildResources::new(),
+            memory,
         };
 
         // 「作业活得比回合久」的资源回收钩子（见
@@ -889,6 +894,27 @@ pub fn run() {
                 });
             }
 
+            // 长期记忆：挂上 AppHandle（各处钩子只拿得到 AppState，发事件要用它）、
+            // 启动补复盘（最近几天上次没来得及复盘的会话），以及「会话断开 = 这段
+            // 对话告一段落」的观察者。
+            {
+                let state = app.state::<AppState>();
+                state.memory.attach_app(app.handle().clone());
+                let st: AppState = state.inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::memory::reflect::spawn_catch_up(st);
+                });
+                let st: AppState = state.inner().clone();
+                let ssh_mgr = state.ssh_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    ssh_mgr
+                        .register_disconnect_observer(std::sync::Arc::new(move |session_id| {
+                            st.memory.reflector.on_session_closed(&st, session_id);
+                        }))
+                        .await;
+                });
+            }
+
             // 无感更新器：启动清理 + 恢复未装上的安装包 + 后台检查循环。
             // 全平台启动；退出时静默安装只在 Windows 有意义（见下方 RunEvent::Exit）。
             crate::updater::init(app.handle());
@@ -959,6 +985,18 @@ pub fn run() {
             commands::connections::config_save_connection,
             commands::connections::config_apply_connection_order,
             commands::connections::config_delete_connection,
+            commands::memory::memory_overview,
+            commands::memory::memory_apply,
+            commands::memory::memory_revert_op,
+            commands::memory::memory_revert_batch,
+            commands::memory::memory_batch_ops,
+            commands::memory::memory_mark_seen,
+            commands::memory::memory_reflection_notes,
+            commands::memory::memory_conversation_injected,
+            commands::memory::memory_count_for_connection,
+            commands::memory::memory_delete_scope,
+            commands::memory::memory_assistant_run,
+            commands::memory::memory_assistant_cancel,
             commands::settings::config_get_settings,
             commands::settings::config_save_settings,
             commands::settings::config_validate_custom_protected_paths,

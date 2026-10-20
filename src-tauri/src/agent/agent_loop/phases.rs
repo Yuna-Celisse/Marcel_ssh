@@ -192,6 +192,10 @@ pub(super) async fn request_round_reply(
     .await;
     if let Some(outcome) = &run.outcome {
         let persisted = persister.persist_compaction(outcome);
+        if persisted {
+            // 长期记忆：注入快照随压缩刷新；被压掉的那段已有结论，复盘它。
+            crate::memory::reflect::on_compacted(state, conversation_id);
+        }
         log::info!(
             "Agent {} compacted: {} messages, ~{} tokens (persisted={})",
             task_id,
@@ -326,6 +330,9 @@ pub(super) async fn request_round_reply(
                 .await;
                 if let Some(outcome) = &run.outcome {
                     let persisted = persister.persist_compaction(outcome);
+                    if persisted {
+                        crate::memory::reflect::on_compacted(state, conversation_id);
+                    }
                     *overflow_retries += 1;
                     log::info!(
                         "Agent {} context overflow: compacted {} messages, retrying round (persisted={})",

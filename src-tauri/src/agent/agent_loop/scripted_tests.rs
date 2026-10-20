@@ -369,6 +369,9 @@ fn isolated_state_with(
         multi_host_targets: Default::default(),
         agent_transfer_mutex: Default::default(),
         agent_transfer_by_task: Default::default(),
+        memory: Arc::new(crate::memory::MemoryManager::with_store(
+            crate::memory::MemoryStore::in_memory(),
+        )),
     }
 }
 

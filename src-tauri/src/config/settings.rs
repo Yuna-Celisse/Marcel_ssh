@@ -603,6 +603,30 @@ impl Default for WorkspaceLayoutSettings {
     }
 }
 
+/// 长期记忆设置（`memory/` 模块）。
+///
+/// 记忆模型不在这里：它是 `llm_registry.slots.memory_model_id`，与其它场景模型
+/// 槽位同处一地（空 = 跟随会话主模型）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MemorySettings {
+    /// 总开关。关掉后不注入记忆、不注册记忆工具、不做后台复盘；已有记忆保留，
+    /// 管理页照常可看可改。
+    pub enabled: bool,
+    /// 后台复盘：一段对话告一段落后，用记忆模型在后台整理值得长期记住的东西。
+    /// 默认开（第一次复盘时会在对话里出一张说明卡，带关闭按钮）。
+    pub auto_reflect: bool,
+}
+
+impl Default for MemorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_reflect: true,
+        }
+    }
+}
+
 /// 更新方式（三态）：自动更新 / 仅提醒 / 关闭。
 ///
 /// 取代此前的单一 `auto_update` 布尔开关 —— 那个开关只切「要不要自动下载」，
@@ -712,6 +736,9 @@ pub struct AppSettings {
     pub agent_mode_settings: AgentModeSettings,
     #[serde(default)]
     pub experimental_settings: ExperimentalSettings,
+    /// 长期记忆（总开关 + 后台复盘开关）。
+    #[serde(default)]
+    pub memory_settings: MemorySettings,
     /// File manager last browsed path.
     ///
     /// 旧版本的目录记忆，现在只读兜底：新的目录记忆在前端 localStorage
@@ -850,6 +877,7 @@ impl Default for AppSettings {
             llm_registry: LlmRegistry::default(),
             agent_mode_settings: AgentModeSettings::default(),
             experimental_settings: ExperimentalSettings::default(),
+            memory_settings: MemorySettings::default(),
             file_manager_path: default_file_manager_path(),
             file_manager_paths: HashMap::new(),
             file_manager_show_hidden: false,

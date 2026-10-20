@@ -49,6 +49,7 @@ pub mod local_handlers;
 #[cfg(desktop)]
 pub mod local_subagent;
 pub mod mcp;
+pub mod memory;
 pub mod open_cloud_page;
 pub mod plan;
 pub mod plugin_tool;
@@ -1015,6 +1016,9 @@ pub(crate) fn prompt_section_of(tool_name: &str) -> Option<PromptSection> {
 /// 声明驱动：谁被门控只在这里写一遍，不散落到 builder / 循环 / 提示词拼装处。
 pub(crate) const STATE_GATED_TOOLS: &[&str] = &["read_history"];
 
+/// 长期记忆的工具名（记忆总开关关掉时整对摘掉，见 `AgentManager::build_registry`）。
+pub(crate) const MEMORY_TOOLS: &[&str] = &["memory", "memory_recall"];
+
 /// 全平台共用的内置工具声明。
 ///
 /// 顺序不影响行为（[`ToolRegistry::definitions`] 按名字排序），按「核心执行 →
@@ -1052,6 +1056,29 @@ static BUILTIN_TOOLS_COMMON: &[BuiltinToolSpec] = &[
         semantics: ToolSemantics::NONE,
         prompt_section: None,
         build: || Arc::new(history::ReadHistoryTool::new()),
+    },
+    // 长期记忆：写入只给主 agent（子 agent 把发现写进交回的结论，由主 agent 决定记不记）；
+    // 回忆两边都给。都是应用内操作，不审批（写入在对话里有可撤销的卡片）。记忆总开关
+    // 关掉时由 `AgentManager::build_registry` 整对摘掉。
+    BuiltinToolSpec {
+        name: "memory",
+        side: ToolSide::App,
+        modes: ToolModes::ALL,
+        roles: ToolRoles::MainOnly,
+        switch: None,
+        semantics: ToolSemantics::NONE,
+        prompt_section: None,
+        build: || Arc::new(memory::MemoryTool),
+    },
+    BuiltinToolSpec {
+        name: "memory_recall",
+        side: ToolSide::App,
+        modes: ToolModes::ALL,
+        roles: ToolRoles::Both,
+        switch: None,
+        semantics: ToolSemantics::NONE,
+        prompt_section: None,
+        build: || Arc::new(memory::MemoryRecallTool),
     },
     BuiltinToolSpec {
         name: "read_file",
