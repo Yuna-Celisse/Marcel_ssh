@@ -267,11 +267,6 @@ export default function ApprovalDialog({
             <Badge variant={toolCall.disposition} size="md">
               {DISPOSITION_LABELS[toolCall.disposition]}
             </Badge>
-            {toolCall.disposition === 'ForceApproval' && (
-              <span className="text-xs text-orange-300/90">
-                Auto 模式下也会询问
-              </span>
-            )}
           </div>
 
           {toolCall.reasons && toolCall.reasons.length > 0 && (

@@ -115,11 +115,6 @@ export default function MobileApprovalSheet({
             >
               {DISPOSITION_LABELS[toolCall.disposition]}
             </span>
-            {toolCall.disposition === 'ForceApproval' && (
-              <span className="text-[11px] text-orange-300/90">
-                Auto 模式也会询问
-              </span>
-            )}
           </span>
           <div className="flex items-center gap-2">
             {queueLength > 1 && (

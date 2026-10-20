@@ -119,6 +119,18 @@ function typeReason(text: string) {
  *
  * 这三条曾经全接到 `onClose`，而调用方把它映射成了 `reject`。
  */
+/**
+ * 后端 Auto 是全自主（`needs_human_confirmation` 的 Auto 分支恒 false），
+ * 弹窗只会在 Agent/Plan 下出现 —— 强制审批档旁不能再暗示「Auto 也会问」。
+ */
+describe('ApprovalDialog 的强制审批提示', () => {
+  it('强制审批档只显示档位标签，不声称 Auto 模式下也会询问', () => {
+    render();
+    expect(container.textContent).toContain('强制审批');
+    expect(container.textContent).not.toContain('Auto');
+  });
+});
+
 describe('ApprovalDialog 的误触防护', () => {
   it('点背景只收起，不拒绝', () => {
     render();

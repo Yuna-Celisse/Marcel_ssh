@@ -80,6 +80,15 @@ function typeReason(text: string) {
   });
 }
 
+/** 与桌面端同一条：Auto 全自主，强制审批档旁不能暗示 Auto 也会询问。 */
+describe('MobileApprovalSheet 的强制审批提示', () => {
+  it('强制审批档只显示档位标签，不声称 Auto 模式也会询问', () => {
+    render();
+    expect(document.body.textContent).toContain('强制审批');
+    expect(document.body.textContent).not.toContain('Auto');
+  });
+});
+
 /**
  * 移动端与桌面端必须给出同一套能力（AGENTS.md 的双端对齐要求）。
  * 这里只钉最容易漏的那两条：理由真的送出去了、以及「拒绝并停止」确实是两件事。
