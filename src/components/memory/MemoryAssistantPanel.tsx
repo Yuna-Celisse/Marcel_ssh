@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, Square, Wand2 } from 'lucide-react';
 import MarkdownBody from '@/components/agent/MarkdownBody';
 import { getErrorMessage } from '@/lib/errors';
@@ -11,6 +11,9 @@ interface Props {
   focus: ScopeRef | null;
   mobile?: boolean;
 }
+
+/** 输入框最高长到多少 px（约 5 行），再多就在框里滚。 */
+const INPUT_MAX_HEIGHT = 120;
 
 function suggestions(focusLabel: string | null): { label: string; prompt: string }[] {
   const where = focusLabel ?? '各台机器';
@@ -43,10 +46,21 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const focusLabel = focus ? scopeLabel(focus, connections) : null;
   const running = runningId !== null;
 
+  // 跟随到底部——但用户往上翻着读的时候不抢滚动位置。
+  const stickToBottom = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [entries]);
+
+  // 输入框随内容长高（到上限后内部滚动）。
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, INPUT_MAX_HEIGHT)}px`;
+  }, [draft]);
 
   const send = (text: string) => {
     if (!text.trim() || running) return;
@@ -81,6 +95,10 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
       ) : (
         <div
           ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          }}
           className={`flex flex-col gap-3 overflow-y-auto overscroll-contain ${mobile ? 'max-h-[50dvh]' : 'max-h-[28rem]'} pr-1`}
         >
           {entries.map((e) => (
@@ -89,8 +107,11 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-xl border border-zinc-700 bg-zinc-900 p-1.5 focus-within:border-indigo-500/70 transition-colors">
+      {/* 药丸输入框：外圈圆角 = 内圈按钮半径 + 内边距，按钮是正圆，嵌进去才同心。
+          outline 要显式关掉：全局 :focus-visible 的描边会在圆角框里再画出一个方框。 */}
+      <div className="flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 bg-zinc-800 p-1.5 pl-4 transition-colors focus-within:border-indigo-500">
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -99,26 +120,26 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
               send(draft);
             }
           }}
-          rows={mobile ? 2 : 1}
+          rows={1}
           placeholder={focusLabel ? `要怎么整理 ${focusLabel} 的记忆？` : '要怎么整理记忆？'}
-          className="min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none"
+          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 placeholder:text-zinc-500 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none"
         />
         {running ? (
           <button
             type="button"
             onClick={() => void useMemoryAssistantStore.getState().cancel()}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-red-600 text-white active:scale-95 transition"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-500 active:scale-90"
             aria-label="停止"
             title="停止"
           >
-            <Square className="h-3.5 w-3.5" fill="currentColor" />
+            <Square className="h-3 w-3" fill="currentColor" />
           </button>
         ) : (
           <button
             type="button"
             onClick={() => send(draft)}
             disabled={!draft.trim()}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white active:scale-95 transition disabled:opacity-40 disabled:active:scale-100"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white transition hover:bg-indigo-500 active:scale-90 disabled:bg-zinc-700 disabled:text-zinc-500 disabled:active:scale-100"
             aria-label="发送"
             title="发送"
           >
@@ -139,7 +160,7 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   );
 }
 
-function EntryView({ entry, mobile }: { entry: AssistantEntry; mobile: boolean }) {
+const EntryView = memo(function EntryView({ entry, mobile }: { entry: AssistantEntry; mobile: boolean }) {
   if (entry.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -150,7 +171,7 @@ function EntryView({ entry, mobile }: { entry: AssistantEntry; mobile: boolean }
     );
   }
   return <ReplyView entry={entry} mobile={mobile} />;
-}
+});
 
 function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: 'assistant' }>; mobile: boolean }) {
   const connections = useConnectionStore((s) => s.connections);
@@ -177,7 +198,7 @@ function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: '
         <Wand2 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" aria-hidden />
         <div className="min-w-0 flex-1 text-sm text-zinc-200">
           {entry.text ? (
-            <MarkdownBody content={entry.text} />
+            <MarkdownBody content={entry.text} sync />
           ) : entry.status === 'running' ? null : (
             <span className="text-zinc-500">{entry.status === 'cancelled' ? '已停止。' : ''}</span>
           )}

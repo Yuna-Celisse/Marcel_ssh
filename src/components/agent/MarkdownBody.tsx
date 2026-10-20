@@ -29,20 +29,24 @@ const SynchronousMarkdown = memo(function SynchronousMarkdown({ content }: { con
   </Markdown>;
 });
 
-export default memo(function MarkdownBody({ content }: { content: string }) {
+/**
+ * `sync`：不经 worker、当帧直接渲染。短文本、会反复重挂载的场景（设置页里的整理助手）用它，
+ * 免得每次挂载先露一帧未渲染的原文、再换成排版后的样子（一闪）；长对话列表保持默认的异步渲染。
+ */
+export default memo(function MarkdownBody({ content, sync = false }: { content: string; sync?: boolean }) {
   const visible = useContext(MarkdownVisibility);
   const owner = useRef(Symbol('markdown'));
   const [rendered, setRendered] = useState<{ tree: MarkdownTree; source: string } | null>(null);
   const [fallback, setFallback] = useState(() => typeof Worker === 'undefined');
   useEffect(() => {
-    if (fallback || !visible) return;
+    if (fallback || sync || !visible) return;
     return markdownRenderManager.request(owner.current, content, (tree, source) => {
       if (tree) setRendered({ tree, source });
       else setFallback(true);
     });
-  }, [content, fallback, visible]);
+  }, [content, fallback, sync, visible]);
 
-  if (fallback) {
+  if (fallback || sync) {
     return <SynchronousMarkdown content={content} />;
   }
   return rendered && content.startsWith(rendered.source)

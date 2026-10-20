@@ -83,7 +83,9 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
           entries: patchRun(s.entries, ev.runId, (e) => {
             if (e.status !== 'running') return e;
             if (ev.kind === 'text') return { ...e, text: e.text + ev.text };
-            if (ev.kind === 'tool') return { ...e, activity: ev.text };
+            // 调工具之前模型顺口说的话（「我先看看」）不是最终回复：后端最终只回传最后一轮的文字，
+            // 这里不清掉的话，结束那一刻正文会整段换掉、卡片跟着跳一下。
+            if (ev.kind === 'tool') return { ...e, text: '', activity: ev.text };
             return { ...e, batchId: ev.batchId ?? e.batchId, ops: mergeOps(e.ops, ev.ops ?? []) };
           }),
         }));
