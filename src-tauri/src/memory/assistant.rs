@@ -554,6 +554,7 @@ pub async fn run(
     history: Vec<AssistantTurn>,
     prompt: &str,
     focus: Option<ScopeRef>,
+    model_id: Option<&str>,
 ) -> Result<AssistantReply, AppError> {
     let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
     state
@@ -582,7 +583,7 @@ pub async fn run(
             "focus": focus_text(focus.as_ref(), &machines),
         }),
     );
-    let manager = super::resolve_memory_model(state, None).await?;
+    let manager = super::resolve_assistant_model(state, model_id).await?;
 
     let mut messages = vec![LlmMessage::system(system)];
     for t in history {

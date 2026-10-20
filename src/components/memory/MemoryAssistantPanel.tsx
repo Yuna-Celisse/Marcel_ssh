@@ -5,6 +5,7 @@ import { getErrorMessage } from '@/lib/errors';
 import { OP_VERBS, opItem, scopeLabel, scopeOf, type ScopeRef } from '@/lib/memory';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useMemoryAssistantStore, type AssistantEntry } from '@/stores/memoryAssistantStore';
+import AssistantModelPicker from './AssistantModelPicker';
 import { assistantSuggestions } from './assistantSuggestions';
 
 interface Props {
@@ -59,6 +60,7 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <AssistantModelPicker mobile={mobile} />
       <div
         ref={scrollRef}
         onScroll={(e) => {

@@ -73,12 +73,15 @@ export async function memoryAssistantRun(
   history: AssistantTurn[],
   prompt: string,
   focus: ScopeRef | null,
+  /** 用户在助手里点名选的模型；空 = 沿用记忆模型设置 / 默认模型。 */
+  modelId: string,
 ): Promise<AssistantReply> {
   return invoke<AssistantReply>("memory_assistant_run", {
     runId,
     history,
     prompt,
     focus,
+    modelId: modelId || null,
   });
 }
 

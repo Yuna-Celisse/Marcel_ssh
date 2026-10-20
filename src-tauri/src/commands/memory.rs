@@ -224,12 +224,21 @@ pub async fn memory_assistant_run(
     history: Vec<AssistantTurn>,
     prompt: String,
     focus: Option<ScopeRef>,
+    model_id: Option<String>,
 ) -> Result<AssistantReply, AppError> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err(AppError::Other("请先说说要怎么整理".into()));
     }
-    crate::memory::assistant::run(state.inner(), &run_id, history, prompt, focus).await
+    crate::memory::assistant::run(
+        state.inner(),
+        &run_id,
+        history,
+        prompt,
+        focus,
+        model_id.as_deref(),
+    )
+    .await
 }
 
 #[tauri::command]

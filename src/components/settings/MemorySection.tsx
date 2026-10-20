@@ -63,7 +63,7 @@ export function MemorySection() {
       <SettingItem
         id="memory-model"
         label="记忆模型"
-        description="后台复盘与整理助手用的模型。留空 = 跟随会话正在用的模型。复盘只是读一段对话写几条结论，用便宜的小模型就够"
+        description="后台复盘用的模型，留空 = 跟随会话正在用的模型。用便宜的小模型就够"
         sectionId={SECTION}
         keywords={['记忆', '模型', 'memory', 'model', '复盘', '整理助手']}
       >

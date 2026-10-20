@@ -47,7 +47,7 @@ export function MobileMemorySection() {
       />
       <MobileSettingRow
         label="记忆模型"
-        description="后台复盘与整理助手用的模型。留空 = 跟随会话正在用的模型；用便宜的小模型就够"
+        description="后台复盘用的模型，留空 = 跟随会话正在用的模型。用便宜的小模型就够"
       >
         <button
           type="button"

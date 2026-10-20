@@ -51,3 +51,25 @@ describe('memoryAssistantStore', () => {
     expect(reply()?.status).toBe('done');
   });
 });
+
+describe('memoryAssistantStore 模型选择', () => {
+  it('把用户点名选的模型带给后端，并记在本机', async () => {
+    const api = await import('@/lib/memoryApi');
+    const mem = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => void mem.set(k, v),
+      removeItem: (k: string) => void mem.delete(k),
+    });
+    useMemoryAssistantStore.getState().setModelId('m-small');
+    expect(localStorage.getItem('marcel.memory.assistantModelId')).toBe('m-small');
+    const sending = useMemoryAssistantStore.getState().send('整理一下', null);
+    finishRun({ text: '好', batchId: null, ops: [] });
+    await sending;
+    const calls = vi.mocked(api.memoryAssistantRun).mock.calls;
+    expect(calls[calls.length - 1]?.[4]).toBe('m-small');
+    useMemoryAssistantStore.getState().setModelId('');
+    expect(localStorage.getItem('marcel.memory.assistantModelId')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});

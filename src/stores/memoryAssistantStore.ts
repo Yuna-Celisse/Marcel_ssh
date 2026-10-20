@@ -39,6 +39,9 @@ type AssistantReplyEntry = Extract<AssistantEntry, { role: 'assistant' }>;
 interface AssistantState {
   entries: AssistantEntry[];
   runningId: string | null;
+  /** 用户在助手里点名选的模型（空 = 沿用记忆模型设置 / 默认模型）。只存在本机。 */
+  modelId: string;
+  setModelId: (modelId: string) => void;
   send: (prompt: string, focus: ScopeRef | null) => Promise<void>;
   cancel: () => Promise<void>;
   undo: (entryId: string) => Promise<void>;
@@ -46,6 +49,16 @@ interface AssistantState {
 }
 
 let subscribed = false;
+
+const MODEL_KEY = 'marcel.memory.assistantModelId';
+
+function readModelId(): string {
+  try {
+    return localStorage.getItem(MODEL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
 
 function patchRun(entries: AssistantEntry[], runId: string, fn: (e: AssistantReplyEntry) => AssistantReplyEntry) {
   return entries.map((e) => (e.role === 'assistant' && e.runId === runId ? fn(e) : e));
@@ -72,6 +85,17 @@ function historyFrom(entries: AssistantEntry[]): AssistantTurn[] {
 export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
   entries: [],
   runningId: null,
+  modelId: readModelId(),
+
+  setModelId: (modelId) => {
+    try {
+      if (modelId) localStorage.setItem(MODEL_KEY, modelId);
+      else localStorage.removeItem(MODEL_KEY);
+    } catch {
+      /* 存不下就只在本次运行里生效，无害 */
+    }
+    set({ modelId });
+  },
 
   send: async (prompt, focus) => {
     const text = prompt.trim();
@@ -113,7 +137,7 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
       ],
     }));
     try {
-      const reply = await memoryApi.memoryAssistantRun(runId, history, text, focus);
+      const reply = await memoryApi.memoryAssistantRun(runId, history, text, focus, get().modelId);
       set((s) => ({
         entries: patchRun(s.entries, runId, (e) => ({
           ...e,

@@ -83,6 +83,23 @@ impl MemoryManager {
     }
 }
 
+/// 整理助手的模型：用户在助手里**明确选的** → 记忆槽位 → 全局默认模型。
+///
+/// 明确选的模型解析不了（被删了）就报错、不悄悄换一个——用户点名要的模型，换了
+/// 他自己都不知道花的是哪个的钱。没选时走 [`resolve_memory_model`]（助手没有会话，
+/// 所以最后落到全局默认）。
+pub(crate) async fn resolve_assistant_model(
+    state: &AppState,
+    explicit: Option<&str>,
+) -> Result<LlmManager, AppError> {
+    if let Some(id) = explicit.map(str::trim).filter(|id| !id.is_empty()) {
+        let reg = state.settings.read().await.llm_registry.clone();
+        let resolved = reg.resolve_model(id)?;
+        return LlmManager::new(resolved.config);
+    }
+    resolve_memory_model(state, None).await
+}
+
 /// 记忆模型：记忆槽位 → 会话主模型（会话级记忆 → 全局最近使用 → 第一个）。
 ///
 /// **不**回落压缩模型（用户拍板）。槽位指向的模型解析失败时退回主模型并记日志，

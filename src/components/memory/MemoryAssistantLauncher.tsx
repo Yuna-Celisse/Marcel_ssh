@@ -5,6 +5,7 @@ import MobileSheet from '@/mobile/ui/MobileSheet';
 import { scopeLabel, type ScopeRef } from '@/lib/memory';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useMemoryAssistantStore } from '@/stores/memoryAssistantStore';
+import { useAssistantModel } from './useAssistantModel';
 import MemoryAssistantPanel from './MemoryAssistantPanel';
 import { assistantSuggestions } from './assistantSuggestions';
 
@@ -32,6 +33,7 @@ export default function MemoryAssistantLauncher({ focus, mobile = false }: Props
   const running = useMemoryAssistantStore((s) => s.runningId !== null);
   const connections = useConnectionStore((s) => s.connections);
   const focusLabel = focus ? scopeLabel(focus, connections) : null;
+  const { label: modelLabel } = useAssistantModel();
 
   const start = (prompt: string) => {
     void useMemoryAssistantStore.getState().send(prompt, focus);
@@ -68,6 +70,10 @@ export default function MemoryAssistantLauncher({ focus, mobile = false }: Props
         {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Wand2 className="h-3.5 w-3.5" aria-hidden />}
         {label}
       </button>
+      {/* 用哪个模型要写明：整理要读很多记忆和历史会话，花的是真钱。对话框里可以换。 */}
+      <p className="text-xs text-zinc-500">
+        {modelLabel ? `将用「${modelLabel}」整理，打开后可以换` : '还没有配置模型，请先到「设置 → 模型」添加'}
+      </p>
 
       {mobile ? (
         <MobileSheet
