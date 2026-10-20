@@ -65,6 +65,9 @@ pub struct Snapshot {
     pub content: String,
     pub item_ids: Vec<String>,
     pub created_at: String,
+    /// 最近一次被某个回合用到的时间。用来判断提示词前缀缓存还热不热：冷了就没有
+    /// 「冻结」的理由了（见 `inject::snapshot_usable`）。
+    pub touched_at: String,
 }
 
 /// 管理页的作用域概览：每个作用域有几条、其中几条是新的。
@@ -558,7 +561,8 @@ impl MemoryStore {
                 fingerprint TEXT NOT NULL,
                 content TEXT NOT NULL,
                 item_ids_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                touched_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scope_versions (
@@ -574,6 +578,11 @@ impl MemoryStore {
             );
             ",
         )?;
+        // 旧库的快照表没有 touched_at：补列（已有则忽略报错）。
+        let _ = conn.execute(
+            "ALTER TABLE memory_snapshots ADD COLUMN touched_at TEXT",
+            [],
+        );
         // 记忆库建立时间：这之前的消息不做后台复盘（功能上线前的旧会话不自动补，
         // 想补的话用整理助手）。只在第一次建库时写。
         conn.execute(
@@ -862,7 +871,8 @@ impl MemoryStore {
         let conn = self.lock();
         Ok(conn
             .query_row(
-                "SELECT fingerprint, content, item_ids_json, created_at FROM memory_snapshots \
+                "SELECT fingerprint, content, item_ids_json, created_at, \
+                 COALESCE(touched_at, created_at) FROM memory_snapshots \
                  WHERE conversation_id = ?1",
                 [conversation_id],
                 |row| {
@@ -872,6 +882,7 @@ impl MemoryStore {
                         content: row.get(1)?,
                         item_ids: serde_json::from_str(&ids).unwrap_or_default(),
                         created_at: row.get(3)?,
+                        touched_at: row.get(4)?,
                     })
                 },
             )
@@ -881,17 +892,29 @@ impl MemoryStore {
     pub fn put_snapshot(&self, conversation_id: &str, snap: &Snapshot) -> StoreResult<()> {
         let conn = self.lock();
         conn.execute(
-            "INSERT INTO memory_snapshots (conversation_id, fingerprint, content, item_ids_json, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(conversation_id) DO UPDATE SET \
+            "INSERT INTO memory_snapshots \
+             (conversation_id, fingerprint, content, item_ids_json, created_at, touched_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(conversation_id) DO UPDATE SET \
              fingerprint = excluded.fingerprint, content = excluded.content, \
-             item_ids_json = excluded.item_ids_json, created_at = excluded.created_at",
+             item_ids_json = excluded.item_ids_json, created_at = excluded.created_at, \
+             touched_at = excluded.touched_at",
             params![
                 conversation_id,
                 snap.fingerprint,
                 snap.content,
                 serde_json::to_string(&snap.item_ids).unwrap_or_else(|_| "[]".into()),
                 snap.created_at,
+                snap.touched_at,
             ],
+        )?;
+        Ok(())
+    }
+
+    /// 这个会话的快照又被一个回合用了一次：刷新「最近使用」时间。
+    pub fn touch_snapshot(&self, conversation_id: &str) -> StoreResult<()> {
+        self.lock().execute(
+            "UPDATE memory_snapshots SET touched_at = ?2 WHERE conversation_id = ?1",
+            params![conversation_id, now_rfc3339()],
         )?;
         Ok(())
     }
@@ -1547,6 +1570,7 @@ mod tests {
             content: "c".into(),
             item_ids: vec!["m1".into()],
             created_at: now_rfc3339(),
+            touched_at: now_rfc3339(),
         };
         s.put_snapshot("conv", &snap).unwrap();
         assert_eq!(s.snapshot("conv").unwrap().unwrap(), snap);

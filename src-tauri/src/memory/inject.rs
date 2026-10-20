@@ -5,14 +5,17 @@
 //! 系统提示词每个回合都会重新拼一遍（每条消息都是一次新的任务）。若注入的是
 //! 「此刻最新的记忆」，agent 这一轮刚记下一条，下一轮系统提示词就变了，整段会话的
 //! 前缀缓存从头失效。所以每个会话第一次用到时渲染一份存进 `memory_snapshots`，
-//! 之后原样复用。只有两种情况重渲染：
+//! 之后原样复用。只有三种情况重渲染：
 //!
 //! 1. **用户亲手改了**这个会话能看到的某个作用域（指纹里的作用域序号变了）——删掉
 //!    的东西必须马上不再被模型看到，正确性优先；
-//! 2. **压缩之后**（`drop_snapshot`）——压缩本身已经打断了缓存，顺手刷新。
+//! 2. **压缩之后**（`drop_snapshot`）——压缩本身已经打断了缓存，顺手刷新；
+//! 3. **缓存已经冷了**（这份快照超过 `CACHE_WARM` 没被任何回合用过）——冻结只是为了
+//!    保住前缀缓存，缓存都过期了还抱着旧快照不放，一个隔了几天才回来的会话就永远看
+//!    不到这段时间里记下的东西（别的会话记的、后台复盘记的）。此时重渲染不损失任何缓存。
 //!
-//! agent 自己写的、后台复盘写的都不触发重渲染：前者本来就在它的上下文里，后者
-//! 留给下一段对话。
+//! agent 自己写的、后台复盘写的都不触发重渲染（缓存还热的时候）：前者本来就在它的
+//! 上下文里，后者留给缓存冷下来之后的下一轮。
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -28,6 +31,9 @@ use super::store::{now_rfc3339, Snapshot};
 pub const FULL_ENTRY_BUDGET_CHARS: usize = 3000;
 /// 只列标题的条目上限；再多的只报个数。
 const INDEX_LINES_MAX: usize = 40;
+/// 快照多久没被用过就算缓存冷了。各家提示词缓存的存活时间从几分钟到 1 小时不等，
+/// 取最长的：超过它，任何一家的缓存都已经失效，重渲染不会多花一分钱。
+pub const CACHE_WARM: chrono::Duration = chrono::Duration::hours(1);
 /// 排版或模板变了就改这里：旧快照的指纹随之失效、自动重渲染。
 const FORMAT_VERSION: &str = "mem-v1";
 
@@ -213,6 +219,18 @@ pub fn current_fingerprint(
     Ok(fingerprint(ctx, &store.fingerprint(&ctx.scopes())?))
 }
 
+/// 已存的快照这一轮还能不能原样用：指纹没变（用户没改过、位置没变）且缓存还热。
+/// 注入和「这段对话带着的记忆」弹层共用这一条判定，两边不会各说各话。
+pub fn snapshot_usable(snap: &Snapshot, current_fp: &str, now: DateTime<Utc>) -> bool {
+    if snap.fingerprint != current_fp {
+        return false;
+    }
+    match DateTime::parse_from_rfc3339(&snap.touched_at) {
+        Ok(t) => now.signed_duration_since(t.with_timezone(&Utc)) <= CACHE_WARM,
+        Err(_) => false,
+    }
+}
+
 fn fingerprint(ctx: &ScopeContext, scope_fp: &str) -> String {
     format!(
         "{FORMAT_VERSION}|{scope_fp}|{}|{}",
@@ -242,7 +260,12 @@ pub async fn section_for_main(
         }
     };
     match store.snapshot(conversation_id) {
-        Ok(Some(snap)) if snap.fingerprint == fp => return snap.content,
+        Ok(Some(snap)) if snapshot_usable(&snap, &fp, Utc::now()) => {
+            if let Err(e) = store.touch_snapshot(conversation_id) {
+                log::warn!("刷新记忆快照使用时间失败（只影响缓存冷热判断）: {e}");
+            }
+            return snap.content;
+        }
         Ok(_) => {}
         Err(e) => log::warn!("读取记忆快照失败，重新渲染: {e}"),
     }
@@ -254,11 +277,13 @@ pub async fn section_for_main(
         }
     };
     let rendered = render_section(ctx, &items, false, Utc::now());
+    let now = now_rfc3339();
     let snap = Snapshot {
         fingerprint: fp,
         content: rendered.section.clone(),
         item_ids: rendered.item_ids,
-        created_at: now_rfc3339(),
+        created_at: now.clone(),
+        touched_at: now,
     };
     if let Err(e) = store.put_snapshot(conversation_id, &snap) {
         log::warn!("保存记忆快照失败（下一轮会重新渲染）: {e}");
@@ -483,5 +508,63 @@ mod tests {
             before,
             "用户手动改了，下一轮要重渲染，管理页据此显示「下一轮会带上」"
         );
+    }
+
+    fn snap_touched(touched: &str) -> Snapshot {
+        Snapshot {
+            fingerprint: "fp".into(),
+            content: "c".into(),
+            item_ids: Vec::new(),
+            created_at: "2026-10-01T00:00:00Z".into(),
+            touched_at: touched.into(),
+        }
+    }
+
+    #[test]
+    fn warm_snapshot_is_reused_but_a_cold_one_is_not() {
+        let now = DateTime::parse_from_rfc3339("2026-10-21T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        // 刚用过：缓存还热，冻结
+        assert!(snapshot_usable(
+            &snap_touched("2026-10-21T11:30:00Z"),
+            "fp",
+            now
+        ));
+        // 隔了几天才回到这个会话：缓存早没了，没有冻结的理由，要带上这段时间记下的
+        assert!(!snapshot_usable(
+            &snap_touched("2026-10-14T11:30:00Z"),
+            "fp",
+            now
+        ));
+        // 指纹变了（用户手动改过）：即使很热也不能用
+        assert!(!snapshot_usable(
+            &snap_touched("2026-10-21T11:59:00Z"),
+            "other",
+            now
+        ));
+        // 时间解析不了：宁可重渲染
+        assert!(!snapshot_usable(&snap_touched("not-a-time"), "fp", now));
+    }
+
+    #[test]
+    fn touching_a_snapshot_keeps_it_warm() {
+        use super::super::store::MemoryStore;
+        let store = MemoryStore::in_memory();
+        store
+            .put_snapshot("conv", &snap_touched("2020-01-01T00:00:00Z"))
+            .unwrap();
+        let now = Utc::now();
+        assert!(!snapshot_usable(
+            &store.snapshot("conv").unwrap().unwrap(),
+            "fp",
+            now
+        ));
+        store.touch_snapshot("conv").unwrap();
+        assert!(snapshot_usable(
+            &store.snapshot("conv").unwrap().unwrap(),
+            "fp",
+            now
+        ));
     }
 }

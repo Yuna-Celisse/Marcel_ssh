@@ -144,11 +144,13 @@ pub async fn memory_conversation_injected(
     let elsewhere = total.saturating_sub(visible.len());
     if let Some(cid) = conversation_id.as_deref() {
         let snap = store.snapshot(cid).map_err(store_err)?;
-        // 快照指纹过期（手动改过记忆 / 换了分组）：下一轮就会重渲染，所以这里列的是
-        // 「下一轮会带上的」，不是那份旧快照——否则管理页里明明加了，这里还写「没有」。
+        // 快照已经不能原样用了（手动改过记忆 / 换了分组 / 缓存早就冷了）：下一轮会重渲染，
+        // 所以这里列的是「下一轮会带上的」，不是那份旧快照——否则管理页里明明有，这里还写「没有」。
         let current_fp =
             crate::memory::inject::current_fingerprint(store, &ctx).map_err(store_err)?;
-        if let Some(snap) = snap.filter(|s| s.fingerprint == current_fp) {
+        if let Some(snap) = snap
+            .filter(|s| crate::memory::inject::snapshot_usable(s, &current_fp, chrono::Utc::now()))
+        {
             let mut items = Vec::new();
             for id in &snap.item_ids {
                 if let Some(m) = store.get(id).map_err(store_err)? {
