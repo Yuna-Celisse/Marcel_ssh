@@ -54,7 +54,7 @@ export function MemorySection() {
       <SettingItem
         id="memory-auto-reflect"
         label="后台复盘"
-        description="对话停下 10 分钟、连接断开或上下文压缩时，用记忆模型回顾刚才的对话，把值得记住的记下来（在对话里列出，可撤销）。每次是一次简短的模型调用，花费计入该会话的用量"
+        description="对话停下 10 分钟、连接断开或上下文压缩时，用记忆模型回顾刚才的对话，把值得记住的记下来（在对话里列出，可撤销）。默认关闭：每次是一次额外的模型调用，花费计入该会话的用量"
         sectionId={SECTION}
         keywords={['记忆', '复盘', 'reflection', '后台', 'token', '用量']}
       >

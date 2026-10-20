@@ -169,7 +169,7 @@ function OpRow({
 
 function IntroCard({ mobile, onDone }: { mobile: boolean; onDone: () => void }) {
   const registry = useSettingsStore((s) => s.settings.llmRegistry);
-  const autoReflect = useSettingsStore((s) => s.settings.memorySettings?.autoReflect ?? true);
+  const autoReflect = useSettingsStore((s) => s.settings.memorySettings?.autoReflect ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const memoryModelId = registry?.slots.memoryModelId ?? '';

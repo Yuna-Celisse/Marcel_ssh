@@ -42,7 +42,7 @@ export function MobileMemorySection() {
       />
       <MobileSettingRow
         label="后台复盘"
-        description="对话停下 10 分钟、连接断开或上下文压缩时，回顾刚才的对话把值得记住的记下来（在对话里列出，可撤销）。每次是一次简短的模型调用，计入该会话的用量"
+        description="对话停下 10 分钟、连接断开或上下文压缩时，回顾刚才的对话把值得记住的记下来（在对话里列出，可撤销）。默认关闭：每次是一次额外的模型调用，计入该会话的用量"
         trailing={<Toggle checked={ms.autoReflect} disabled={!ms.enabled} onChange={(v) => setMs({ autoReflect: v })} />}
       />
       <MobileSettingRow

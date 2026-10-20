@@ -103,7 +103,7 @@ export const DEFAULT_MOBILE_BACKGROUND_SETTINGS: MobileBackgroundSettings = {
 
 export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
   enabled: true,
-  autoReflect: true,
+  autoReflect: false,
 };
 
 const DEFAULT_SETTINGS: AppSettings = {

@@ -614,7 +614,8 @@ pub struct MemorySettings {
     /// 管理页照常可看可改。
     pub enabled: bool,
     /// 后台复盘：一段对话告一段落后，用记忆模型在后台整理值得长期记住的东西。
-    /// 默认开（第一次复盘时会在对话里出一张说明卡，带关闭按钮）。
+    /// 默认关：每次复盘都是一次额外的模型调用，主 agent 平时已经会在对话里自己记；
+    /// 用户在设置里打开后，第一次复盘时会在对话里出一张说明卡。
     pub auto_reflect: bool,
 }
 
@@ -622,7 +623,7 @@ impl Default for MemorySettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            auto_reflect: true,
+            auto_reflect: false,
         }
     }
 }
@@ -1472,6 +1473,14 @@ mod tests {
         assert!(json.contains("\"disableAllInjections\":true"));
         let parsed: AppSettings = serde_json::from_str(&json).expect("deserialize");
         assert!(parsed.disable_all_injections);
+    }
+
+    /// 长期记忆：总开关默认开，后台复盘默认关（额外的模型调用，由用户自己决定要不要）。
+    #[test]
+    fn memory_defaults_reflection_off_for_old_configs() {
+        let parsed: AppSettings = serde_json::from_str("{\"fontSize\": 14}").expect("old config");
+        assert!(parsed.memory_settings.enabled);
+        assert!(!parsed.memory_settings.auto_reflect);
     }
 
     /// autoUpdate 旧配置缺失 → 默认开启（serde default），不改动用户现状。
