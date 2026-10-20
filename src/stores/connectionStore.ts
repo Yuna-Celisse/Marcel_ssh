@@ -21,7 +21,8 @@ interface ConnectionState {
   fetchConnections: () => Promise<void>;
   addConnection: (connection: SavedConnection) => Promise<void>;
   addDebugServer: () => void;
-  removeConnection: (id: string) => Promise<void>;
+  /** `deleteMemories` = 同时删掉这台机器的长期记忆（确认框里的复选框）。 */
+  removeConnection: (id: string, deleteMemories?: boolean) => Promise<void>;
   /** 应用拖拽后的顺序（组内重排 / 跨组移入 / 拖动分组）：乐观更新，失败回滚。 */
   applyConnectionOrder: (entries: ConnectionOrderEntry[]) => Promise<void>;
   /** 重命名分组：批量更新该组所有连接的 group 字段。 */
@@ -65,7 +66,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       : { connections: [...state.connections, createDebugServer()] });
   },
 
-  removeConnection: async (id: string) => {
+  removeConnection: async (id: string, deleteMemories = false) => {
     if (isDebugConnection(id)) {
       set((state) => ({
         connections: state.connections.filter((connection) => connection.id !== id),
@@ -75,7 +76,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
     set({ loading: true, error: null });
     try {
-      await tauri.deleteConnection(id);
+      await tauri.deleteConnection(id, deleteMemories);
       const { activeConnectionId } = get();
       if (activeConnectionId === id) {
         set({ activeConnectionId: null });

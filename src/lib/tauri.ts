@@ -465,8 +465,15 @@ export async function saveConnection(
   return invoke<string>("config_save_connection", { connection });
 }
 
-export async function deleteConnection(id: string): Promise<void> {
-  return invoke("config_delete_connection", { id });
+/**
+ * 删除连接。`deleteMemories` = 同时删掉这台机器的长期记忆（确认框里的复选框）；
+ * 不删的话它们会出现在记忆管理页的「已删除的连接」里。
+ */
+export async function deleteConnection(
+  id: string,
+  deleteMemories = false,
+): Promise<void> {
+  return invoke("config_delete_connection", { id, deleteMemories });
 }
 
 /** 一条连接的落位（拖拽排序用）：id + 目标分组；group 为 null = 未分组。 */

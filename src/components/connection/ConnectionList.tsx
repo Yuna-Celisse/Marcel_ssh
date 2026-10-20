@@ -28,6 +28,8 @@ import Modal from '@/components/ui/Modal';
 import ListPanel from '@/components/ui/ListPanel';
 import ContextMenu from '@/components/ui/ContextMenu';
 import ConnectionForm from './ConnectionForm';
+import DeleteConnectionDialog from './DeleteConnectionDialog';
+import { openMemorySettings } from '@/lib/memoryNav';
 
 /** 拖拽中的落点：落进哪个分组、插在哪条连接之前（null = 该分组末尾）。 */
 interface DropTarget {
@@ -120,6 +122,7 @@ export default function ConnectionList() {
     groupName: string;
   } | null>(null);
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SavedConnection | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editingConnection, setEditingConnection] =
@@ -804,6 +807,13 @@ export default function ConnectionList() {
           label: '编辑',
           onClick: () => openEditForm(contextMenu.connection),
         }] : []),
+        ...(!isDebugConnection(contextMenu.connection.id) ? [{
+          label: '这台机器的记忆',
+          onClick: () => {
+            openMemorySettings({ scope: 'host', key: contextMenu.connection.id });
+            closeContextMenu();
+          },
+        }] : []),
         ...(shiftable.up
           ? [
               {
@@ -831,9 +841,8 @@ export default function ConnectionList() {
           label: '删除',
           variant: 'danger' as const,
           onClick: () => {
-            if (confirm(`确定要删除连接 "${contextMenu.connection.name}" 吗？`)) {
-              removeConnection(contextMenu.connection.id);
-            }
+            setDeleteTarget(contextMenu.connection);
+            closeContextMenu();
           },
         },
       ]
@@ -1110,6 +1119,15 @@ export default function ConnectionList() {
 
       {/* Host key mismatch prompt */}
       {mismatch.Modal}
+
+      <DeleteConnectionDialog
+        connection={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={(connection, deleteMemories) => {
+          setDeleteTarget(null);
+          void removeConnection(connection.id, deleteMemories);
+        }}
+      />
     </ListPanel>
   );
 }

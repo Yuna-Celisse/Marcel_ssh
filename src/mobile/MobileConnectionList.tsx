@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  Bookmark,
   Loader2,
   Pencil,
   Plus,
@@ -26,6 +27,9 @@ import { getErrorMessage } from '@/lib/errors';
 import { isDebugConnection } from '@/lib/debugServer';
 import { formatConnLabel } from '@/lib/privacy';
 import type { SavedConnection } from '@/lib/types';
+import { openMemorySettings } from '@/lib/memoryNav';
+import { useMemoryStore } from '@/stores/memoryStore';
+import { useHostMemoryCount } from '@/components/memory/useHostMemoryCount';
 import {
   loadCollapsedGroups,
   removeCollapsedGroup,
@@ -95,6 +99,15 @@ export default function MobileConnectionList({
   const [deleteTarget, setDeleteTarget] = useState<SavedConnection | null>(
     null,
   );
+  const [deleteMemories, setDeleteMemories] = useState(false);
+  const deleteTargetMemoryCount = useHostMemoryCount(deleteTarget?.id ?? null);
+  // 各台机器有几条记忆：有的才给「这台机器的记忆」入口（行尾空间有限，没有就不占位）。
+  const memorySummaries = useMemoryStore((s) => s.overview?.summaries);
+  useEffect(() => {
+    void useMemoryStore.getState().loadOverview();
+  }, []);
+  const hostMemoryCount = (id: string) =>
+    memorySummaries?.find((x) => x.scope === 'host' && x.key === id)?.count ?? 0;
   const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState('');
   // 折叠状态（key = 分组名）。读写与 key 常量统一走 lib/connectionGroups。
@@ -218,7 +231,7 @@ export default function MobileConnectionList({
   const handleDeleteConnection = async () => {
     if (!deleteTarget) return;
     setLocalError(null);
-    await removeConnection(deleteTarget.id);
+    await removeConnection(deleteTarget.id, deleteMemories && deleteTargetMemoryCount > 0);
     setDeleteTarget(null);
   };
 
@@ -454,6 +467,15 @@ export default function MobileConnectionList({
                               </div>
                             </div>
                           </button>
+                          {hostMemoryCount(conn.id) > 0 && <button
+                            type="button"
+                            data-nodrag
+                            onClick={() => openMemorySettings({ scope: 'host', key: conn.id })}
+                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800"
+                            aria-label={`${conn.name} 的记忆（${hostMemoryCount(conn.id)} 条）`}
+                          >
+                            <Bookmark className="h-4 w-4" />
+                          </button>}
                           {!isDebugConnection(conn.id) && <button
                             type="button"
                             data-nodrag
@@ -466,7 +488,10 @@ export default function MobileConnectionList({
                           <button
                             type="button"
                             data-nodrag
-                            onClick={() => setDeleteTarget(conn)}
+                            onClick={() => {
+                              setDeleteMemories(false);
+                              setDeleteTarget(conn);
+                            }}
                             className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-zinc-800 active:text-red-400"
                             aria-label={`删除 ${conn.name}`}
                           >
@@ -515,6 +540,22 @@ export default function MobileConnectionList({
           <p className="pb-1 text-sm text-zinc-400">
             删除连接「{deleteTargetLabel}」？此操作不可撤销。
           </p>
+          {deleteTargetMemoryCount > 0 && (
+            <label className="mb-1 flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-sm text-zinc-200">
+              <input
+                type="checkbox"
+                checked={deleteMemories}
+                onChange={(e) => setDeleteMemories(e.target.checked)}
+                className="mt-0.5 h-5 w-5 flex-shrink-0 accent-red-500"
+              />
+              <span>
+                同时删除这台机器的 {deleteTargetMemoryCount} 条记忆
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  不删的话会留在「设置 → 记忆 → 已删除的连接」里
+                </span>
+              </span>
+            </label>
+          )}
           <button
             type="button"
             onClick={() => void handleDeleteConnection()}
