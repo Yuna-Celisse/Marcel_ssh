@@ -108,6 +108,10 @@ export interface InjectedMemories {
   frozen: boolean;
   /** 冻结之后被删掉的条数（下一轮就不再带）。 */
   removedSince: number;
+  /** 这台机器现在有、但这段对话没带上的条数（冻结之后才记下的，下一段对话起带上）。 */
+  pending: number;
+  /** 管理页里有、但属于别的机器 / 分组，不会带进这段对话的条数。 */
+  elsewhere: number;
   enabled: boolean;
 }
 

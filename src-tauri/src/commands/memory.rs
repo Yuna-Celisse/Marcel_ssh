@@ -118,6 +118,11 @@ pub struct InjectedMemories {
     pub frozen: bool,
     /// 冻结之后被删掉的条数（快照里还有，但库里已经没了——下一轮就不再带）。
     pub removed_since: usize,
+    /// 这台机器（含分组、全局）现在有、但这段对话没带上的条数：冻结之后才记下的。
+    /// 下一段对话（或压缩上下文）起才会带上。未冻结时恒为 0。
+    pub pending: usize,
+    /// 管理页里有、但属于别的机器 / 分组，不会带进这段对话的条数。
+    pub elsewhere: usize,
     pub enabled: bool,
 }
 
@@ -130,6 +135,13 @@ pub async fn memory_conversation_injected(
 ) -> Result<InjectedMemories, AppError> {
     let enabled = state.settings.read().await.memory_settings.enabled;
     let store = &state.memory.store;
+    let ctx = match session_id.as_deref() {
+        Some(sid) => crate::memory::scope::for_session(state.inner(), sid).await,
+        None => crate::memory::scope::ScopeContext::global_only(),
+    };
+    let visible = store.list_scopes(&ctx.scopes()).map_err(store_err)?;
+    let total = store.list_all().map_err(store_err)?.len();
+    let elsewhere = total.saturating_sub(visible.len());
     if let Some(cid) = conversation_id.as_deref() {
         if let Some(snap) = store.snapshot(cid).map_err(store_err)? {
             let mut items = Vec::new();
@@ -139,22 +151,27 @@ pub async fn memory_conversation_injected(
                 }
             }
             let removed_since = snap.item_ids.len() - items.len();
+            // 只数冻结之后才记下的：预算放不下、没进快照的老条目不算「新记的」。
+            let pending = visible
+                .iter()
+                .filter(|m| !snap.item_ids.contains(&m.id) && m.created_at > snap.created_at)
+                .count();
             return Ok(InjectedMemories {
                 items,
                 frozen: true,
                 removed_since,
+                pending,
+                elsewhere,
                 enabled,
             });
         }
     }
-    let ctx = match session_id.as_deref() {
-        Some(sid) => crate::memory::scope::for_session(state.inner(), sid).await,
-        None => crate::memory::scope::ScopeContext::global_only(),
-    };
     Ok(InjectedMemories {
-        items: store.list_scopes(&ctx.scopes()).map_err(store_err)?,
+        items: visible,
         frozen: false,
         removed_since: 0,
+        pending: 0,
+        elsewhere,
         enabled,
     })
 }

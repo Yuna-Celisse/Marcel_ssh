@@ -54,7 +54,11 @@ export function InjectedMemoryList({ data, error, focus, mobile = false, onNavig
       </p>
       {groups.length === 0 ? (
         <p className="leading-relaxed text-zinc-400">
-          还没有记忆。Agent 会在对话中记下值得长期记住的东西，你也可以在记忆管理里手动添加。
+          {data.frozen && data.pending > 0
+            ? '这段对话开始时还没有记忆，所以一条都没带。'
+            : data.elsewhere > 0
+              ? '这台机器（和它所在的分组）还没有记忆。'
+              : '还没有记忆。Agent 会在对话中记下值得长期记住的东西，你也可以在记忆管理里手动添加。'}
         </p>
       ) : (
         groups.map((g) => (
@@ -74,6 +78,16 @@ export function InjectedMemoryList({ data, error, focus, mobile = false, onNavig
             </ul>
           </div>
         ))
+      )}
+      {data.pending > 0 && (
+        <p className="leading-relaxed text-zinc-500">
+          另有 {data.pending} 条是这段对话开始后才记下的，下一段对话起会带上（压缩上下文后也会刷新）。
+        </p>
+      )}
+      {data.elsewhere > 0 && (
+        <p className="leading-relaxed text-zinc-500">
+          记忆管理里另有 {data.elsewhere} 条属于别的机器或分组，不会带进这段对话。
+        </p>
       )}
       {data.removedSince > 0 && (
         <p className="text-zinc-500">另有 {data.removedSince} 条已被删除，下一轮起不再带。</p>
