@@ -108,8 +108,9 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
       )}
 
       {/* 药丸输入框：外圈圆角 = 内圈按钮半径 + 内边距，按钮是正圆，嵌进去才同心。
-          outline 要显式关掉：全局 :focus-visible 的描边会在圆角框里再画出一个方框。 */}
-      <div className="flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 bg-zinc-800 p-1.5 pl-4 transition-colors focus-within:border-indigo-500">
+          全局 :focus-visible 的描边会在圆角框里再画出一个方框，且盖得过 Tailwind 的 outline-none（它在 layer 里），
+          所以靠 `.agent-input` 这条全局规则关掉，外框的 border 是唯一的焦点提示。 */}
+      <div className="agent-input flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 bg-zinc-800 p-1.5 pl-4 transition-colors focus-within:border-indigo-500">
         <textarea
           ref={inputRef}
           value={draft}
@@ -122,7 +123,7 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
           }}
           rows={1}
           placeholder={focusLabel ? `要怎么整理 ${focusLabel} 的记忆？` : '要怎么整理记忆？'}
-          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 placeholder:text-zinc-500 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none"
+          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-0"
         />
         {running ? (
           <button
