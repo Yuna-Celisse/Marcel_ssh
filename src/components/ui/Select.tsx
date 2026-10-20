@@ -47,6 +47,8 @@ export default function Select<T extends string = string>({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [focusIdx, setFocusIdx] = useState(-1);
+  /** 只有键盘导航 / 刚打开时才把高亮项滚进视野；鼠标悬停改变高亮不该滚动列表。 */
+  const scrollToFocus = useRef(false);
 
   const flat = flattenOptions(options);
   const flatIndex = useMemo(() => {
@@ -64,14 +66,21 @@ export default function Select<T extends string = string>({
     setFocusIdx(-1);
   }, []);
 
+  // 只在「打开」那一刻把高亮放到当前值上。不能依赖 flat / value：flat 每次渲染都是新数组，
+  // 悬停改 focusIdx 触发重渲染，这个 effect 就会把高亮和滚动位置又拉回当前值——
+  // 用滚轮滑长列表时表现为「滑几下就被弹回去」。
+  const latest = useRef({ flat, value });
+  latest.current = { flat, value };
   useEffect(() => {
     if (!open) return;
-    const idx = flat.findIndex((o) => o.value === value && !o.disabled);
+    const { flat: items, value: current } = latest.current;
+    const idx = items.findIndex((o) => o.value === current && !o.disabled);
+    scrollToFocus.current = true;
     setFocusIdx(idx >= 0 ? idx : 0);
-  }, [open, flat, value]);
+  }, [open]);
 
   useEffect(() => {
-    if (!open || !listRef.current || focusIdx < 0) return;
+    if (!open || !listRef.current || focusIdx < 0 || !scrollToFocus.current) return;
     const children = listRef.current.querySelectorAll('[data-opt]');
     const el = children[focusIdx] as HTMLElement | undefined;
     el?.scrollIntoView({ block: 'nearest' });
@@ -110,6 +119,7 @@ export default function Select<T extends string = string>({
         break;
       case 'ArrowDown':
         e.preventDefault();
+        scrollToFocus.current = true;
         setFocusIdx((prev) => {
           const next = prev + 1;
           return next < flat.length ? next : prev;
@@ -117,6 +127,7 @@ export default function Select<T extends string = string>({
         break;
       case 'ArrowUp':
         e.preventDefault();
+        scrollToFocus.current = true;
         setFocusIdx((prev) => {
           const next = prev - 1;
           return next >= 0 ? next : prev;
@@ -147,7 +158,10 @@ export default function Select<T extends string = string>({
           e.preventDefault();
           select(opt);
         }}
-        onPointerEnter={() => setFocusIdx(flatIdx)}
+        onPointerEnter={() => {
+          scrollToFocus.current = false;
+          setFocusIdx(flatIdx);
+        }}
         className={`
           flex items-center gap-2 px-3 py-2 text-sm cursor-pointer transition-colors
           ${active ? 'bg-zinc-700' : ''}
