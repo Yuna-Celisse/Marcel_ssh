@@ -62,6 +62,7 @@ impl ConversationDb {
             created_at: now,
             updated_at: now,
             parent_conversation_id: parent_conversation_id.map(String::from),
+            forked_from_id: None,
             model_id: None,
             reasoning_effort: None,
             pinned: false,
@@ -73,7 +74,7 @@ impl ConversationDb {
     pub fn list_conversations(&self, connection_id: &str) -> RusqliteResult<Vec<Conversation>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, connection_id, title, created_at, updated_at, parent_conversation_id, model_id, pinned, usage_json
+            "SELECT id, connection_id, title, created_at, updated_at, parent_conversation_id, model_id, pinned, usage_json, forked_from_id
              FROM conversations
              WHERE connection_id = ?1
              ORDER BY pinned DESC, updated_at DESC",
@@ -94,6 +95,7 @@ impl ConversationDb {
                         .parse()
                         .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC),
                     parent_conversation_id: row.get(5).ok(),
+                    forked_from_id: row.get(9).ok(),
                     model_id: row.get(6).ok(),
                     reasoning_effort: None,
                     pinned: row.get(7)?,
@@ -230,6 +232,11 @@ impl ConversationDb {
             [conversation_id],
         )?;
         conn.execute("DELETE FROM conversations WHERE id = ?1", [conversation_id])?;
+        // 分叉是独立会话：来源没了，分叉照旧可用，只是不再有「返回原会话」可指。
+        conn.execute(
+            "UPDATE conversations SET forked_from_id = NULL WHERE forked_from_id = ?1",
+            [conversation_id],
+        )?;
         drop(conn);
         crate::agent::image_store::delete_conversation_images(conversation_id);
         Ok(())
@@ -328,7 +335,7 @@ impl ConversationDb {
     pub fn get_conversation(&self, conversation_id: &str) -> RusqliteResult<Option<Conversation>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, connection_id, title, created_at, updated_at, parent_conversation_id, model_id, pinned, usage_json
+            "SELECT id, connection_id, title, created_at, updated_at, parent_conversation_id, model_id, pinned, usage_json, forked_from_id
              FROM conversations
              WHERE id = ?1",
         )?;
@@ -346,6 +353,7 @@ impl ConversationDb {
                     .parse()
                     .unwrap_or(chrono::DateTime::<Utc>::MIN_UTC),
                 parent_conversation_id: row.get(5).ok(),
+                forked_from_id: row.get(9).ok(),
                 model_id: row.get(6).ok(),
                 reasoning_effort: None,
                 pinned: row.get(7)?,
@@ -418,15 +426,16 @@ impl ConversationDb {
     pub fn upsert_conversation(&self, conv: &Conversation) -> RusqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO conversations (id, connection_id, title, created_at, updated_at, parent_conversation_id, pinned)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO conversations (id, connection_id, title, created_at, updated_at, parent_conversation_id, pinned, forked_from_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET
                 connection_id = excluded.connection_id,
                 title = excluded.title,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 parent_conversation_id = excluded.parent_conversation_id,
-                pinned = excluded.pinned",
+                pinned = excluded.pinned,
+                forked_from_id = excluded.forked_from_id",
             (
                 &conv.id,
                 &conv.connection_id,
@@ -435,6 +444,7 @@ impl ConversationDb {
                 conv.updated_at.to_rfc3339(),
                 &conv.parent_conversation_id,
                 conv.pinned as i64,
+                &conv.forked_from_id,
             ),
         )?;
         Ok(())

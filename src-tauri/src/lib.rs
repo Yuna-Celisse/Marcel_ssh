@@ -960,6 +960,7 @@ pub fn run() {
             commands::agent_conversation::agent_create_conversation,
             commands::agent_conversation::agent_rename_conversation,
             commands::agent_conversation::agent_set_conversation_pinned,
+            commands::agent_conversation::agent_fork_conversation,
             commands::agent_conversation::agent_set_session_model,
             commands::agent_conversation::agent_get_session_model,
             commands::agent_conversation::agent_set_session_effort,

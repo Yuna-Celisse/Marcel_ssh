@@ -34,6 +34,13 @@ pub struct Conversation {
     /// 用于：会话列表隐藏子对话、子对话内"返回主对话"、删除主对话级联删除。
     #[serde(default)]
     pub parent_conversation_id: Option<String>,
+    /// 分叉来源：由 `fork_conversation` 复制出的会话记录它从哪个会话分出来。
+    ///
+    /// 与 `parent_conversation_id` 是两回事：分叉出来的是**独立的主会话**（照常出现
+    /// 在列表里、不随来源级联删除），这个字段只用来在界面上给出「分叉自 X / 返回原会话」。
+    /// 来源被删时由 `delete_conversation` 置空，不会留下悬空引用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_id: Option<String>,
     /// 会话级模型选择：`llmRegistry` 中的模型条目 id。
     /// `None` = 跟随全局默认模型（未显式选择过 / 旧数据）。
     /// 启动任务时经 `agent_start_task` 的 `model_id` 传入，作为

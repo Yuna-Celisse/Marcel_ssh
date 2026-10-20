@@ -1045,6 +1045,42 @@ impl MemoryStore {
         Ok(n > 0)
     }
 
+    /// 会话被分叉：把「只属于会话」的记忆附属数据带到分叉上（与 `forget_conversation`
+    /// 管同一批表，加新的会话附属表时两处一起看）。
+    ///
+    /// - **注入快照**照搬：分叉与来源的系统提示词保持一致，行为不因分叉而漂移，
+    ///   请求前缀也不变（来源的缓存对分叉的第一轮仍然有效）。
+    /// - **复盘进度**接在复制过来的历史之后：这些消息来源里已经复盘过（或将由来源复盘），
+    ///   分叉再复盘一遍只会重复产出同样的记忆。来源进度锚点落在被复制的范围内就映射到
+    ///   分叉里对应的消息；落在范围外（来源复盘得更靠后）就直接记到最后一条被复制的消息。
+    ///   来源从没复盘过则不记，分叉也一样从头开始。
+    /// - 复盘提示行（`reflection_notes`）不带：它们是挂在来源某条消息下的 UI 记号，不是数据。
+    pub fn fork_conversation(
+        &self,
+        source_id: &str,
+        fork_id: &str,
+        id_map: &std::collections::HashMap<String, String>,
+        last_message: (&str, &str),
+    ) -> StoreResult<()> {
+        if let Some(snap) = self.snapshot(source_id)? {
+            self.put_snapshot(fork_id, &snap)?;
+        }
+        if let Some(p) = self.progress(source_id)? {
+            let carried = match id_map.get(&p.anchor_message_id) {
+                Some(new_id) => ReflectionProgress {
+                    anchor_message_id: new_id.clone(),
+                    anchor_created_at: p.anchor_created_at,
+                },
+                None => ReflectionProgress {
+                    anchor_message_id: last_message.0.to_string(),
+                    anchor_created_at: last_message.1.to_string(),
+                },
+            };
+            self.set_progress(fork_id, &carried)?;
+        }
+        Ok(())
+    }
+
     /// 会话被删：清掉只属于它的快照、复盘进度、提示行。
     ///
     /// 记忆本身**不删**——记忆比会话活得久正是它的意义；来源链接失效由前端显示

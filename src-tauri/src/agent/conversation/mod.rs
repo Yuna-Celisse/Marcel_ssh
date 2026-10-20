@@ -11,12 +11,14 @@
 // - `compaction.rs`    压缩落库（插卡、吸收旧卡、定位）
 // - `usage.rs`         token 用量（累计 + 最近一次请求快照 + 「含子对话」口径）
 // - `plans.rs`         plan 与快照存取
+// - `fork.rs`          会话分叉（把某个回合边界之前的历史整份复制成独立会话）
 // - `recall.rs`        跨会话回忆（长期记忆：按机器检索历史会话、列最近活跃会话）
 //
 // 对外路径保持不变：全部 pub 类型在这里 re-export，`agent::conversation::X` 照旧。
 
 mod compaction;
 mod conversations;
+mod fork;
 mod history;
 mod llm_history;
 mod messages;
@@ -25,6 +27,7 @@ mod plans;
 mod recall;
 mod usage;
 
+pub use fork::{ForkError, ForkOutcome};
 pub use history::{
     CardBrief, HistoryError, HistoryHit, HistoryOverview, HistoryRead, HistoryWindow, MsgBrief,
     WindowStart,
@@ -81,7 +84,8 @@ impl ConversationDb {
                 model_id TEXT,
                 efforts_json TEXT,
                 pinned INTEGER NOT NULL DEFAULT 0,
-                usage_json TEXT
+                usage_json TEXT,
+                forked_from_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -253,6 +257,15 @@ impl ConversationDb {
             conn.execute("ALTER TABLE conversations ADD COLUMN usage_json TEXT", [])
                 .map_err(|e| ConversationError::SchemaError { source: e })?;
             log::info!("Migration complete: usage_json column added");
+        }
+
+        // Migration: add forked_from_id —— 分叉来源（见 `Conversation::forked_from_id`）。
+        // 旧库 ALTER 加列；缺省 NULL = 不是分叉出来的会话。
+        if !column_exists(&conn, "conversations", "forked_from_id") {
+            log::info!("Migrating conversation database: adding forked_from_id column");
+            conn.execute("ALTER TABLE conversations ADD COLUMN forked_from_id TEXT", [])
+                .map_err(|e| ConversationError::SchemaError { source: e })?;
+            log::info!("Migration complete: forked_from_id column added");
         }
 
         // Migration: plan_snapshots for older DBs that already had plans table only

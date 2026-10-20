@@ -355,6 +355,97 @@ pub async fn agent_set_conversation_pinned(
     Ok(())
 }
 
+/// 分叉会话：把 `conversation_id` 的历史（到 `anchor_message_id` 所在回合末尾，缺省 = 整个
+/// 会话）复制成一条独立的新会话并返回它的元数据。来源完全不受影响。
+///
+/// 库里的东西（消息、图片、子对话、计划）由 `ConversationDb::fork_conversation` 一次事务搬完；
+/// 这里补上它够不着的会话级状态，让分叉「开口说话」时与来源一致：
+/// - 会话级模型 / 思考档位（内存 + `efforts_json`）：否则分叉会落回全局最近使用的模型；
+/// - 记忆注入快照与复盘进度（`MemoryStore::fork_conversation`）。
+///
+/// 这些补充都是尽力而为：失败只记日志，不让已经建好的分叉白建 —— 最坏是分叉的第一轮
+/// 重新渲染一次记忆、用全局模型，用户随时可以改。
+#[tauri::command]
+pub async fn agent_fork_conversation(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    anchor_message_id: Option<String>,
+    title: Option<String>,
+) -> Result<Conversation, AppError> {
+    let source = state
+        .conversation_db
+        .get_conversation(&conversation_id)
+        .map_err(|e| AppError::Agent(format!("读取会话失败: {}", e)))?
+        .ok_or_else(|| AppError::Agent(format!("会话不存在: {}", conversation_id)))?;
+
+    // 来源正在跑任务或压缩：范围到达会话末尾时会拷到写了一半的回合 / 压缩卡还没落位，
+    // 库层据此拒绝；分叉更早的回合不受影响。
+    let tail_busy = crate::memory::reflect::conversation_has_running_task(&state, &conversation_id)
+        || state.compactions.is_registered(&conversation_id);
+
+    let title = title
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| format!("{} · 分支", source.title));
+    let outcome = state
+        .conversation_db
+        .fork_conversation(
+            &conversation_id,
+            anchor_message_id.as_deref(),
+            &title,
+            tail_busy,
+        )
+        .map_err(|e| AppError::Agent(e.to_string()))?;
+    let fork_id = outcome.conversation.id.clone();
+
+    // 会话级模型 / 思考档位
+    let carried_efforts = {
+        let model = state.session_models.read().get(&conversation_id).cloned();
+        if let Some(model) = model {
+            state.session_models.write().insert(fork_id.clone(), model);
+        }
+        let efforts = state.session_efforts.read().get(&conversation_id).cloned();
+        match efforts {
+            Some(map) if !map.is_empty() => {
+                state
+                    .session_efforts
+                    .write()
+                    .insert(fork_id.clone(), map.clone());
+                serde_json::to_string(&map).ok()
+            }
+            _ => None,
+        }
+    };
+    if let Some(json) = carried_efforts {
+        if let Err(e) = state
+            .conversation_db
+            .save_conversation_efforts(&fork_id, Some(&json))
+        {
+            log::warn!("分叉 {fork_id} 持久化思考档位失败: {e}");
+        }
+    }
+
+    // 记忆附属数据
+    let (last_id, last_at) = &outcome.last_message;
+    if let Err(e) = state.memory.store.fork_conversation(
+        &conversation_id,
+        &fork_id,
+        &outcome.id_map,
+        (last_id.as_str(), &last_at.to_rfc3339()),
+    ) {
+        log::warn!("分叉 {fork_id} 复制记忆附属数据失败: {e}");
+    }
+
+    log::info!(
+        "Forked conversation: {} -> {} (messages={}, anchor={:?})",
+        conversation_id,
+        fork_id,
+        outcome.id_map.len(),
+        anchor_message_id
+    );
+    Ok(overlay_session_model(&state, outcome.conversation).await)
+}
+
 /// 设置会话级模型（**仅内存**：`AppState.session_models`）。
 ///
 /// 会话 → 模型 的选择不再落盘（SQLite `conversations.model_id` 仅作旧数据

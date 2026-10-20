@@ -20,7 +20,7 @@ use crate::agent::task::TurnState;
 ///
 /// 注意：加列时除了这里，还要在建表语句或迁移块里 `ALTER TABLE ... ADD COLUMN`。
 /// `messages_columns_const_matches_the_live_schema` 会盯着两边是否一致。
-const MESSAGES_COLUMNS: &[&str] = &[
+pub(super) const MESSAGES_COLUMNS: &[&str] = &[
     "id",
     "conversation_id",
     "role",
@@ -399,7 +399,7 @@ impl ConversationDb {
         })
     }
 
-    fn query_stored_messages(
+    pub(super) fn query_stored_messages(
         conn: &Connection,
         conversation_id: &str,
         limit: Option<usize>,

@@ -1136,6 +1136,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             parent_conversation_id: parent.map(String::from),
+            forked_from_id: None,
             model_id: None,
             reasoning_effort: None,
             pinned: false,

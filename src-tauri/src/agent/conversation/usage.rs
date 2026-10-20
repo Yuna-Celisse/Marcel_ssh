@@ -457,6 +457,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             parent_conversation_id: None,
+            forked_from_id: None,
             model_id: None,
             reasoning_effort: None,
             pinned: false,

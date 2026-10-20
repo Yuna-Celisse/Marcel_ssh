@@ -334,7 +334,7 @@ enum Outcome {
     Done { applied: usize, failed: usize },
 }
 
-fn conversation_has_running_task(state: &AppState, conversation_id: &str) -> bool {
+pub(crate) fn conversation_has_running_task(state: &AppState, conversation_id: &str) -> bool {
     state
         .agent_tasks
         .read()

@@ -131,6 +131,21 @@ fn guess_mime(path: &Path, bytes: &[u8]) -> &'static str {
     }
 }
 
+/// 把已落盘的图复制成另一条消息名下的图（会话分叉用）。返回新的相对路径。
+///
+/// 必须真复制而不是共用路径：图片目录按会话分桶，删会话时整桶 `remove_dir_all`，
+/// 共用会让「删掉原会话 → 分叉里的图全裂」。
+pub fn copy_image(
+    src_rel: &str,
+    dst_conversation_id: &str,
+    dst_message_id: &str,
+    index: usize,
+) -> Result<String, String> {
+    let src = resolve_relative(src_rel)?;
+    let bytes = std::fs::read(&src).map_err(|e| format!("read image: {}", e))?;
+    save_image_bytes(dst_conversation_id, dst_message_id, index, &bytes)
+}
+
 /// Delete a single image file by relative path. Missing file is success (idempotent).
 pub fn delete_image(rel: &str) -> Result<(), String> {
     let path = resolve_relative(rel)?;
