@@ -9,12 +9,20 @@ import { useInjectedMemories } from '@/components/memory/useInjectedMemories';
  *
  * 让「模型这次到底知道什么」看得见 —— 记忆影响 Agent 的判断，用户得能随时核对。
  */
-export function MemoryIndicator({ conversationId }: { conversationId: string | null }) {
-  const [open, setOpen] = useState(false);
+export function MemoryIndicator({
+  conversationId,
+  disabled: offline = false,
+}: {
+  conversationId: string | null;
+  /** 没连上服务器：没有「这段对话」可言，按钮置灰（与头部其它按钮一致）。 */
+  disabled?: boolean;
+}) {
+  const [openState, setOpen] = useState(false);
+  const open = openState && !offline;
   const session = useSessionStore((s) => (s.activeSessionId ? (s.sessions[s.activeSessionId] ?? null) : null));
   const { data, error } = useInjectedMemories(conversationId, session?.id ?? null);
   const count = data?.items.length ?? 0;
-  const disabled = data ? !data.enabled : false;
+  const disabled = offline || (data ? !data.enabled : false);
   const focus = session?.configId ? { scope: 'host' as const, key: session.configId } : undefined;
 
   return (
@@ -22,12 +30,13 @@ export function MemoryIndicator({ conversationId }: { conversationId: string | n
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        disabled={offline}
         aria-expanded={open}
         aria-label="这段对话带着的记忆"
-        title={disabled ? '长期记忆已关闭' : `这段对话带着 ${count} 条记忆`}
-        className={`flex h-7 items-center gap-1 rounded px-1.5 text-xs transition-colors active:scale-95 ${
+        title={offline ? '连接服务器后可查看' : disabled ? '长期记忆已关闭' : `这段对话带着 ${count} 条记忆`}
+        className={`flex h-7 items-center gap-1 rounded px-1.5 text-xs transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400 disabled:active:scale-100 ${
           open ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-700 hover:text-zinc-100'
-        } ${disabled ? 'opacity-50' : ''}`}
+        } ${!offline && disabled ? 'opacity-50' : ''}`}
       >
         <Bookmark className="h-3.5 w-3.5" aria-hidden />
         {!disabled && count > 0 && <span className="tabular-nums">{count}</span>}

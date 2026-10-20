@@ -783,20 +783,23 @@ export default function MobileAgentHost({
           {/* 上下文里除了对话本身还带着什么：长期记忆（桌面在面板头部，手机放这里） */}
           <button
             type="button"
+            disabled={!canInteract}
             onClick={() => {
               setUsageSheetOpen(false);
               setMemorySheetOpen(true);
             }}
-            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
+            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100"
           >
             <Bookmark className="h-4 w-4 flex-shrink-0 text-zinc-400" aria-hidden />
             <span className="min-w-0 flex-1 text-zinc-200">这段对话带着的记忆</span>
             <span className="text-xs text-zinc-500">
-              {injectedMemories.data
-                ? injectedMemories.data.enabled
-                  ? `${injectedMemories.data.items.length} 条`
-                  : "已关闭"
-                : ""}
+              {!canInteract
+                ? "连接后可查看"
+                : injectedMemories.data
+                  ? injectedMemories.data.enabled
+                    ? `${injectedMemories.data.items.length} 条`
+                    : "已关闭"
+                  : ""}
             </span>
             <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-600" aria-hidden />
           </button>

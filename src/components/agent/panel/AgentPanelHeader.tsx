@@ -146,7 +146,7 @@ export function AgentPanelHeader({
         {/* 多机操控：目标机器选择器（当前机锁定置顶 + 可跨机目标；桌面恒渲染） */}
         <MultiHostPicker />
         {/* 这段对话带着几条长期记忆（点开核对 / 去管理） */}
-        <MemoryIndicator conversationId={activeConversationId} />
+        <MemoryIndicator conversationId={activeConversationId} disabled={!canInteract} />
         <button
           type="button"
           onClick={onNewConversation}
