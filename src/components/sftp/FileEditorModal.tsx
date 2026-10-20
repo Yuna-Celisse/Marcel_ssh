@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
-import { EditorState, type Extension } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { oneDark } from '@codemirror/theme-one-dark';
-import { searchKeymap } from '@codemirror/search';
+import type { EditorView } from '@codemirror/view';
 import { sftpReadFile, sftpWriteFile, sftpGetMtime } from '@/lib/tauri';
 import { formatSize, getErrorMessage } from '@/lib/sftp-helpers';
 import { useAnimatedClose } from '@/hooks/useAnimatedPresence';
-
-import { StreamLanguage } from '@codemirror/language';
-import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { useCodeEditorView } from '@/hooks/useCodeEditorView';
+import { readDocText } from '@/lib/codeEditor';
 
 interface FileEditorModalProps {
   open: boolean;
@@ -24,31 +19,6 @@ interface FileEditorModalProps {
 
 type SaveResult = 'saved' | 'blocked' | 'failed';
 
-const LANGUAGE_LOADERS: Record<string, () => Promise<Extension>> = {
-  '.json': () => import('@codemirror/lang-json').then((m) => m.json()),
-  '.yaml': () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
-  '.yml': () => import('@codemirror/lang-yaml').then((m) => m.yaml()),
-  '.xml': () => import('@codemirror/lang-xml').then((m) => m.xml()),
-  '.html': () => import('@codemirror/lang-html').then((m) => m.html()),
-  '.htm': () => import('@codemirror/lang-html').then((m) => m.html()),
-  '.css': () => import('@codemirror/lang-css').then((m) => m.css()),
-  '.js': () => import('@codemirror/lang-javascript').then((m) => m.javascript()),
-  '.jsx': () => import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true })),
-  '.ts': () => import('@codemirror/lang-javascript').then((m) => m.javascript({ typescript: true })),
-  '.tsx': () => import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true, typescript: true })),
-  '.py': () => import('@codemirror/lang-python').then((m) => m.python()),
-  '.md': () => import('@codemirror/lang-markdown').then((m) => m.markdown()),
-  '.sql': () => import('@codemirror/lang-sql').then((m) => m.sql()),
-  '.sh': () => Promise.resolve(StreamLanguage.define(shell)),
-  '.bash': () => Promise.resolve(StreamLanguage.define(shell)),
-  '.zsh': () => Promise.resolve(StreamLanguage.define(shell)),
-};
-
-function getFileExtension(fileName: string): string {
-  const idx = fileName.lastIndexOf('.');
-  return idx >= 0 ? fileName.slice(idx).toLowerCase() : '';
-}
-
 export default function FileEditorModal({
   open,
   sessionId,
@@ -58,8 +28,6 @@ export default function FileEditorModal({
   onClose,
   onSaved,
 }: FileEditorModalProps) {
-  const editorContainerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
   const originalContentRef = useRef<string>('');
   const mtimeRef = useRef<number>(0);
   /** 原文是否带 UTF-8 BOM：保存时原样回传，避免静默丢掉 BOM。 */
@@ -79,12 +47,27 @@ export default function FileEditorModal({
     onAnimationEnd: onExitAnimationEnd,
   } = useAnimatedClose(onClose);
 
+  const updateLineCount = useCallback((view: EditorView) => {
+    setLineCount(view.state.doc.lines);
+  }, []);
+  const {
+    containerRef: editorContainerRef,
+    viewRef,
+    create: createEditor,
+    destroy: destroyEditor,
+  } = useCodeEditorView({
+    fileName,
+    variant: 'desktop',
+    onSave: () => void saveRef.current(),
+    onUpdate: (u) => updateLineCount(u.view),
+  });
+
   const doSave = useCallback(async (): Promise<SaveResult> => {
     if (!viewRef.current) return 'blocked';
     setSaving(true);
     setError(null);
     try {
-      const content = viewRef.current.state.doc.toString();
+      const content = readDocText(viewRef.current.state);
       // bom 原样回传：后端读到 BOM 会剥掉再给编辑器，保存时必须补回去
       await sftpWriteFile(sessionId, filePath, content, hasBomRef.current);
       originalContentRef.current = content;
@@ -105,7 +88,7 @@ export default function FileEditorModal({
     } finally {
       setSaving(false);
     }
-  }, [sessionId, filePath, onSaved]);
+  }, [sessionId, filePath, onSaved, viewRef]);
 
   const handleSave = useCallback(async (): Promise<SaveResult> => {
     if (!viewRef.current) return 'blocked';
@@ -124,92 +107,14 @@ export default function FileEditorModal({
       // Other errors: proceed with save attempt
     }
     return doSave();
-  }, [sessionId, filePath, doSave]);
+  }, [sessionId, filePath, doSave, viewRef]);
 
   saveRef.current = handleSave;
 
   const isDirty = useCallback(() => {
     if (!viewRef.current) return false;
-    return viewRef.current.state.doc.toString() !== originalContentRef.current;
-  }, []);
-
-  const updateLineCount = useCallback(() => {
-    if (viewRef.current) {
-      setLineCount(viewRef.current.state.doc.lines);
-    }
-  }, []);
-
-  const destroyEditor = useCallback(() => {
-    if (viewRef.current) {
-      viewRef.current.destroy();
-      viewRef.current = null;
-    }
-  }, []);
-
-  const createEditor = useCallback(
-    async (content: string, isCancelled: () => boolean) => {
-      if (!editorContainerRef.current) return;
-
-      destroyEditor();
-
-      const ext = getFileExtension(fileName);
-      const loader = LANGUAGE_LOADERS[ext];
-
-      const languageExtension = loader ? await loader().catch(() => []) : [];
-
-      // 等动态语言包期间组件可能已被卸载/关闭：cleanup 早就跑过 destroyEditor()，
-      // 此时若继续往下建 view，它会挂在已脱离文档的容器上且再没人销毁（泄漏）。
-      // 判定必须在最后一处 await 之后、`new EditorView` 之前（与 ImagePreviewModal
-      // 的 cancelled 标志同思路）。
-      if (isCancelled()) return;
-
-      const updateListener = EditorView.updateListener.of(() => {
-        updateLineCount();
-      });
-
-      const view = new EditorView({
-        state: EditorState.create({
-          doc: content,
-          extensions: [
-            lineNumbers(),
-            highlightActiveLineGutter(),
-            highlightSpecialChars(),
-            history(),
-            drawSelection(),
-            dropCursor(),
-            rectangularSelection(),
-            crosshairCursor(),
-            highlightActiveLine(),
-            keymap.of([
-              ...defaultKeymap,
-              ...historyKeymap,
-              ...searchKeymap,
-              indentWithTab,
-              {
-                key: 'Mod-s',
-                run: () => {
-                  saveRef.current();
-                  return true;
-                },
-                preventDefault: true,
-              },
-            ]),
-            oneDark,
-            updateListener,
-            languageExtension,
-            EditorState.tabSize.of(2),
-            EditorView.lineWrapping,
-            EditorView.theme({ "&": { height: "100%" } }),
-          ],
-        }),
-        parent: editorContainerRef.current,
-      });
-
-      viewRef.current = view;
-      setLineCount(view.state.doc.lines);
-    },
-    [fileName, destroyEditor, updateLineCount],
-  );
+    return readDocText(viewRef.current.state) !== originalContentRef.current;
+  }, [viewRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -226,10 +131,14 @@ export default function FileEditorModal({
       try {
         const result = await sftpReadFile(sessionId, filePath);
         if (cancelled) return;
-        originalContentRef.current = result.content;
         mtimeRef.current = result.mtime;
         hasBomRef.current = result.hasBom;
-        await createEditor(result.content, () => cancelled);
+        // 脏判断的基线取编辑器视角下的原文（换行符已按文档规则处理），而不是后端原串
+        const baseline = await createEditor(result.content, () => cancelled);
+        if (baseline !== null) {
+          originalContentRef.current = baseline;
+          if (viewRef.current) setLineCount(viewRef.current.state.doc.lines);
+        }
       } catch (err) {
         if (cancelled) return;
         setError(getErrorMessage(err));
@@ -242,7 +151,7 @@ export default function FileEditorModal({
       cancelled = true;
       destroyEditor();
     };
-  }, [open, sessionId, filePath, createEditor, destroyEditor]);
+  }, [open, sessionId, filePath, createEditor, destroyEditor, viewRef]);
 
   const handleClose = useCallback(() => {
     if (isDirty()) {
