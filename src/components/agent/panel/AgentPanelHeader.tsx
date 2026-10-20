@@ -5,6 +5,7 @@ import { AgentStatusIndicator } from "../AgentStatusIndicator";
 import { ContextMeterRing } from "../ContextMeterRing";
 import { TokenUsagePanel } from "../TokenUsagePanel";
 import MultiHostPicker from "../MultiHostPicker";
+import { MemoryIndicator } from "./MemoryIndicator";
 import { contextMeterView, formatPercent } from "@/lib/tokenUsage";
 import type { ConversationUsageView } from "@/lib/tokenUsage";
 import type { AgentTask } from "@/lib/types";
@@ -144,6 +145,8 @@ export function AgentPanelHeader({
       <div className="flex items-center gap-1">
         {/* 多机操控：目标机器选择器（当前机锁定置顶 + 可跨机目标；桌面恒渲染） */}
         <MultiHostPicker />
+        {/* 这段对话带着几条长期记忆（点开核对 / 去管理） */}
+        <MemoryIndicator conversationId={activeConversationId} />
         <button
           type="button"
           onClick={onNewConversation}

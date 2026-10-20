@@ -564,6 +564,8 @@ describe('已登记的消费方不再自带工具名判定（白名单制，见�
     'render_html',
     'upload_file',
     'download_file',
+    'memory',
+    'memory_recall',
     // 本机工具族（桌面专属，后端 `#[cfg(desktop)]` 注册；Android 没有本机路径
     // 语义，走 SAF）：与远端同名工具一一对应，前端全部登记（无留白）。
     'local_subagent',

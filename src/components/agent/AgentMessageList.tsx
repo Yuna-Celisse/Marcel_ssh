@@ -14,12 +14,15 @@ import { useConversationStore } from '@/stores/conversationStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { useTurnFoldStore } from '@/stores/turnFoldStore';
+import { useMemoryStore } from '@/stores/memoryStore';
+import { placeReflectionNotes, type ReflectionNote } from '@/lib/memory';
+import ReflectionNotes from './ReflectionNotes';
 import { useIsomorphicLayoutEffect } from '@/hooks/useStickyFollow';
 import { useAgentScrollIntent } from '@/hooks/useAgentScrollIntent';
 import AgentMessageItem from './AgentMessage';
 import ToolCallCard from './ToolCallCard';
 import TurnActions from './TurnActions';
-import { getToolView } from './toolViews';
+import { getToolView, isRetainedToolView } from './toolViews';
 import ExplorationGroup from './ExplorationGroup';
 import { TurnFoldControl } from './TurnFoldGroup';
 import { buildMessageRows, isRowPrepend, type MessageRow } from './agentMessageRows';
@@ -68,6 +71,14 @@ const PAGE_SIZE = 50;
 const TOP_MARGIN = 160;
 const EMPTY_EXPANDED: Record<string, boolean> = {};
 const NO_FOOTERS: ReadonlyMap<string, TurnFooter> = new Map();
+const NO_NOTES: readonly ReflectionNote[] = [];
+
+/** 一行代表哪些消息（复盘提示行据此找挂靠位置）。 */
+function rowMessageIds(row: MessageRow): string[] {
+  if (row.kind === 'message') return [row.message.id];
+  if (row.kind === 'group') return row.messages.map((m) => m.id);
+  return row.open ? [] : row.segment.foldMembers.map((m) => m.id);
+}
 
 export function alignedWindowStart(messages: readonly AgentMessage[], count: number): number {
   const start = Math.max(0, messages.length - count);
@@ -162,6 +173,16 @@ function MessageList({
   const reveal = useMemo(() => new ToolGroupReveal(), []);
   useEffect(() => () => reveal.dispose(), [reveal]);
   const slots = useMemo(() => virtualMessageSlots(sliced, rows), [sliced, rows]);
+  // 后台复盘的提示行：挂在被复盘那段最后一条消息（或折叠了它的那一行）后面。
+  const reflectionNotes = useMemoryStore((s) => (conversationId ? s.notes[conversationId] : undefined) ?? NO_NOTES);
+  useEffect(() => {
+    if (conversationId) void useMemoryStore.getState().loadNotes(conversationId);
+  }, [conversationId]);
+  const notesByRow = useMemo(() => placeReflectionNotes(
+    sliced,
+    rows.map((row) => ({ key: row.key, messageIds: rowMessageIds(row) })),
+    reflectionNotes,
+  ), [sliced, rows, reflectionNotes]);
   // Search expansions survive clearing the query, like the existing turn controls.
   useEffect(() => {
     model.forcedTurns.forEach((key) => useTurnFoldStore.getState().expandTurn(conversationId, key));
@@ -448,14 +469,22 @@ function MessageList({
   }, [flash]);
 
   const renderRow = (row: MessageRow): ReactNode => {
-    if (row.kind === 'turn') return <TurnFoldControl segment={row.segment} open={row.open}
-      onToggle={() => useTurnFoldStore.getState().toggleTurn(conversationId, row.segment.key)} />;
-    if (row.kind === 'group') return <ExplorationGroup kind={row.group} messages={row.messages}
-      headerOnly expanded={row.open} onToggle={() => setExpandedGroups((old) => {
-        const next = new Set(old);
-        if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
-        return next;
-      })} />;
+    const notes = notesByRow.get(row.key);
+    const notesView = notes && <ReflectionNotes notes={notes} mobile={alwaysShowActions} />;
+    if (row.kind === 'turn') return <>
+      <TurnFoldControl segment={row.segment} open={row.open}
+        onToggle={() => useTurnFoldStore.getState().toggleTurn(conversationId, row.segment.key)} />
+      {notesView}
+    </>;
+    if (row.kind === 'group') return <>
+      <ExplorationGroup kind={row.group} messages={row.messages}
+        headerOnly expanded={row.open} onToggle={() => setExpandedGroups((old) => {
+          const next = new Set(old);
+          if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
+          return next;
+        })} />
+      {notesView}
+    </>;
     const message = row.message;
     const footer = onCopyText ? footers.get(message.id) : undefined;
     return <MessageViewIdContext.Provider value={message.id}>
@@ -465,13 +494,14 @@ function MessageList({
         <MemoMessageBody message={message} grouped={row.grouped} rollbackDisabled={rollbackDisabled}
           onRollback={onRollback} onCopy={onCopy} searchKeyword={searchKeyword} alwaysShowActions={alwaysShowActions} />
         {footer && onCopyText && <TurnActions footer={footer} onCopyText={onCopyText} mobile={alwaysShowActions} />}
+        {notesView}
       </div>
     </MessageViewIdContext.Provider>;
   };
   const rowElement = (row: MessageRow) => {
     const dedicated = row.kind === 'message'
       && !!row.message.toolResult
-      && !!getToolView(row.message.toolResult.toolName);
+      && isRetainedToolView(row.message.toolResult.toolName);
     return <ToolFoldRow key={row.key} rowKey={row.key} exiting={exiting.has(row.key)}
       entering={entering.has(row.key)} onExitComplete={onExitComplete} onEnterComplete={onEnterComplete}
       reveal={reveal} revealGroup={exiting.has(row.key) ? exitGroups.get(row.key) : entryGroups.get(row.key)} compact={row.kind === 'group' || (row.kind === 'message' && row.message.role === 'tool')}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { ArrowUp, ChevronDown, Plus, Square, X } from "lucide-react";
+import { ArrowUp, Bookmark, ChevronDown, ChevronRight, Plus, Square, X } from "lucide-react";
 import { Pencil, Pin, Trash2 } from "lucide-react";
 import { useAgent } from "@/hooks/useAgent";
 import { useAgentAttachments } from "@/hooks/useAgentAttachments";
@@ -51,6 +51,8 @@ import MobileQuestionSheet from "./MobileQuestionSheet";
 import MobileChatHistorySheet from "./MobileChatHistorySheet";
 import MobileMultiHostPicker from "./MobileMultiHostPicker";
 import MobileSheet from "./ui/MobileSheet";
+import { InjectedMemoryList } from "@/components/memory/InjectedMemories";
+import { useInjectedMemories } from "@/components/memory/useInjectedMemories";
 import {
   agentEmptyStateReason,
   canSendAgentPrompt,
@@ -165,6 +167,8 @@ export default function MobileAgentHost({
   const [activeAgentsSheetOpen, setActiveAgentsSheetOpen] = useState(false);
   /** Token 用量面板（输入框行那个占用环点开）。 */
   const [usageSheetOpen, setUsageSheetOpen] = useState(false);
+  const [memorySheetOpen, setMemorySheetOpen] = useState(false);
+  const injectedMemories = useInjectedMemories(activeConversationId, activeSession?.id ?? null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [rollbackHint, setRollbackHint] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -728,6 +732,42 @@ export default function MobileAgentHost({
           <TokenUsagePanel
             usage={activeUsageView?.usage}
             windowTokens={activeUsageView?.windowTokens ?? 0}
+          />
+          {/* 上下文里除了对话本身还带着什么：长期记忆（桌面在面板头部，手机放这里） */}
+          <button
+            type="button"
+            onClick={() => {
+              setUsageSheetOpen(false);
+              setMemorySheetOpen(true);
+            }}
+            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
+          >
+            <Bookmark className="h-4 w-4 flex-shrink-0 text-zinc-400" aria-hidden />
+            <span className="min-w-0 flex-1 text-zinc-200">这段对话带着的记忆</span>
+            <span className="text-xs text-zinc-500">
+              {injectedMemories.data
+                ? injectedMemories.data.enabled
+                  ? `${injectedMemories.data.items.length} 条`
+                  : "已关闭"
+                : ""}
+            </span>
+            <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-600" aria-hidden />
+          </button>
+        </div>
+      </MobileSheet>
+
+      <MobileSheet
+        open={memorySheetOpen}
+        onClose={() => setMemorySheetOpen(false)}
+        title="记忆"
+      >
+        <div className="px-4 pb-4 text-sm">
+          <InjectedMemoryList
+            data={injectedMemories.data}
+            error={injectedMemories.error}
+            focus={activeSession?.configId ? { scope: "host", key: activeSession.configId } : undefined}
+            mobile
+            onNavigate={() => setMemorySheetOpen(false)}
           />
         </div>
       </MobileSheet>

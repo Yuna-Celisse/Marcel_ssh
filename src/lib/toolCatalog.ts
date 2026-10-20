@@ -241,6 +241,12 @@ const ICON_CHART = [
 const ICON_QUESTION = [
   'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
 ];
+/** 长期记忆：书签（「记下来了」）。 */
+const ICON_BOOKMARK = ['M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z'];
+/** 回忆：灯泡（「想起来」），与回读会话历史的时钟区分开。 */
+const ICON_RECALL = [
+  'M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z',
+];
 const ICON_SUBAGENT = [
   'M7 3v14a2 2 0 002 2h2m0 0a2 2 0 104 0m-4 0a2 2 0 104 0m5-11v2a3 3 0 01-3 3h-3m0 0V7a2 2 0 00-2-2H8m5 4H5a2 2 0 01-2-2V3h4',
 ];
@@ -396,6 +402,35 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
     partialPreview: { primary: 'fragment', companions: ['title', 'mode'] },
     // 图表是用户要看的产物，不是过程：回合折叠时豁免展示。
     deliverable: true,
+  },
+  {
+    // 写长期记忆。成功的调用由 `toolViews` 的专属卡片接管（已记住 · 作用域：标题 +
+    // 撤销 / 编辑）；它是用户要知道、可能要撤销的结果，不是过程 —— 回合折叠时照样显示。
+    name: 'memory',
+    label: '记忆',
+    iconPaths: ICON_BOOKMARK,
+    deliverable: true,
+    preview: (args) => {
+      const action = asArgString(args.action) ?? '';
+      const title = asArgString(args.title);
+      const verb = action === 'add' ? '记住' : action === 'update' ? '更新' : action === 'delete' ? '删除' : action;
+      return title ? `${verb}「${clip(title)}」` : `${verb} ${asArgString(args.id) ?? ''}`.trim();
+    },
+  },
+  {
+    // 搜记忆 + 这台机器以前的会话。与 read_history 同理，**不进 exploration 分组**：
+    // 「agent 去翻了以前的事」要让用户看得见。
+    name: 'memory_recall',
+    label: '回忆',
+    iconPaths: ICON_RECALL,
+    preview: (args) => {
+      if (asArgString(args.action) === 'read') {
+        const before = Number(args.before ?? 3) || 0;
+        const after = Number(args.after ?? 3) || 0;
+        return `回读 ${before + after + 1} 条`;
+      }
+      return `「${clip(asArgString(args.query) ?? '')}」`;
+    },
   },
   // ── 本机工具族（`local_*`）：在运行 Marcel SSH 的这台电脑上干活，与远端同名
   //    工具一一对应。图标 / 预览 / 折叠分组一律照远端那一行（同类动作共用一副

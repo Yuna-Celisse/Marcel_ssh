@@ -3,6 +3,7 @@ import type { AgentMessage } from "@/lib/types";
 import { collectPlatformHints, isMobilePlatform } from "@/platform";
 import HtmlVisualization from "./HtmlVisualization";
 import MobileHtmlVisualization from "./MobileHtmlVisualization";
+import MemoryToolView from "./MemoryToolView";
 
 export interface ToolViewProps {
   message: AgentMessage;
@@ -18,6 +19,11 @@ export interface ToolViewProps {
 interface ToolViewEntry {
   desktop: ComponentType<ToolViewProps>;
   mobile?: ComponentType<ToolViewProps>;
+  /**
+   * 滚出视口后仍保持挂载（受 `maxRetainedViews` 限额）。只给重建代价大的 view
+   * （iframe 可视化）开：轻量卡片占了限额会把真正需要保活的图表挤掉。
+   */
+  retain?: boolean;
 }
 
 /**
@@ -32,8 +38,18 @@ const TOOL_VIEWS: Record<string, ToolViewEntry> = {
     desktop: HtmlVisualization,
     // 手机：高度压在一屏内、内部不滚动，放不下的走全屏查看器。
     mobile: MobileHtmlVisualization,
+    retain: true,
+  },
+  // 「已记住 · 作用域：标题」+ 撤销 / 编辑；两端同一个组件（按钮尺寸随平台）。
+  memory: {
+    desktop: MemoryToolView,
   },
 };
+
+/** 这个工具的专属 view 是否需要滚出视口后保活（见 `ToolViewEntry.retain`）。 */
+export function isRetainedToolView(toolName: string): boolean {
+  return TOOL_VIEWS[toolName]?.retain === true;
+}
 
 export function getToolView(
   toolName: string,
