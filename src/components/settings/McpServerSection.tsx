@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Copy, RefreshCw, ShieldAlert, Terminal, Globe } from 'lucide-react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { RefreshCw, ShieldAlert, Terminal, Globe } from 'lucide-react';
 
 import Button from '@/components/ui/Button';
 import Toggle from '@/components/ui/Toggle';
@@ -16,67 +15,7 @@ import {
 import type { McpClientConfig, McpHttpRuntimeInfo } from '@/lib/types';
 import { isExposedBind, isValidPort, sanitizePortInput } from '@/lib/mcpServerUi';
 import { Card, SettingItem } from './helpers';
-
-/**
- * 复制按钮：按下即反馈。
- *
- * 用局部组件而不是每处重写，是因为「复制 → 短暂显示已复制」这个反馈
- * 必须处处一致——不一致的反馈比没有反馈更让人怀疑到底成没成。
- */
-function CopyButton({ text, label = '复制' }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    try {
-      await writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 复制失败保持原样：不谎报成功
-    }
-  };
-
-  return (
-    <Button variant="secondary" size="sm" onClick={handleCopy} className="shrink-0">
-      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-      {copied ? '已复制' : label}
-    </Button>
-  );
-}
-
-/**
- * 配置片段展示。
- *
- * monospace + 横向滚动：路径在 Windows 上很长，换行会让 JSON 看起来是坏的。
- * 复制按钮贴在代码块右上角，紧邻它复制的东西（控件靠近它影响的对象）。
- */
-function CodeBlock({ code }: { code: string }) {
-  return (
-    <div className="relative rounded-lg bg-zinc-950 border border-zinc-800">
-      <div className="absolute top-2 right-2">
-        <CopyButton text={code} />
-      </div>
-      <pre className="overflow-x-auto p-3 pr-24 text-[11px] leading-5 font-mono text-zinc-300">
-        {code}
-      </pre>
-    </div>
-  );
-}
-
-/** 运行状态指示：一眼看出服务在不在跑。 */
-function StatusPill({ running }: { running: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span
-        className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-400' : 'bg-zinc-600'}`}
-        aria-hidden
-      />
-      <span className={running ? 'text-emerald-400' : 'text-zinc-500'}>
-        {running ? '运行中' : '已停止'}
-      </span>
-    </span>
-  );
-}
+import { CodeBlock, CopyButton, StatusPill } from './mcpServerParts';
 
 export function McpServerSection() {
   const [status, setStatus] = useState<McpHttpRuntimeInfo | null>(null);
@@ -180,7 +119,7 @@ export function McpServerSection() {
               <Terminal className="w-3.5 h-3.5" />
               粘贴到客户端的 MCP 配置里
             </div>
-            {config ? (
+            {config?.stdio ? (
               <CodeBlock code={config.stdio} />
             ) : (
               <div className="text-xs text-zinc-600">正在读取配置…</div>

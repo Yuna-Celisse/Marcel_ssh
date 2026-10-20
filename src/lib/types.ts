@@ -400,9 +400,10 @@ export interface McpHttpRuntimeInfo {
 
 /** 可直接粘进客户端配置的片段。 */
 export interface McpClientConfig {
-  executablePath: string;
-  /** stdio 接入的完整配置 JSON */
-  stdio: string;
+  /** Android 上为 null（没有「客户端启动本进程」的接法） */
+  executablePath: string | null;
+  /** stdio 接入的完整配置 JSON；Android 上为 null，只有 HTTP 接入 */
+  stdio: string | null;
   /** HTTP 接入的配置 JSON；服务没跑时为 null */
   http: string | null;
 }
