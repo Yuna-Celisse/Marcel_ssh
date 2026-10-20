@@ -142,7 +142,7 @@ export default function Terminal() {
       const instance = terminalInstanceManager.get(instanceId);
       // 休眠中的终端没有 xterm 可 fit；唤醒后的 fit 由同步 effect 负责。
       if (!instance?.fitAddon) return;
-      instance.fitAddon.fit();
+      terminalInstanceManager.fit(instance);
       terminalInstanceManager.resizeRemoteIfChanged(instance);
     });
   };
@@ -205,7 +205,7 @@ export default function Terminal() {
           if (useSessionStore.getState().activeSessionId !== focusId) return;
           const instance = terminalInstanceManager.get(focusId);
           if (!instance?.terminal || !instance.fitAddon) return;
-          instance.fitAddon.fit();
+          terminalInstanceManager.fit(instance);
           instance.terminal.focus();
           terminalInstanceManager.resizeRemoteIfChanged(instance);
         });
@@ -257,7 +257,7 @@ export default function Terminal() {
     for (const [, instance] of terminalInstanceManager.getAll()) {
       if (!instance.terminal) continue;
       requestAnimationFrame(() => {
-        instance.fitAddon?.fit();
+        terminalInstanceManager.fit(instance);
         if (instance.id === activeInstanceId) {
           terminalInstanceManager.resizeRemoteIfChanged(instance);
         }

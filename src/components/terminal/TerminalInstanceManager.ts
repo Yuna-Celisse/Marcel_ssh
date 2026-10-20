@@ -23,6 +23,7 @@ import {
   unpackSnapshot,
   type PackedSnapshot,
 } from '@/lib/terminalHibernation';
+import { isUsableFitSize } from '@/lib/terminalFitGuard';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { attachClickLocate } from './terminalClickLocate';
 import { DEBUG_SERVER_PROMPT, isDebugSession } from '@/lib/debugServer';
@@ -443,6 +444,19 @@ class TerminalInstanceManager {
     instance.visible = visible;
     instance.container.style.display = visible ? 'block' : 'none';
     if (visible && instance.sleep) void this.wake(sessionId);
+  }
+
+  /**
+   * 按容器当前尺寸 fit。窗口最小化等塌缩状态下（见 `terminalFitGuard`）不动行列数，
+   * 返回 false；调用方不需要再区分，`resizeRemoteIfChanged` 看到行列没变自然不发。
+   * 桌面终端所有 fit 都走这里，别直接调 `fitAddon.fit()`。
+   */
+  fit(instance: TerminalInstance): boolean {
+    const fitAddon = instance.fitAddon;
+    if (!fitAddon || !instance.terminal) return false;
+    if (!isUsableFitSize(fitAddon.proposeDimensions())) return false;
+    fitAddon.fit();
+    return true;
   }
 
   resizeRemoteIfChanged(instance: TerminalInstance) {
