@@ -50,7 +50,7 @@ export function InjectedMemoryList({ data, error, focus, mobile = false, onNavig
       <p className="leading-relaxed text-zinc-500">
         {data.frozen
           ? '这段对话开始时带给 Agent 的记忆。之后新记的从下一段对话起生效；你手动改的下一轮就生效。'
-          : '开始对话时会带给 Agent 的记忆。'}
+          : '下一轮（或新对话）起会带给 Agent 的记忆。'}
       </p>
       {groups.length === 0 ? (
         <p className="leading-relaxed text-zinc-400">

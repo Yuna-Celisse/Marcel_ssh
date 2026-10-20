@@ -204,6 +204,15 @@ pub fn render_section(
     }
 }
 
+/// 这个位置此刻的快照指纹：与已存快照不同，说明下一轮会重渲染
+/// （管理页里手动改过、或换了分组 / 改了机器名）。
+pub fn current_fingerprint(
+    store: &super::store::MemoryStore,
+    ctx: &ScopeContext,
+) -> super::store::StoreResult<String> {
+    Ok(fingerprint(ctx, &store.fingerprint(&ctx.scopes())?))
+}
+
 fn fingerprint(ctx: &ScopeContext, scope_fp: &str) -> String {
     format!(
         "{FORMAT_VERSION}|{scope_fp}|{}|{}",
@@ -435,5 +444,44 @@ mod tests {
         let r = render_section(&ctx(), &[], false, now());
         assert!(r.section.contains("目前还没有记忆"));
         assert!(r.section.contains("什么时候记"));
+    }
+
+    #[test]
+    fn user_edit_changes_current_fingerprint_but_agent_write_does_not() {
+        use super::super::model::{BatchContext, NewMemory, Source, WriteOp};
+        use super::super::store::MemoryStore;
+        let store = MemoryStore::in_memory();
+        let add = |source: Source, title: &str| {
+            store
+                .apply(
+                    &BatchContext::new(source, None),
+                    &[WriteOp::Add {
+                        memory: NewMemory {
+                            scope: Scope::User,
+                            scope_key: String::new(),
+                            kind: Kind::Fact,
+                            title: title.into(),
+                            content: "内容".into(),
+                            pinned: false,
+                            source_conversation_id: None,
+                            source_message_id: None,
+                        },
+                    }],
+                )
+                .expect("写入");
+        };
+        let before = current_fingerprint(&store, &ctx()).unwrap();
+        add(Source::Agent, "agent 记的");
+        assert_eq!(
+            current_fingerprint(&store, &ctx()).unwrap(),
+            before,
+            "agent 写入不动快照，缓存稳定"
+        );
+        add(Source::User, "用户手动加的");
+        assert_ne!(
+            current_fingerprint(&store, &ctx()).unwrap(),
+            before,
+            "用户手动改了，下一轮要重渲染，管理页据此显示「下一轮会带上」"
+        );
     }
 }
