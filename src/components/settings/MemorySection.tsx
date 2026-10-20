@@ -3,7 +3,7 @@ import { Pin, Plus, Search } from 'lucide-react';
 import Select from '@/components/ui/Select';
 import Toggle from '@/components/ui/Toggle';
 import MemoryEditDialog from '@/components/memory/MemoryEditDialog';
-import MemoryAssistantPanel from '@/components/memory/MemoryAssistantPanel';
+import MemoryAssistantLauncher from '@/components/memory/MemoryAssistantLauncher';
 import { filterKey, useMemoryManager, type MemoryManager } from '@/components/memory/useMemoryManager';
 import { emptyRegistry, modelOptionsByChannel } from '@/lib/llmRegistry';
 import {
@@ -98,7 +98,7 @@ export function MemoryManageSection() {
     <div id={MANAGE_SECTION} className="space-y-6">
       <Card title="整理助手" description="一句话让它批量整理：合并重复、删掉过时的、从以前的会话里补记">
         <div className="px-6 py-4">
-          <MemoryAssistantPanel focus={manager.focus} />
+          <MemoryAssistantLauncher focus={manager.focus} />
         </div>
       </Card>
       <Card title="记忆管理" description="Agent、后台复盘和整理助手记下的东西都在这里；改动下一轮对话就生效">

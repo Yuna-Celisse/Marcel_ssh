@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ChevronDown, Pin, Plus, Search } from 'lucide-react';
 import Toggle from '@/components/ui/Toggle';
 import MemoryEditDialog from '@/components/memory/MemoryEditDialog';
-import MemoryAssistantPanel from '@/components/memory/MemoryAssistantPanel';
+import MemoryAssistantLauncher from '@/components/memory/MemoryAssistantLauncher';
 import { filterKey, useMemoryManager, type MemoryManager } from '@/components/memory/useMemoryManager';
 import { useSettingsActions } from '@/components/settings/SettingsActionsContext';
 import { emptyRegistry, modelFullLabel } from '@/lib/llmRegistry';
@@ -61,7 +61,7 @@ export function MobileMemorySection() {
 
       <SectionTitle title="整理助手" />
       <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3">
-        <MemoryAssistantPanel focus={manager.focus} mobile />
+        <MemoryAssistantLauncher focus={manager.focus} mobile />
       </div>
 
       <MobileManage manager={manager} />

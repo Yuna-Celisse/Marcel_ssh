@@ -1,10 +1,11 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, Square, Wand2 } from 'lucide-react';
 import MarkdownBody from '@/components/agent/MarkdownBody';
 import { getErrorMessage } from '@/lib/errors';
 import { OP_VERBS, opItem, scopeLabel, scopeOf, type ScopeRef } from '@/lib/memory';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useMemoryAssistantStore, type AssistantEntry } from '@/stores/memoryAssistantStore';
+import { assistantSuggestions } from './assistantSuggestions';
 
 interface Props {
   /** 管理页当前筛到的作用域：助手默认围绕它整理。 */
@@ -14,28 +15,15 @@ interface Props {
 
 /** 输入框最高长到多少 px（约 5 行），再多就在框里滚。 */
 const INPUT_MAX_HEIGHT = 120;
-
-function suggestions(focusLabel: string | null): { label: string; prompt: string }[] {
-  const where = focusLabel ?? '各台机器';
-  const scope = focusLabel ? `${focusLabel}的` : '';
-  return [
-    {
-      label: '从历史会话里整理',
-      prompt: `翻一翻${where}以前的会话，把值得长期记住的习惯、环境事实和经验整理进记忆；已经记过的不要重复。`,
-    },
-    {
-      label: '合并重复、删掉过时的',
-      prompt: `检查${scope}记忆：合并重复的，删掉已经过时或互相矛盾的，标题改得一眼能认出来。`,
-    },
-    {
-      label: '查查有没有记了不该记的',
-      prompt: `检查${scope}记忆里有没有密码、密钥、token 这类不该保存的内容；有的话删掉，或者改成只记它放在哪里。`,
-    },
-  ];
-}
+/** 离底部不到这么多 px 就算「在底部」，新内容来了继续跟随。 */
+const FOLLOW_THRESHOLD_PX = 48;
 
 /**
- * 整理助手：在记忆管理页里用一句话批量整理记忆。两端共用（`mobile` 只调尺寸与发送方式）。
+ * 整理助手的对话视图：上面是对话记录，下面是输入框。两端共用（`mobile` 只调尺寸与发送方式）。
+ *
+ * **滚动只有一层**：对话记录是这个视图里唯一的滚动容器，输入框钉在它下面，不参与滚动；
+ * 视图自己填满宿主给的高度（桌面是弹窗、手机是底部面板），不再有「页面一个滚动条、
+ * 里面又一个」。跟随规则：在底部就跟着新内容走，往上翻着读就不抢位置，自己发送时一定回到底部。
  */
 export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const entries = useMemoryAssistantStore((s) => s.entries);
@@ -46,9 +34,9 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const focusLabel = focus ? scopeLabel(focus, connections) : null;
   const running = runningId !== null;
 
-  // 跟随到底部——但用户往上翻着读的时候不抢滚动位置。
+  // 在布局阶段、绘制之前改滚动位置：新内容不会先以旧位置闪一帧再跳到底。
   const stickToBottom = useRef(true);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [entries]);
@@ -65,98 +53,113 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const send = (text: string) => {
     if (!text.trim() || running) return;
     setDraft('');
+    stickToBottom.current = true;
     void useMemoryAssistantStore.getState().send(text, focus);
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
-      {entries.length === 0 ? (
-        <div className="flex flex-col gap-2.5">
-          <p className={`${mobile ? 'text-sm' : 'text-xs'} leading-relaxed text-zinc-400`}>
-            不用一条条手动改：告诉它要怎么整理，它会查看记忆、翻以前的会话，然后一次改好。
-            每次的改动都能一键撤销。
-            {focusLabel && <span className="text-zinc-500">（当前围绕 {focusLabel}）</span>}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {suggestions(focusLabel).map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => send(s.prompt)}
-                className={`rounded-full border border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:border-indigo-500/50 hover:text-zinc-100 active:scale-[0.97] transition ${
-                  mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'
-                }`}
-              >
-                {s.label}
-              </button>
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+      >
+        {entries.length === 0 ? (
+          <div className="flex flex-col gap-3">
+            <p className={`${mobile ? 'text-sm' : 'text-[13px]'} leading-relaxed text-zinc-400`}>
+              不用一条条手动改：告诉它要怎么整理，它会查看记忆、翻以前的会话，然后一次改好。
+              每次的改动都能一键撤销。
+              {focusLabel && <span className="text-zinc-500">（当前围绕 {focusLabel}）</span>}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {assistantSuggestions(focusLabel).map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => send(s.prompt)}
+                  className={`rounded-full border border-zinc-700 bg-zinc-800/60 text-zinc-300 transition hover:border-indigo-500/50 hover:text-zinc-100 active:scale-[0.97] ${
+                    mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {entries.map((e) => (
+              <EntryView key={e.id} entry={e} mobile={mobile} />
             ))}
           </div>
-        </div>
-      ) : (
-        <div
-          ref={scrollRef}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-          }}
-          className={`flex flex-col gap-3 overflow-y-auto overscroll-contain ${mobile ? 'max-h-[50dvh]' : 'max-h-[28rem]'} pr-1`}
-        >
-          {entries.map((e) => (
-            <EntryView key={e.id} entry={e} mobile={mobile} />
-          ))}
-        </div>
-      )}
-
-      {/* 药丸输入框：外圈圆角 = 内圈按钮半径 + 内边距，按钮是正圆，嵌进去才同心。
-          全局 :focus-visible 的描边会在圆角框里再画出一个方框，且盖得过 Tailwind 的 outline-none（它在 layer 里），
-          所以靠 `.agent-input` 这条全局规则关掉，外框的 border 是唯一的焦点提示。 */}
-      <div className="agent-input flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 bg-zinc-800 p-1.5 pl-4 transition-colors focus-within:border-indigo-500">
-        <textarea
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (!mobile && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              send(draft);
-            }
-          }}
-          rows={1}
-          placeholder={focusLabel ? `要怎么整理 ${focusLabel} 的记忆？` : '要怎么整理记忆？'}
-          className="min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-0"
-        />
-        {running ? (
-          <button
-            type="button"
-            onClick={() => void useMemoryAssistantStore.getState().cancel()}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-500 active:scale-90"
-            aria-label="停止"
-            title="停止"
-          >
-            <Square className="h-3 w-3" fill="currentColor" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => send(draft)}
-            disabled={!draft.trim()}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white transition hover:bg-indigo-500 active:scale-90 disabled:bg-zinc-700 disabled:text-zinc-500 disabled:active:scale-100"
-            aria-label="发送"
-            title="发送"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </button>
         )}
       </div>
-      {entries.length > 0 && !running && (
-        <button
-          type="button"
-          onClick={() => useMemoryAssistantStore.getState().clear()}
-          className="self-end text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+
+      <div className={`flex-shrink-0 border-t px-3 pb-3 pt-2.5 ${mobile ? 'border-zinc-800' : 'border-zinc-700/70'}`}>
+        {/* 药丸输入框：外圈圆角 = 内圈按钮半径 + 内边距，按钮是正圆，嵌进去才同心。
+            全局 :focus-visible 的描边会在圆角框里再画出一个方框，且盖得过 Tailwind 的 outline-none
+            （它在 layer 里），所以靠 `.agent-input` 这条全局规则关掉，外框的 border 是唯一的焦点提示。
+            底色与宿主面板错开一档（弹窗 zinc-800 → 输入框 zinc-900；手机面板 zinc-900 → zinc-800）。 */}
+        <div
+          className={`agent-input flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 p-1.5 pl-4 transition-colors focus-within:border-indigo-500 ${
+            mobile ? 'bg-zinc-800' : 'bg-zinc-900'
+          }`}
         >
-          清空对话
-        </button>
-      )}
+          <textarea
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (!mobile && e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                send(draft);
+              }
+            }}
+            rows={1}
+            placeholder={focusLabel ? `要怎么整理 ${focusLabel} 的记忆？` : '要怎么整理记忆？'}
+            className="min-h-8 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-0"
+          />
+          {running ? (
+            <button
+              type="button"
+              onClick={() => void useMemoryAssistantStore.getState().cancel()}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-500 active:scale-90"
+              aria-label="停止"
+              title="停止"
+            >
+              <Square className="h-3 w-3" fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => send(draft)}
+              disabled={!draft.trim()}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white transition hover:bg-indigo-500 active:scale-90 disabled:bg-zinc-700 disabled:text-zinc-500 disabled:active:scale-100"
+              aria-label="发送"
+              title="发送"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {entries.length > 0 && !running && (
+          <div className="mt-1.5 flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                stickToBottom.current = true;
+                useMemoryAssistantStore.getState().clear();
+              }}
+              className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+            >
+              清空对话
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
