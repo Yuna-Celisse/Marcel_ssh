@@ -21,6 +21,7 @@ import StarPromptModal from '@/components/star/StarPromptModal';
 import GlobalInteractionOverlay from '@/components/agent/GlobalInteractionOverlay';
 import { initInteractionListener } from '@/stores/interactionStore';
 import { initJobWake } from '@/stores/jobWake';
+import { initAgentQueue } from '@/stores/agentQueueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { useSkillStore } from '@/stores/skillStore';
@@ -197,6 +198,8 @@ export default function App() {
     const detachJobs = useJobStore.getState().initEventListener();
     // 作业跑完自动继续：作业结算 → 给那条会话开一轮把结局交给模型
     const detachJobWake = initJobWake();
+    // 发送队列：任务自然结束后自动发出排好的消息，停止/出错/断连则暂停
+    const detachAgentQueue = initAgentQueue();
     // 启动恢复：拉取全部会话的后台作业（事件不会重放，重启前已存在的
     // 作业靠这次全量拉取回到 UI；只 upsert 合并，不覆盖事件实时状态）
     void useJobStore.getState().fetchJobs();
@@ -205,6 +208,7 @@ export default function App() {
       detachInteractions();
       detachJobs();
       detachJobWake();
+      detachAgentQueue();
     };
   }, []);
 

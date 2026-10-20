@@ -25,7 +25,8 @@ import {
 } from "@/lib/agentPanelDerived";
 import { dockPanelOf } from "@/lib/workspaceLayout";
 import { currentVision } from "@/lib/llmRegistry";
-import type { AgentMessage } from "@/lib/types";
+import type { AgentMessage, Skill } from "@/lib/types";
+import { expandSkillForInput } from "@/lib/skillInvocation";
 import ChatHistoryModal from "@/components/settings/ChatHistoryModal";
 import AgentTranscript from "./AgentTranscript";
 import { isCommandDraft } from "./agentCommandEntries";
@@ -254,8 +255,13 @@ export default function AgentPanel() {
       });
   };
 
-  const handleInsertSkill = (prompt: string) => {
-    setInput(prompt);
+  const handlePickSkill = (skill: Skill) => {
+    attachments.addSkill({
+      skillId: skill.id,
+      name: skill.name,
+      content: expandSkillForInput(skill),
+    });
+    setInput("");
     requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
@@ -265,6 +271,16 @@ export default function AgentPanel() {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (commandMenuOpen && commandMenuRef.current?.handleKeyDown(e)) {
       e.preventDefault();
+      return;
+    }
+    // 输入框为空时退格删掉最后一个 skill 标签（与标签输入框的通用习惯一致）
+    if (
+      e.key === "Backspace" &&
+      attachments.skills.length > 0 &&
+      useAgentDraftStore.getState().getDraft(draftKey).text === ""
+    ) {
+      e.preventDefault();
+      attachments.removeSkill(attachments.skills[attachments.skills.length - 1].id);
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -441,7 +457,7 @@ export default function AgentPanel() {
           commandMenuRef={commandMenuRef}
           inputRef={inputRef}
           onKeyDown={handleKeyDown}
-          onInsertSkill={handleInsertSkill}
+          onPickSkill={handlePickSkill}
           onCompact={handleCompact}
           setInput={setInput}
           registry={registry}

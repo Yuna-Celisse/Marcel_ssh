@@ -7,6 +7,8 @@ import { useAgentAttachments } from "@/hooks/useAgentAttachments";
 import { useAgentDraftActions } from "@/hooks/useAgentDraftActions";
 import { EMPTY_DRAFT, useAgentDraftStore } from "@/stores/agentDraftStore";
 import DraftAttachments from "@/components/agent/DraftAttachments";
+import DraftSkillChips from "@/components/agent/DraftSkillChips";
+import AgentQueueTray from "@/components/agent/AgentQueueTray";
 import { useTaskStore } from "@/stores/taskStore";
 import { useJobStore } from "@/stores/jobStore";
 import { getConversationAgentStatus, taskCenterEntry } from "@/stores/agentStatusSelectors";
@@ -30,7 +32,8 @@ import {
 import { AGENT_MODES } from "@/lib/constants";
 import { currentVision } from "@/lib/llmRegistry";
 import { useSettingsStore } from "@/stores/settingsStore";
-import type { AgentMessage, AgentMode } from "@/lib/types";
+import type { AgentMessage, AgentMode, Skill } from "@/lib/types";
+import { expandSkillForInput } from "@/lib/skillInvocation";
 import AgentTranscript from "@/components/agent/AgentTranscript";
 import { AgentDraft, AgentTextarea } from "@/components/agent/AgentDraft";
 import { isCommandDraft } from "@/components/agent/agentCommandEntries";
@@ -385,11 +388,16 @@ export default function MobileAgentHost({
       });
   }, [activeConversationId]);
 
-  const handleInsertSkill = useCallback(
-    (prompt: string) => {
-      setInputDraft(prompt);
+  const handlePickSkill = useCallback(
+    (skill: Skill) => {
+      attachments.addSkill({
+        skillId: skill.id,
+        name: skill.name,
+        content: expandSkillForInput(skill),
+      });
+      setInputDraft("");
     },
-    [setInputDraft],
+    [attachments, setInputDraft],
   );
 
   // 菜单打开时系统返回键 = 关闭（清空命令输入）
@@ -845,7 +853,8 @@ export default function MobileAgentHost({
             query={commandMenuOpen ? inputDraft.slice(1) : ""}
             currentMode={mode}
             onSelectMode={setMode}
-            onInsertSkill={handleInsertSkill}
+            onPickSkill={handlePickSkill}
+            selectedSkillIds={attachments.skills.map((skill) => skill.skillId)}
             onCompact={handleCompact}
             onClose={() => setInputDraft("")}
           />
@@ -857,6 +866,8 @@ export default function MobileAgentHost({
               正在压缩上下文，完成后即可发送（可点右下角取消）
             </div>
           )}
+          <AgentQueueTray conversationId={attachments.conversationId} mobile />
+          <DraftSkillChips attachments={attachments} mobile />
           <DraftAttachments attachments={attachments} mobile />
           <div className="agent-input rounded-2xl border border-zinc-700 bg-zinc-900 focus-within:border-indigo-500">
             {/* 移动端不拦截回车：软键盘/IME 的「换行」键走 textarea 原生行为插入换行
@@ -873,7 +884,9 @@ export default function MobileAgentHost({
                   ? "请先连接服务器…"
                   : !ids
                     ? "请从连接列表重新连接…"
-                    : "描述您想要做的事情，输入 / 可查看命令…"
+                    : isRunning
+                      ? "任务进行中，可先排队，完成后自动发送…"
+                      : "描述您想要做的事情，输入 / 可查看命令…"
               }
               disabled={!canInteract || !ids}
               className="w-full min-h-[2.5rem] max-h-[7.5rem] resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
@@ -1005,7 +1018,7 @@ export default function MobileAgentHost({
                     : void handleSend()
               }
               disabled={!isRunning && !isCompacting && (sending || !!attachments.sendBlockedReason || !(!!ids && canSendAgentPrompt(
-                activeSession, conversationBusy, inputDraft, attachments.items.length > 0,
+                activeSession, conversationBusy, inputDraft, attachments.items.length > 0 || attachments.skills.length > 0,
               )))}
               className={`mr-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-white transition-transform duration-150 active:scale-95 disabled:opacity-40 ${
                 isRunning
@@ -1025,6 +1038,21 @@ export default function MobileAgentHost({
                 <ArrowUp className="h-[18px] w-[18px]" />
               )}
             </button>
+            {/* 运行中且已输入：停止键留在原处，右侧主位给「加入队列」（与桌面同款；
+                停止在左、队列在右，误点队列无害、误点停止会中断长任务）。 */}
+            {isRunning && !sending && !attachments.sendBlockedReason && !!ids && canSendAgentPrompt(
+              activeSession, isCompacting, inputDraft, attachments.items.length > 0 || attachments.skills.length > 0,
+            ) && (
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                className="mr-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition-transform duration-150 active:scale-95 active:bg-indigo-500"
+                title="加入队列（当前任务完成后自动发送）"
+                aria-label="加入队列"
+              >
+                <ArrowUp className="h-[18px] w-[18px]" />
+              </button>
+            )}
             </div>
           </div>
         </div>

@@ -75,6 +75,31 @@ describe('SendControlButton 三态（停止 / 取消压缩 / 发送）', () => {
     expect(h.onSend).not.toHaveBeenCalled();
   });
 
+  it('运行中有输入：停止键留在原处，右侧多一个「加入队列」走 onSend', async () => {
+    const h = handlers();
+    await render({ isRunning: true, isCompacting: false, disabled: false, canQueue: true, ...h });
+    const buttons = Array.from(container.querySelectorAll('button'));
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['停止', '加入队列']);
+
+    await act(async () => {
+      buttons[1].click();
+    });
+    expect(h.onSend).toHaveBeenCalledTimes(1);
+    expect(h.onStop).not.toHaveBeenCalled();
+  });
+
+  it('运行中没有输入：只有停止键', async () => {
+    const h = handlers();
+    await render({ isRunning: true, isCompacting: false, disabled: false, canQueue: false, ...h });
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('空闲时即使 canQueue 也不出现队列键', async () => {
+    const h = handlers();
+    await render({ isRunning: false, isCompacting: false, disabled: false, canQueue: true, ...h });
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+  });
+
   it('空闲且禁用：点击无效果（空内容或未连接）', async () => {
     const h = handlers();
     const button = await render({ isRunning: false, isCompacting: false, disabled: true, ...h });

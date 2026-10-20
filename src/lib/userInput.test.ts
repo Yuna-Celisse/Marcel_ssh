@@ -60,4 +60,44 @@ describe('user input metadata', () => {
     expect(composeUserInput(plain)).toBe(plain.text);
     expect(validateUserInput(plain.text, plain)).toEqual(plain);
   });
+
+  it('composes skills after text and files, and validates round-trip', () => {
+    const withSkills: UserInputMetadata = {
+      ...input,
+      skills: [
+        { id: 's1', skillId: 'sk-a', name: '排错', content: '先看日志' },
+        { id: 's2', skillId: 'sk-b', name: '部署', content: '先备份' },
+      ],
+    };
+    const content = composeUserInput(withSkills);
+    expect(content.startsWith(composeUserInput(input))).toBe(true);
+    expect(content.endsWith(
+      '\n\n===== 用户指定使用的 Skill: 排错 =====\n先看日志'
+      + '\n\n===== 用户指定使用的 Skill: 部署 =====\n先备份',
+    )).toBe(true);
+    expect(validateUserInput(content, withSkills)).toEqual(withSkills);
+  });
+
+  it('accepts skill-only input and legacy metadata without skills', () => {
+    const only: UserInputMetadata = {
+      version: 1, text: '', textAttachments: [],
+      skills: [{ id: 's1', skillId: 'sk-a', name: '排错', content: '先看日志' }],
+    };
+    expect(validateUserInput(composeUserInput(only), only)).toEqual(only);
+    expect(validateUserInput(composeUserInput(input), input)).toEqual(input);
+  });
+
+  it('rejects skills that do not recompose into the content or are malformed', () => {
+    const withSkill: UserInputMetadata = {
+      ...input,
+      skills: [{ id: 's1', skillId: 'sk-a', name: '排错', content: '先看日志' }],
+    };
+    expect(validateUserInput(composeUserInput(input), withSkill)).toBeUndefined();
+    expect(validateUserInput(composeUserInput(withSkill), {
+      ...withSkill, skills: [{ id: 's1', name: '排错', content: '先看日志' }],
+    })).toBeUndefined();
+    expect(validateUserInput(composeUserInput(withSkill), {
+      ...withSkill, skills: 'oops',
+    })).toBeUndefined();
+  });
 });

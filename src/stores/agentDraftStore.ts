@@ -1,5 +1,10 @@
 import { create } from "zustand";
-import type { AgentConversation, UserInputMetadata, UserTextAttachment } from "@/lib/types";
+import type {
+  AgentConversation,
+  UserInputMetadata,
+  UserSkillRef,
+  UserTextAttachment,
+} from "@/lib/types";
 import { getErrorMessage } from "@/lib/errors";
 import {
   MAX_ATTACHMENTS,
@@ -37,6 +42,8 @@ export interface AttachmentItem {
 export interface AgentDraft {
   text: string;
   attachments: AttachmentItem[];
+  /** 手动引用的 skill 标签；不占附件名额，数量不设上限。 */
+  skills: UserSkillRef[];
   notice: string | null;
 }
 
@@ -44,6 +51,7 @@ export interface AgentDraft {
 export const EMPTY_DRAFT: AgentDraft = Object.freeze({
   text: "",
   attachments: Object.freeze([]) as unknown as AttachmentItem[],
+  skills: Object.freeze([]) as unknown as UserSkillRef[],
   notice: null,
 });
 
@@ -92,6 +100,7 @@ export interface DraftSendSnapshot {
   items: AttachmentItem[];
   images: PendingImage[];
   textAttachments: UserTextAttachment[];
+  skills: UserSkillRef[];
   userInput: UserInputMetadata;
 }
 
@@ -103,9 +112,26 @@ export interface DraftSendOutcome {
   notice?: string;
 }
 
+/**
+ * 从草稿里**脱离**出来的纯数据（发送队列条目持有它）。
+ *
+ * 与 `DraftSendSnapshot` 的区别：快照与一次在途发送同寿命（占 `sending` 计数、资源归快照所有），
+ * 而排队可能等好几分钟——不能让输入区一直显示「正在发送」。脱离后资源全部归还，
+ * 图片预览用 dataUrl（blob URL 已回收），唯独**已落盘的图路径保留**：它们在出队发送成功后
+ * 才由 `startTask` 的 replaceImagePaths 回收，出队前删条目由队列自己回收。
+ */
+export interface DetachedDraft {
+  text: string;
+  images: { id: string; name: string; dataUrl: string; persistedPath?: string }[];
+  textAttachments: UserTextAttachment[];
+  skills: UserSkillRef[];
+  userInput: UserInputMetadata;
+}
+
 export interface RestoreDraftMessage {
   text: string;
   textAttachments?: UserTextAttachment[];
+  skills?: UserSkillRef[];
   imagePaths?: string[];
 }
 
@@ -131,6 +157,9 @@ interface AgentDraftState {
   getDraft: (key: string) => AgentDraft;
   setText: (key: string, text: string | ((previous: string) => string)) => void;
   setNotice: (key: string, notice: string | null) => void;
+  /** 加一个 skill 标签；同一 skill 已在草稿里则忽略。 */
+  addSkill: (key: string, skill: Omit<UserSkillRef, "id">) => void;
+  removeSkill: (key: string, id: string) => void;
   importFiles: (key: string, files: File[]) => Promise<void>;
   importPaths: (key: string, paths: string[]) => Promise<void>;
   remove: (key: string, id: string) => void;
@@ -144,6 +173,10 @@ interface AgentDraftState {
   ) => DraftSendSnapshot | null;
   finishSend: (snapshot: DraftSendSnapshot, outcome: DraftSendOutcome) => void;
   restoreMessage: (key: string, message: RestoreDraftMessage) => Promise<void>;
+  /** 把当前草稿整份取走交给发送队列；校验口径与 `takeSendSnapshot` 完全相同。 */
+  takeDetachedDraft: (key: string, visionEnabled?: boolean) => DetachedDraft | null;
+  /** 把队列条目放回草稿（编辑排队消息）；与撤回恢复同样合并进已有草稿而不覆盖。 */
+  restoreDetached: (key: string, detached: DetachedDraft) => void;
 }
 
 // File、读取代次和 URL 所有权属于运行时 manager，不落配置或聊天数据库。
@@ -453,6 +486,12 @@ export function draftSendBlockedReason(
   return null;
 }
 
+/** 合并两份 skill 标签，按来源 skill 去重（前者优先）。 */
+function mergeSkills(previous: UserSkillRef[], later: UserSkillRef[]): UserSkillRef[] {
+  const seen = new Set(previous.map((skill) => skill.skillId));
+  return [...previous, ...later.filter((skill) => !seen.has(skill.skillId))];
+}
+
 function mergeText(previous: string, later: string): string {
   if (!previous || previous === later) return later;
   if (!later) return previous;
@@ -471,6 +510,19 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
   },
   setNotice: (key, notice) =>
     updateDraft(key, (draft) => ({ ...draft, notice })),
+  addSkill: (key, skill) => {
+    if (get().getDraft(key).skills.some((entry) => entry.skillId === skill.skillId))
+      return;
+    updateDraft(key, (draft) => ({
+      ...draft,
+      skills: [...draft.skills, { ...skill, id: crypto.randomUUID() }],
+    }));
+  },
+  removeSkill: (key, id) =>
+    updateDraft(key, (draft) => ({
+      ...draft,
+      skills: draft.skills.filter((skill) => skill.id !== id),
+    })),
   importFiles: (key, files) =>
     importSources(
       key,
@@ -574,6 +626,7 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
         [toKey]: {
           text: mergeText(previous.text, target.text),
           attachments: [...previous.attachments, ...target.attachments],
+          skills: mergeSkills(previous.skills, target.skills),
           notice: target.notice ?? previous.notice,
         },
       };
@@ -592,7 +645,12 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
       : draftSendBlockedReason(draft, visionEnabled);
     // 阻止发送的原因由 UI 随状态派生，不能存成过期后仍留在草稿的提示。
     if (reason) return null;
-    if (!draft.text.trim() && draft.attachments.length === 0) return null;
+    if (
+      !draft.text.trim() &&
+      draft.attachments.length === 0 &&
+      draft.skills.length === 0
+    )
+      return null;
     const items = draft.attachments.map((item) => ({ ...item }));
     const textAttachments: UserTextAttachment[] = items
       .filter((item) => item.kind === "text")
@@ -616,7 +674,15 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
           persistedPath: item.persistedPath,
         })),
       textAttachments,
-      userInput: { version: 1, text: draft.text, textAttachments },
+      skills: draft.skills.map((skill) => ({ ...skill })),
+      userInput: {
+        version: 1,
+        text: draft.text,
+        textAttachments,
+        ...(draft.skills.length > 0
+          ? { skills: draft.skills.map((skill) => ({ ...skill })) }
+          : {}),
+      },
     };
     snapshots.set(snapshot.id, snapshot);
     for (const item of items) {
@@ -684,6 +750,7 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
           [key]: {
             text: mergeText(snapshot.text, current.text),
             attachments: [...restored, ...current.attachments],
+            skills: mergeSkills(snapshot.skills, current.skills),
             notice:
               outcome.notice ??
               "发送未成功，原输入和附件已恢复，后来输入的内容已保留",
@@ -704,6 +771,13 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
     updateDraft(key, (draft) => ({
       text: mergeText(message.text, draft.text),
       attachments: [...textItems, ...draft.attachments],
+      skills: mergeSkills(
+        (message.skills ?? []).map((skill) => ({
+          ...skill,
+          id: crypto.randomUUID(),
+        })),
+        draft.skills,
+      ),
       notice: null,
     }));
     if (message.imagePaths?.length) {
@@ -715,6 +789,65 @@ export const useAgentDraftStore = create<AgentDraftState>((set, get) => ({
         true,
       );
     }
+  },
+  takeDetachedDraft: (key, visionEnabled = true) => {
+    const snapshot = get().takeSendSnapshot(key, visionEnabled);
+    if (!snapshot) return null;
+    // 先摘掉资源上的落盘路径再「提交」：提交会回收资源，而这些文件还要等出队发送。
+    for (const item of snapshot.items) {
+      const resource = resources.get(item.id);
+      if (resource?.owner === snapshot.id) resource.persistedPath = undefined;
+    }
+    get().finishSend(snapshot, { status: "committed" });
+    return {
+      text: snapshot.text,
+      images: snapshot.items
+        .filter((item) => item.kind === "image")
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          dataUrl: item.dataUrl!,
+          persistedPath: item.persistedPath,
+        })),
+      textAttachments: snapshot.textAttachments,
+      skills: snapshot.skills,
+      userInput: snapshot.userInput,
+    };
+  },
+  restoreDetached: (key, detached) => {
+    const images: AttachmentItem[] = detached.images.map((image) => {
+      const id = crypto.randomUUID();
+      resources.set(id, {
+        id,
+        draftKey: key,
+        owner: "draft",
+        generation: 0,
+        persistedPath: image.persistedPath,
+      });
+      return {
+        id,
+        name: image.name,
+        kind: "image",
+        status: "ready",
+        dataUrl: image.dataUrl,
+        previewUrl: image.dataUrl,
+        persistedPath: image.persistedPath,
+      };
+    });
+    const texts: AttachmentItem[] = detached.textAttachments.map((attachment) => {
+      const id = crypto.randomUUID();
+      resources.set(id, { id, draftKey: key, owner: "draft", generation: 0 });
+      return { ...attachment, id, kind: "text", status: "ready" };
+    });
+    updateDraft(key, (draft) => ({
+      text: mergeText(detached.text, draft.text),
+      attachments: [...images, ...texts, ...draft.attachments],
+      skills: mergeSkills(
+        detached.skills.map((skill) => ({ ...skill, id: crypto.randomUUID() })),
+        draft.skills,
+      ),
+      notice: null,
+    }));
   },
 }));
 

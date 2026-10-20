@@ -400,4 +400,66 @@ describe("Agent 附件草稿 manager", () => {
       content: "中文",
     });
   });
+
+  describe("skill 标签", () => {
+    const skillA = { skillId: "a", name: "排错", content: "先看日志" };
+    const skillB = { skillId: "b", name: "部署", content: "先备份" };
+
+    it("可以同时引用多个，同一个只记一次，可单独移除", () => {
+      store().addSkill(key, skillA);
+      store().addSkill(key, skillB);
+      store().addSkill(key, skillA);
+      expect(draft().skills.map((s) => s.skillId)).toEqual(["a", "b"]);
+      store().removeSkill(key, draft().skills[0].id);
+      expect(draft().skills.map((s) => s.skillId)).toEqual(["b"]);
+    });
+
+    it("只有 skill 也能发送，快照把 skill 展开进完整输入且不占附件名额", () => {
+      store().addSkill(key, skillA);
+      store().addSkill(key, skillB);
+      const snapshot = store().takeSendSnapshot(key)!;
+      expect(snapshot).not.toBeNull();
+      expect(snapshot.skills).toHaveLength(2);
+      expect(snapshot.userInput.skills?.map((s) => s.name)).toEqual(["排错", "部署"]);
+      expect(snapshot.textAttachments).toEqual([]);
+      expect(draft().skills).toEqual([]);
+    });
+
+    it("发送被拒绝时 skill 标签连同文字一起恢复，后来加的标签保留", () => {
+      store().setText(key, "帮我看看");
+      store().addSkill(key, skillA);
+      const snapshot = store().takeSendSnapshot(key)!;
+      store().addSkill(key, skillB);
+      store().finishSend(snapshot, { status: "rejected" });
+      expect(draft().text).toBe("帮我看看");
+      expect(draft().skills.map((s) => s.skillId)).toEqual(["a", "b"]);
+    });
+
+    it("首次建会话迁移草稿时合并并按 skill 去重", () => {
+      const from = draftKeyFor(null, "s1");
+      const to = draftKeyFor("conv", "s1");
+      store().addSkill(from, skillA);
+      store().addSkill(to, skillA);
+      store().addSkill(to, skillB);
+      store().migrateDraft(from, to);
+      expect(store().getDraft(to).skills.map((s) => s.skillId)).toEqual(["a", "b"]);
+      expect(store().getDraft(from)).toBe(EMPTY_DRAFT);
+    });
+
+    it("撤回消息时按 skill 元数据恢复标签", async () => {
+      await store().restoreMessage(key, {
+        text: "原话",
+        skills: [{ id: "old", ...skillA }],
+      });
+      expect(draft().text).toBe("原话");
+      expect(draft().skills).toMatchObject([skillA]);
+      expect(draft().skills[0].id).not.toBe("old");
+    });
+
+    it("清空草稿时一并清掉 skill 标签", () => {
+      store().addSkill(key, skillA);
+      store().clear(key);
+      expect(draft().skills).toEqual([]);
+    });
+  });
 });

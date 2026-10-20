@@ -3,9 +3,16 @@ import type { AgentMessage } from "@/lib/types";
 import { getErrorMessage } from "@/lib/errors";
 import { useTaskStore } from "@/stores/taskStore";
 import {
+  conversationHasRunningTask,
   conversationIsBusy,
+  conversationIsCompacting,
   useConversationStore,
 } from "@/stores/conversationStore";
+import {
+  MAX_QUEUED_MESSAGES,
+  drainQueue,
+  useAgentQueueStore,
+} from "@/stores/agentQueueStore";
 import {
   beginDraftImport,
   draftImportTarget,
@@ -40,13 +47,47 @@ export function useAgentDraftActions({
   const sending = useAgentDraftStore((s) => !!s.sending[attachments.draftKey]);
   const latestSendIdRef = useRef<string | null>(null);
 
-  const send = useCallback(async () => {
-    if (
-      !canInteract ||
-      !sessionId ||
-      (conversationId && conversationIsBusy(conversationId))
-    )
+  /**
+   * 任务还在跑（或队列里已有排着的、未暂停）时，输入进发送队列而不是被吞掉：
+   * 这一轮自然结束后由 `agentQueueStore` 自动发出。队列非空时哪怕恰好撞上空窗也进队尾，
+   * 保持先进先出。手动压缩期间照旧不可发送（压缩卡会盖住期间写入的消息）。
+   */
+  const enqueue = useCallback((targetConversationId: string, targetSessionId: string) => {
+    const detached = attachments.takeDetachedDraft();
+    if (!detached) return;
+    onSend?.();
+    const queued = useAgentQueueStore.getState().enqueue({
+      conversationId: targetConversationId,
+      sessionId: targetSessionId,
+      connectionId,
+      draft: detached,
+    });
+    if (!queued) {
+      const drafts = useAgentDraftStore.getState();
+      drafts.restoreDetached(attachments.draftKey, detached);
+      drafts.setNotice(
+        attachments.draftKey,
+        `排队的消息已达 ${MAX_QUEUED_MESSAGES} 条上限，输入已保留，请等待发出或清理队列`,
+      );
       return;
+    }
+    // 入队与回合结束之间可能刚好错过了空窗；空闲且未暂停时由它立刻发出（忙则无事发生）。
+    void drainQueue(targetConversationId);
+  }, [attachments, connectionId, onSend]);
+
+  const send = useCallback(async () => {
+    if (!canInteract || !sessionId) return;
+    if (conversationId) {
+      if (conversationIsCompacting(conversationId)) return;
+      const queue = useAgentQueueStore.getState();
+      if (
+        conversationHasRunningTask(conversationId) ||
+        (!!queue.items[conversationId]?.length && !queue.paused[conversationId])
+      ) {
+        enqueue(conversationId, sessionId);
+        return;
+      }
+    }
     const snapshot = attachments.takeSendSnapshot();
     if (!snapshot) return;
     latestSendIdRef.current = snapshot.id;
@@ -64,7 +105,7 @@ export function useAgentDraftActions({
         {
           conversationId: conversationId ?? undefined,
           userInput:
-            snapshot.textAttachments.length > 0
+            snapshot.textAttachments.length > 0 || snapshot.skills.length > 0
               ? snapshot.userInput
               : undefined,
         },
@@ -104,6 +145,7 @@ export function useAgentDraftActions({
     canInteract,
     userJustSentRef,
     onSend,
+    enqueue,
   ]);
 
   const rollback = useCallback(
@@ -120,6 +162,7 @@ export function useAgentDraftActions({
         await useAgentDraftStore.getState().restoreMessage(targetKey, {
           text: result.prompt,
           textAttachments: result.userInput?.textAttachments,
+          skills: result.userInput?.skills,
           imagePaths: result.imagePaths?.length
             ? result.imagePaths
             : message.imagePaths,

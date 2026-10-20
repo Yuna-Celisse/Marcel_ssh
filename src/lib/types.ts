@@ -484,11 +484,24 @@ export interface UserTextAttachment {
   size?: number;
 }
 
+/**
+ * 用户在输入框里手动引用的 skill。`content` 是引用瞬间展开好的完整指令快照
+ * （之后再改 skill 不会改写历史消息）；`skillId` 是来源 skill，用于草稿去重。
+ */
+export interface UserSkillRef {
+  id: string;
+  skillId: string;
+  name: string;
+  content: string;
+}
+
 /** 展示与撤回使用的显式结构；消息 content 始终保留完整模型输入。 */
 export interface UserInputMetadata {
   version: 1;
   text: string;
   textAttachments: UserTextAttachment[];
+  /** 手动引用的 skill；旧消息没有该字段。 */
+  skills?: UserSkillRef[];
 }
 
 export interface AgentMessage {

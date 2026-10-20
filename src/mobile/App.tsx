@@ -11,6 +11,7 @@ import MobileStarPromptSheet from './MobileStarPromptSheet';
 import MobileGlobalInteractionOverlay from './MobileGlobalInteractionOverlay';
 import { initInteractionListener } from '@/stores/interactionStore';
 import { initJobWake } from '@/stores/jobWake';
+import { initAgentQueue } from '@/stores/agentQueueStore';
 import {
   attachTransferListeners,
   detachTransferListeners,
@@ -50,6 +51,8 @@ export default function MobileApp() {
     // 移动端切后台时 WebView 的 JS 会被冻结，恢复前台后由 jobWake 内部的
     // `mobile:foreground` 监听补一次检查（事件在恢复后才送达）。
     const detachJobWake = initJobWake();
+    // 发送队列：任务自然结束后自动发出排好的消息，停止/出错/断连则暂停
+    const detachAgentQueue = initAgentQueue();
     // 传输监听器：**在这里 attach 而不是只依赖 bootstrap**。
     // bootstrap 里仍会调一次（幂等，保留启动序列的完整性），但它是
     // `bootstrapStarted` 一次性守卫的，一旦本组件真的卸载再挂载就没法再 attach。
@@ -62,6 +65,7 @@ export default function MobileApp() {
       detachInteractions();
       detachJobs();
       detachJobWake();
+      detachAgentQueue();
       detachTransferListeners();
     };
   }, []);

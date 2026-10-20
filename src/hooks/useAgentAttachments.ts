@@ -5,6 +5,7 @@ import {
   isAttachmentDialogCancelled,
 } from "@/lib/attachmentAttach";
 import { getErrorMessage } from "@/lib/errors";
+import type { UserSkillRef } from "@/lib/types";
 import { withForegroundKeepAlive } from "@/mobile/mobileBridge";
 import { useSettingsStore } from "@/stores/settingsStore";
 import {
@@ -44,6 +45,9 @@ export function useAgentAttachments({
   const items = useAgentDraftStore(
     (state) => state.drafts[draftKey]?.attachments ?? EMPTY_DRAFT.attachments,
   );
+  const skills = useAgentDraftStore(
+    (state) => state.drafts[draftKey]?.skills ?? EMPTY_DRAFT.skills,
+  );
   const notice = useAgentDraftStore(
     (state) => state.drafts[draftKey]?.notice ?? null,
   );
@@ -53,7 +57,7 @@ export function useAgentAttachments({
   const sending = useAgentDraftStore(
     (state) => (state.sending[draftKey] ?? 0) > 0,
   );
-  const draft = { text, attachments: items, notice };
+  const draft = { text, attachments: items, skills, notice };
   const keepAliveEnabled = useSettingsStore(
     (state) => state.settings.mobileBackgroundSettings.keepAliveEnabled,
   );
@@ -77,6 +81,15 @@ export function useAgentAttachments({
   );
   const remove = useCallback(
     (id: string) => useAgentDraftStore.getState().remove(draftKey, id),
+    [draftKey],
+  );
+  const addSkill = useCallback(
+    (skill: Omit<UserSkillRef, "id">) =>
+      useAgentDraftStore.getState().addSkill(draftKey, skill),
+    [draftKey],
+  );
+  const removeSkill = useCallback(
+    (id: string) => useAgentDraftStore.getState().removeSkill(draftKey, id),
     [draftKey],
   );
   const retry = useCallback(
@@ -190,6 +203,12 @@ export function useAgentAttachments({
       .getState()
       .takeSendSnapshot(draftKey, visionEnabled);
   }, [canInteract, draftKey, visionEnabled, sendUnavailableReason]);
+  const takeDetachedDraft = useCallback(() => {
+    if (!canInteract || sendUnavailableReason) return null;
+    return useAgentDraftStore
+      .getState()
+      .takeDetachedDraft(draftKey, visionEnabled);
+  }, [canInteract, draftKey, visionEnabled, sendUnavailableReason]);
   const finishSend = useCallback(
     (snapshot: DraftSendSnapshot, outcome: DraftSendOutcome) => {
       useAgentDraftStore.getState().finishSend(snapshot, outcome);
@@ -205,12 +224,15 @@ export function useAgentAttachments({
 
   return {
     draftKey,
+    /** 草稿所属会话（发送队列按它分桶）；首次建会话前为 null。 */
+    conversationId,
     draft,
     text,
     items,
+    skills,
     sending,
     importing: items.some((item) => item.status === "loading"),
-    hasContent: !!text.trim() || items.length > 0,
+    hasContent: !!text.trim() || items.length > 0 || skills.length > 0,
     sendBlockedReason: !canInteract
       ? "请先连接服务器"
       : sendUnavailableReason
@@ -223,6 +245,8 @@ export function useAgentAttachments({
     dragOver,
     setText,
     remove,
+    addSkill,
+    removeSkill,
     retry,
     clear,
     dismissNotice,
@@ -234,6 +258,7 @@ export function useAgentAttachments({
     handleFileObjects,
     handleAttachmentPaths,
     takeSendSnapshot,
+    takeDetachedDraft,
     finishSend,
     restoreMessage,
   };

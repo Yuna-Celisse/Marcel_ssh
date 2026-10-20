@@ -36,8 +36,10 @@ export function buildAgentCommandEntries(opts: {
   query: string;
   skills: Skill[];
   currentModeLabel: string;
+  /** 已加成标签的 skill，不再重复列出 */
+  excludeSkillIds?: readonly string[];
 }): MenuEntry[] {
-  const { modeSubmenu, query, skills, currentModeLabel } = opts;
+  const { modeSubmenu, query, skills, currentModeLabel, excludeSkillIds } = opts;
   if (modeSubmenu) {
     return AGENT_MODES.map((m) => ({ kind: 'mode' as const, mode: m }));
   }
@@ -63,6 +65,7 @@ export function buildAgentCommandEntries(opts: {
   // 内置教学 skill 供 AI 调用，不进 `/` 插入面板；用户 skill 按手动排序展示
   const skillEntries: MenuEntry[] = sortSkillsForDisplay(skills)
     .filter((s) => !isBuiltinSkill(s))
+    .filter((s) => !excludeSkillIds?.includes(s.id))
     .filter(
       (s) =>
         !q ||

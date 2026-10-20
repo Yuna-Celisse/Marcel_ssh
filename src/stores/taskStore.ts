@@ -357,7 +357,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const vision = currentVision(settingsStore.settings.llmRegistry);
     const images = vision ? requestedImages : [];
 
-    const titleSeed = userInput?.text.trim() || userInput?.textAttachments[0]?.name || prompt.trim() || (images.length > 0 ? "[image]" : "");
+    const titleSeed = userInput?.text.trim() || userInput?.textAttachments[0]?.name || userInput?.skills?.[0]?.name || prompt.trim() || (images.length > 0 ? "[image]" : "");
     // 指定会话（自动继续）时不走 ensureConversation：它的选择依据是「当前
     // 活跃会话」，会给别的会话开轮时开错地方，并把界面切过去。
     const conversationId =

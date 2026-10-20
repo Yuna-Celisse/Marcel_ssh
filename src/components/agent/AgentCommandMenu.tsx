@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import type { AgentMode } from '@/lib/types';
+import type { AgentMode, Skill } from '@/lib/types';
 import { useSkillStore } from '@/stores/skillStore';
 import { useAnimatedPresence } from '@/hooks/useAnimatedPresence';
 import {
@@ -13,7 +13,7 @@ import {
  *
  * 输入以 `/` 开头时出现在输入框上方，分两组：
  * - 命令：切换 Agent 模式（进入三模式子菜单）、压缩上下文
- * - SKILL：全部已加载的 skill（选中后把技能指令插入输入框）
+ * - SKILL：全部已加载的 skill（选中后在输入框上方加一个标签，可连续引用多个）
  *
  * 键盘交互（焦点始终在 textarea，按键由 AgentPanel 转发给本组件）：
  * - ↑ / ↓：移动高亮
@@ -34,8 +34,10 @@ interface AgentCommandMenuProps {
   query: string;
   currentMode: AgentMode;
   onSelectMode: (mode: AgentMode) => void;
-  /** 选中 skill：把技能指令插入输入框 */
-  onInsertSkill: (prompt: string) => void;
+  /** 选中 skill：加成输入框上方的标签（宿主负责清掉 `/xxx`） */
+  onPickSkill: (skill: Skill) => void;
+  /** 已加成标签的 skill id；不再出现在列表里 */
+  selectedSkillIds?: readonly string[];
   /** 选中「压缩上下文」 */
   onCompact: () => void;
   onClose: () => void;
@@ -43,7 +45,7 @@ interface AgentCommandMenuProps {
 
 const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProps>(
   function AgentCommandMenu(
-    { open, query, currentMode, onSelectMode, onInsertSkill, onCompact, onClose },
+    { open, query, currentMode, onSelectMode, onPickSkill, selectedSkillIds, onCompact, onClose },
     ref,
   ) {
     const [activeIndex, setActiveIndex] = useState(0);
@@ -61,8 +63,9 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
           query,
           skills,
           currentModeLabel,
+          excludeSkillIds: selectedSkillIds,
         }),
-      [modeSubmenu, query, skills, currentModeLabel],
+      [modeSubmenu, query, skills, currentModeLabel, selectedSkillIds],
     );
 
     const selectable = useMemo(
@@ -110,8 +113,8 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
         return;
       }
       if (entry.kind === 'skill') {
-        // 插入指令后输入不再以 "/" 开头，面板随输入自动关闭（不要清空输入）
-        onInsertSkill(entry.skill.prompt);
+        // 宿主加标签并清掉 "/xxx"，面板随输入自动关闭；想再加一个就再输 "/"
+        onPickSkill(entry.skill);
       }
     };
 
@@ -126,7 +129,7 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
           setActiveIndex((i) => clamp(i - 1));
           return true;
         case 'Enter':
-          // Shift+Enter 保留换行能力（如粘贴多行 skill 指令前想换行）
+          // Shift+Enter 保留换行能力
           if (e.shiftKey) return false;
           e.preventDefault();
           executeEntry(selectable[activeIndex] ?? null);

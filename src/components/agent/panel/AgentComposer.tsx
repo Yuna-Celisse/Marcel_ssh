@@ -1,6 +1,6 @@
 import { useDebugStore, DEBUG_REASONING_EFFORTS } from "@/stores/debugStore";
 import { effectiveModel, modelLabel, modelReasoningEfforts } from "@/lib/llmRegistry";
-import type { AgentConversation, AgentMode, LlmRegistry, SessionStatus } from "@/lib/types";
+import type { AgentConversation, AgentMode, LlmRegistry, SessionStatus, Skill } from "@/lib/types";
 import { AgentDraft, AgentTextarea } from "../AgentDraft";
 import AgentCommandMenu, {
   type AgentCommandMenuHandle,
@@ -9,6 +9,8 @@ import { ReasoningEffortPicker } from "../ReasoningEffortPicker";
 import { notifyInputTyping } from "./inputActivity";
 import type { AgentAttachments } from "@/hooks/useAgentAttachments";
 import DraftAttachments from "../DraftAttachments";
+import DraftSkillChips from "../DraftSkillChips";
+import AgentQueueTray from "../AgentQueueTray";
 import { ModeSelector } from "./ModeSelector";
 import { SendControlButton } from "./SendControlButton";
 
@@ -27,7 +29,7 @@ type AgentComposerProps = {
   /** 输入框 ref：发送失败回焦、插入技能、撤回回填都要聚焦它（父级持有）。 */
   inputRef: React.RefObject<HTMLTextAreaElement>;
   onKeyDown: (e: React.KeyboardEvent) => void;
-  onInsertSkill: (prompt: string) => void;
+  onPickSkill: (skill: Skill) => void;
   onCompact: () => void;
   setInput: (text: string | ((prev: string) => string)) => void;
   registry: LlmRegistry;
@@ -59,7 +61,7 @@ export function AgentComposer({
   commandMenuRef,
   inputRef,
   onKeyDown,
-  onInsertSkill,
+  onPickSkill,
   onCompact,
   setInput,
   registry,
@@ -79,12 +81,16 @@ export function AgentComposer({
     handleAttach,
     handlePaste,
   } = attachments;
+  const selectedSkillIds = attachments.skills.map((skill) => skill.skillId);
   const forceReasoningEffortPicker = useDebugStore(
     (s) => s.forceReasoningEffortPicker,
   );
 
   return (
-    <AgentDraft draftKey={attachments.draftKey}>{(input) => (
+    <AgentDraft draftKey={attachments.draftKey}>{(input) => {
+    const hasContent =
+      !!input.trim() || attachments.items.length > 0 || attachments.skills.length > 0;
+    return (
     <div
       className="flex-shrink-0 p-3 border-t border-zinc-800 [container-type:inline-size]"
       onDragOver={handleDragOver}
@@ -100,6 +106,11 @@ export function AgentComposer({
           正在压缩上下文，完成后即可发送（可点右下角取消）
         </div>
       )}
+      <AgentQueueTray
+        conversationId={attachments.conversationId}
+        onPulledBack={() => requestAnimationFrame(() => inputRef.current?.focus())}
+      />
+      <DraftSkillChips attachments={attachments} />
       <DraftAttachments attachments={attachments} />
       <div
         className={`agent-input relative rounded-2xl bg-zinc-800 border transition-colors focus-within:border-indigo-500 ${
@@ -115,7 +126,8 @@ export function AgentComposer({
           query={commandMenuOpen ? input.slice(1) : ""}
           currentMode={mode}
           onSelectMode={setMode}
-          onInsertSkill={onInsertSkill}
+          onPickSkill={onPickSkill}
+          selectedSkillIds={selectedSkillIds}
           onCompact={onCompact}
           onClose={() => setInput("")}
         />
@@ -132,7 +144,9 @@ export function AgentComposer({
             activeSessionStatus === "connecting"
               ? "正在连接服务器..."
               : canInteract
-                ? "描述您想要做的事情，输入 / 可查看命令..."
+                ? isRunning
+                  ? "任务进行中，回车可先排队，完成后自动发送..."
+                  : "描述您想要做的事情，输入 / 可查看命令..."
                 : "请先连接到服务器..."
           }
           disabled={!canInteract}
@@ -203,10 +217,13 @@ export function AgentComposer({
           <SendControlButton
             isRunning={isRunning}
             isCompacting={isCompacting}
+            canQueue={
+              hasContent && !attachments.sendBlockedReason && canInteract
+            }
             disabled={
               !isRunning &&
               !isCompacting &&
-              ((!input.trim() && attachments.items.length === 0) || !!attachments.sendBlockedReason || !canInteract)
+              (!hasContent || !!attachments.sendBlockedReason || !canInteract)
             }
             onSend={onSend}
             onStop={onStop}
@@ -216,6 +233,7 @@ export function AgentComposer({
       </div>
       </div>
     </div>
-    )}</AgentDraft>
+    );
+    }}</AgentDraft>
   );
 }

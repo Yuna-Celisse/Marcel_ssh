@@ -1,6 +1,7 @@
 import { memo, useMemo, useState, useEffect, useRef, type ReactNode } from 'react';
 import type { AgentMessage as AgentMessageType } from '@/lib/types';
 import UserMessageAttachments from './UserMessageAttachments';
+import SkillChips from './SkillChips';
 import { validateUserInput } from '@/lib/userInput';
 import MarkdownBody from './MarkdownBody';
 import { useMessageViewState } from './messageViewState';
@@ -274,6 +275,11 @@ function AgentMessage({
         <div className="flex min-w-0 max-w-[80%] flex-col items-end">
           {(images.length > 0 || (userInput?.textAttachments.length ?? 0) > 0) && (
             <UserMessageAttachments files={userInput?.textAttachments ?? []} imagePaths={images} mobile={alwaysShowActions} />
+          )}
+          {!searchKeyword?.trim() && (userInput?.skills?.length ?? 0) > 0 && (
+            <div className="mb-1.5 max-w-full">
+              <SkillChips skills={userInput!.skills!} mobile={alwaysShowActions} justify="end" />
+            </div>
           )}
           {displayContent ? (
             <div className="max-w-full rounded-2xl rounded-tr-sm bg-zinc-700 px-4 py-2 text-[15px] leading-relaxed text-zinc-100 whitespace-pre-wrap [overflow-wrap:anywhere]">

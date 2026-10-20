@@ -2,24 +2,32 @@ type SendControlButtonProps = {
   isRunning: boolean;
   isCompacting: boolean;
   disabled: boolean;
+  /** 任务运行中且输入区有内容：在停止键旁多出「加入队列」键。 */
+  canQueue?: boolean;
   onSend: () => void;
   onStop: () => void;
   onCancelCompaction: () => void;
 };
 
-/** 发送 / 停止 / 取消压缩 三态按钮（右下角）。
+/** 发送 / 停止 / 取消压缩 三态按钮（右下角），运行中有输入时旁边多一个「加入队列」。
  *  三态：任务运行中 = 停止（红）；正在压缩上下文 = 取消压缩（紫，
  *  压缩不能暂停，这是它唯一的出路）；否则 = 发送。
- *  压缩时发送键不能只是「禁用」：那会让用户干等几十秒。 */
+ *  压缩时发送键不能只是「禁用」：那会让用户干等几十秒。
+ *
+ *  运行中打了字：停止键**留在原处**（不能被「发送」顶掉——用户打字的同时想停掉任务是常事，
+ *  让停止键消失就得先清空输入），右侧的主位置给「加入队列」。停止在左、队列在右：
+ *  误点队列只是多排一条，误点停止会中断长任务，破坏性大的不放在顺手的主位。 */
 export function SendControlButton({
   isRunning,
   isCompacting,
   disabled,
+  canQueue = false,
   onSend,
   onStop,
   onCancelCompaction,
 }: SendControlButtonProps) {
   return (
+    <>
     <button
       type="button"
       onClick={
@@ -89,5 +97,29 @@ export function SendControlButton({
         </svg>
       )}
     </button>
+    {isRunning && canQueue && (
+      <button
+        type="button"
+        onClick={onSend}
+        className="flex-shrink-0 w-8 h-8 mr-0.5 flex items-center justify-center rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-all duration-150 active:scale-95"
+        title="加入队列（当前任务完成后自动发送）"
+        aria-label="加入队列"
+      >
+        <svg
+          className="w-[18px] h-[18px]"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 19V5m-7 7l7-7 7 7"
+          />
+        </svg>
+      </button>
+    )}
+    </>
   );
 }

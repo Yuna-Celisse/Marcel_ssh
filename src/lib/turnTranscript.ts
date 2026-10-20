@@ -144,6 +144,8 @@ function userSection(message: AgentMessage): string {
   if (text) lines.push(text);
   const names = input?.textAttachments.map((file) => file.name) ?? [];
   if (names.length > 0) lines.push(`（附件：${names.join('、')}）`);
+  const skillNames = input?.skills?.map((skill) => skill.name) ?? [];
+  if (skillNames.length > 0) lines.push(`（引用 skill：${skillNames.join('、')}）`);
   const images = message.imagePaths?.length ?? 0;
   if (images > 0) lines.push(`（图片 ${images} 张）`);
   return `**用户**\n\n${lines.join('\n') || '（空）'}`;
