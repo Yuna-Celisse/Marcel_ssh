@@ -112,9 +112,20 @@ pub(crate) struct AgentPromptVars {
 pub(crate) struct TemplateManager;
 
 impl TemplateManager {
-    fn build_agent_registry() -> Handlebars<'static> {
+    /// 全项目唯一的 Handlebars 实例创建点（agent / 审批两个 registry 都从这里来）。
+    ///
+    /// 提示词不是 HTML，所以关掉默认的 HTML 转义：否则 `{{user_prompt}}`、
+    /// `{{this.label}}` 里的 `< > & " ' ` =` 会变成 `&lt;` 等实体，模型看到的是
+    /// 被污染的文本。新建 registry 一律走这里，别再直接 `Handlebars::new()`。
+    fn new_registry() -> Handlebars<'static> {
         let mut reg = Handlebars::new();
         reg.set_strict_mode(false);
+        reg.register_escape_fn(handlebars::no_escape);
+        reg
+    }
+
+    fn build_agent_registry() -> Handlebars<'static> {
+        let mut reg = Self::new_registry();
         let _ =
             reg.register_template_string("角色", include_str!("../../templates/agent/角色.hbs"));
         let _ =
@@ -200,8 +211,7 @@ impl TemplateManager {
     }
 
     fn build_approval_registry() -> Handlebars<'static> {
-        let mut reg = Handlebars::new();
-        reg.set_strict_mode(false);
+        let mut reg = Self::new_registry();
         let _ =
             reg.register_template_string("审批", include_str!("../../templates/approval/审批.hbs"));
         let _ = reg.register_template_string(
@@ -1047,5 +1057,50 @@ mod tests {
         let out = TemplateManager.render_multi_host("web", &[], true);
         assert!(out.contains("当前机器：web"));
         assert!(!out.contains("可操作机器"));
+    }
+
+    /// 提示词不是 HTML：Handlebars 默认会把 `{{var}}` 里的 `< > & " ' = `` 等转成实体，
+    /// 模型看到的就是被污染的 `&lt;b&gt;`。两个 registry 都必须原样输出。
+    const SPECIAL: &str = "<b>&\"'`=</b> a&amp;b";
+
+    #[test]
+    fn agent_prompt_keeps_special_chars_in_user_text_verbatim() {
+        let vars = AgentPromptVars {
+            session_id: "s<1>&\"'".into(),
+            user_prompt: SPECIAL.into(),
+            plugin_sections: vec![SPECIAL.into()],
+            memory_section: String::new(),
+        };
+        let prompt = build(&vars, false, &[], false);
+        assert_eq!(
+            prompt.matches(SPECIAL).count(),
+            2,
+            "用户指令与插件指令里的特殊字符应原样保留"
+        );
+        assert!(!prompt.contains("&lt;") && !prompt.contains("&quot;"));
+        assert!(!prompt.contains("&#x27;") && !prompt.contains("&#x3D;"));
+    }
+
+    #[test]
+    fn multi_host_labels_keep_special_chars_verbatim() {
+        let machines = serde_json::json!([{ "label": "web<1>&\"'", "status": "在线" }]);
+        let out = TemplateManager.render_multi_host("cur<h>&'", machines.as_array().unwrap(), true);
+        assert!(out.contains("当前机器：cur<h>&'"));
+        assert!(out.contains("- web<1>&\"'（在线）"));
+        assert!(!out.contains("&lt;") && !out.contains("&amp;") && !out.contains("&quot;"));
+    }
+
+    #[test]
+    fn every_registry_disables_html_escaping() {
+        let ctx = json!({ "x": SPECIAL });
+        for reg in [
+            TemplateManager::build_agent_registry(),
+            TemplateManager::build_approval_registry(),
+        ] {
+            assert_eq!(
+                reg.render_template("{{x}}|{{{x}}}", &ctx).unwrap(),
+                format!("{SPECIAL}|{SPECIAL}")
+            );
+        }
     }
 }
