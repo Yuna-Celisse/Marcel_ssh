@@ -9,6 +9,8 @@ import { EMPTY_DRAFT, useAgentDraftStore } from "@/stores/agentDraftStore";
 import DraftAttachments from "@/components/agent/DraftAttachments";
 import DraftSkillChips from "@/components/agent/DraftSkillChips";
 import AgentQueueTray from "@/components/agent/AgentQueueTray";
+import { ForkOriginBar } from "@/components/agent/panel/ForkOriginBar";
+import { ForkMark } from "@/components/agent/ForkMark";
 import { useTaskStore } from "@/stores/taskStore";
 import { useJobStore } from "@/stores/jobStore";
 import { getConversationAgentStatus, taskCenterEntry } from "@/stores/agentStatusSelectors";
@@ -329,6 +331,33 @@ export default function MobileAgentHost({
     showRollbackHint(`已撤回 ${removedCount} 条消息，文字与附件已恢复到草稿`);
   }, [showRollbackHint]);
 
+  // ── 分叉（与桌面 AgentPanel 同一套语义） ─────────────────────────────────
+  const handleForkAt = useCallback(
+    async (messageId: string) => {
+      if (!activeConversationId) return;
+      await sessionConversationBindingManager.forkAndOpen(
+        activeConversationId,
+        messageId,
+        ids?.sessionId ?? null,
+      );
+    },
+    [activeConversationId, ids?.sessionId],
+  );
+
+  const handleForkWhole = useCallback(() => {
+    if (!activeConversationId) return;
+    sessionConversationBindingManager
+      .forkAndOpen(activeConversationId, null, ids?.sessionId ?? null)
+      .catch((err) => {
+        console.error("Failed to fork conversation:", err);
+        showRollbackHint(`分叉失败：${getErrorMessage(err)}`);
+      });
+  }, [activeConversationId, ids?.sessionId, showRollbackHint]);
+
+  const forkOrigin = activeConversation?.forkedFromId
+    ? conversations[activeConversation.forkedFromId]
+    : undefined;
+
   const { send: handleSend, rollback: handleRollbackMessage, sending } = useAgentDraftActions({
     attachments,
     sessionId: ids?.sessionId ?? null,
@@ -511,6 +540,14 @@ export default function MobileAgentHost({
         </button>
       </header>
 
+      {forkOrigin && !isSubConversation && (
+        <ForkOriginBar
+          mobile
+          originTitle={forkOrigin.title}
+          onBack={() => void handleSelectConversation(forkOrigin.id)}
+        />
+      )}
+
       {rollbackHint && (
         <div className="flex-shrink-0 border-b border-zinc-700 bg-zinc-900 px-3 py-1.5 text-center text-xs text-zinc-300">
           {rollbackHint}
@@ -525,6 +562,7 @@ export default function MobileAgentHost({
         onRollback={handleRollbackMessage}
         onCopy={handleCopyMessage}
         onCopyText={handleCopyText}
+        onFork={canInteract && !isSubConversation ? handleForkAt : undefined}
         mobile
         visible={visible}
         emptyState={<>
@@ -612,6 +650,7 @@ export default function MobileAgentHost({
                               <div className="min-w-0 flex-1">
                                 <div className="truncate font-medium leading-snug">{conv.title}</div>
                                 <div className="mt-0.5 text-[11px] text-zinc-500">
+                                  {conv.forkedFromId && <ForkMark />}
                                   {new Date(conv.updatedAt).toLocaleString()}
                                 </div>
                               </div>
@@ -856,6 +895,7 @@ export default function MobileAgentHost({
             onPickSkill={handlePickSkill}
             selectedSkillIds={attachments.skills.map((skill) => skill.skillId)}
             onCompact={handleCompact}
+            onFork={handleForkWhole}
             onClose={() => setInputDraft("")}
           />
           {/* 压缩中常驻的原因说明（与桌面同文案）：发送键这时是「取消压缩」，

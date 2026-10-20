@@ -32,6 +32,7 @@ vi.mock('@/lib/tauri', () => ({
   agentRenameConversation: vi.fn(),
   agentDeleteConversation: vi.fn(),
   agentTruncateConversation: vi.fn(),
+  agentForkConversation: vi.fn(),
 }));
 
 import { useSessionStore } from '@/stores/sessionStore';
@@ -442,6 +443,70 @@ describe('SessionConversationBindingManager', () => {
       await useConversationStore.getState().deleteConversation('conv-a');
       expect(tauri.agentCreateConversation).not.toHaveBeenCalled();
       expect(tauri.agentLoadActiveMessages).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('forkAndOpen 分叉并切过去', () => {
+    const conv = (id: string, extra: Partial<AgentConversation> = {}): AgentConversation => ({
+      id, connectionId: 'conn-1', title: id, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...extra,
+    });
+
+    beforeEach(() => {
+      useSessionStore.setState({ sessions: { 'sess-a': makeSession('sess-a') }, activeSessionId: 'sess-a' });
+      useConversationStore.setState({
+        conversations: { origin: conv('origin') },
+        messages: { origin: [] },
+        activeConversationId: 'origin',
+        activeConversationBySession: { 'sess-a': 'origin' },
+      });
+    });
+
+    it('登记分叉、把当前标签切到分叉；来源留在列表里原封不动', async () => {
+      vi.mocked(tauri.agentForkConversation).mockResolvedValue(conv('fork-1', { forkedFromId: 'origin' }));
+
+      const forked = await sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+
+      expect(tauri.agentForkConversation).toHaveBeenCalledWith('origin', 'm9');
+      expect(forked.id).toBe('fork-1');
+      const state = useConversationStore.getState();
+      expect(state.conversations['fork-1']?.forkedFromId).toBe('origin');
+      expect(state.conversations.origin).toBeDefined();
+      expect(state.activeConversationId).toBe('fork-1');
+      expect(state.activeConversationBySession['sess-a']).toBe('fork-1');
+    });
+
+    it('同一个分叉点的并发触发共用一次请求（双击不会复制出两条）', async () => {
+      const gate = deferred<AgentConversation>();
+      vi.mocked(tauri.agentForkConversation).mockReturnValue(gate.promise);
+
+      const first = sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      const second = sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      gate.resolve(conv('fork-1', { forkedFromId: 'origin' }));
+      const [a, b] = await Promise.all([first, second]);
+
+      expect(tauri.agentForkConversation).toHaveBeenCalledTimes(1);
+      expect(a.id).toBe(b.id);
+
+      // 在飞的记录会清掉：之后再分叉一次是新的请求
+      vi.mocked(tauri.agentForkConversation).mockResolvedValue(conv('fork-2', { forkedFromId: 'origin' }));
+      await sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      expect(tauri.agentForkConversation).toHaveBeenCalledTimes(2);
+    });
+
+    it('分叉失败：不切走、不留半成品，错误原样抛给调用方，之后可以重试', async () => {
+      vi.mocked(tauri.agentForkConversation).mockRejectedValueOnce({ kind: 'Agent', message: '这个回合还在运行' });
+
+      await expect(
+        sessionConversationBindingManager.forkAndOpen('origin', null, 'sess-a'),
+      ).rejects.toMatchObject({ message: '这个回合还在运行' });
+
+      const state = useConversationStore.getState();
+      expect(state.activeConversationId).toBe('origin');
+      expect(Object.keys(state.conversations)).toEqual(['origin']);
+
+      vi.mocked(tauri.agentForkConversation).mockResolvedValue(conv('fork-1', { forkedFromId: 'origin' }));
+      await sessionConversationBindingManager.forkAndOpen('origin', null, 'sess-a');
+      expect(useConversationStore.getState().activeConversationId).toBe('fork-1');
     });
   });
 

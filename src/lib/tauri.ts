@@ -355,6 +355,22 @@ export async function agentSetConversationPinned(
   return invoke("agent_set_conversation_pinned", { conversationId, pinned });
 }
 
+/**
+ * 分叉会话：把 `anchorMessageId` 所在回合（缺省 = 整个会话）之前的历史复制成一条独立的新会话。
+ * 来源不受影响；返回新会话的元数据（`forkedFromId` 指向来源）。
+ */
+export async function agentForkConversation(
+  conversationId: string,
+  anchorMessageId?: string | null,
+  title?: string,
+): Promise<AgentConversation> {
+  return invoke<AgentConversation>("agent_fork_conversation", {
+    conversationId,
+    anchorMessageId: anchorMessageId ?? null,
+    title: title ?? null,
+  });
+}
+
 export async function agentListConversations(
   sessionId: string,
 ): Promise<AgentConversation[]> {

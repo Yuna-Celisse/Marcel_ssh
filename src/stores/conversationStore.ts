@@ -67,6 +67,15 @@ export interface ConversationState {
     reasoningEffort: string | null,
   ) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
+  /**
+   * 分叉：后端把 `anchorMessageId` 所在回合（缺省 = 整个会话）之前的历史复制成独立的新会话，
+   * 这里只负责把它登记进 `conversations`（不切换、不动当前 active）。
+   * 切过去是调用方的事（`lib/forkConversation.ts` 走会话绑定 manager，和点历史列表一样）。
+   */
+  forkConversation: (
+    conversationId: string,
+    anchorMessageId?: string | null,
+  ) => Promise<AgentConversation>;
   rollbackToMessage: (
     conversationId: string,
     messageId: string,
@@ -528,6 +537,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         }),
       };
     });
+  },
+
+  forkConversation: async (conversationId: string, anchorMessageId?: string | null) => {
+    const forked = await tauri.agentForkConversation(conversationId, anchorMessageId);
+    set((state) => ({
+      conversations: reorderByUpdatedAt({ ...state.conversations, [forked.id]: forked }),
+    }));
+    return forked;
   },
 
   setConversationModel: async (conversationId: string, modelId: string | null) => {

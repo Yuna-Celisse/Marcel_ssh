@@ -32,7 +32,7 @@ describe('buildAgentCommandEntries', () => {
     const headers = entries.filter((e) => e.kind === 'header').map((e) => e.title);
     expect(headers).toEqual(['命令', 'SKILL']);
     const commands = entries.filter((e) => e.kind === 'command').map((e) => e.id);
-    expect(commands).toEqual(['toggle-mode', 'compact']);
+    expect(commands).toEqual(['toggle-mode', 'compact', 'fork']);
     const skillNames = entries
       .filter((e) => e.kind === 'skill')
       .map((e) => (e.kind === 'skill' ? e.skill.name : ''));

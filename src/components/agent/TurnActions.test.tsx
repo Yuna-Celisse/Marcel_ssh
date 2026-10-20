@@ -208,6 +208,71 @@ describe('任务收尾条', () => {
     expect(bar.className).not.toContain('opacity-0');
   });
 
+  describe('分叉', () => {
+    const forkButton = () => host.querySelector('[data-testid="turn-fork"]') as HTMLButtonElement | null;
+
+    it('没有 onFork 就没有分叉按钮（只读历史浏览等没有会话可切的场景）', async () => {
+      await render();
+      expect(forkButton()).toBeNull();
+    });
+
+    it('点分叉：把本任务最后一条回复的 id 交给调用方', async () => {
+      const onFork = vi.fn().mockResolvedValue(undefined);
+      await render({ onFork });
+      expect(forkButton()!.textContent).toContain('分叉');
+      await act(async () => forkButton()!.click());
+      expect(onFork).toHaveBeenCalledTimes(1);
+      expect(onFork).toHaveBeenCalledWith('a1');
+    });
+
+    it('分叉进行中：显示「分叉中」并禁用，重复点击不会再发一次', async () => {
+      let finish!: () => void;
+      const onFork = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+      await render({ onFork });
+      await act(async () => forkButton()!.click());
+      expect(forkButton()!.textContent).toContain('分叉中');
+      expect(forkButton()!.disabled).toBe(true);
+      await act(async () => forkButton()!.click());
+      expect(onFork).toHaveBeenCalledTimes(1);
+      await act(async () => finish());
+      expect(forkButton()!.disabled).toBe(false);
+      expect(forkButton()!.textContent).toContain('分叉');
+      expect(forkButton()!.textContent).not.toContain('分叉中');
+    });
+
+    it('分叉失败：如实告诉用户原因，随后恢复', async () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const onFork = vi.fn().mockRejectedValue({ kind: 'Agent', message: '这个回合还在运行，等它结束后再分叉' });
+        await render({ onFork });
+        await act(async () => forkButton()!.click());
+        expect(forkButton()!.textContent).toContain('分叉失败');
+        expect(forkButton()!.title).toContain('这个回合还在运行');
+        await act(async () => {
+          vi.advanceTimersByTime(2700);
+        });
+        expect(forkButton()!.textContent).not.toContain('分叉失败');
+      } finally {
+        spy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it('按钮不带 aria-expanded，也不会把点击冒泡出去', async () => {
+      await render({ onFork: vi.fn().mockResolvedValue(undefined) });
+      expect(forkButton()!.hasAttribute('aria-expanded')).toBe(false);
+      const outer = vi.fn();
+      document.body.addEventListener('click', outer);
+      try {
+        await act(async () => forkButton()!.click());
+        expect(outer).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeEventListener('click', outer);
+      }
+    });
+  });
+
   it('手机：常显；复制走底部面板，选项照样复制', async () => {
     const onCopyText = await render({ mobile: true });
     const bar = host.querySelector('[data-testid="turn-actions"]')!;

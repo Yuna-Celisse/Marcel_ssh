@@ -8,6 +8,7 @@ import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatNameWithAddress } from '@/lib/privacy';
 import { groupConversationsWithPinned } from '@/lib/dateGrouping';
 import AgentMessageList from '@/components/agent/AgentMessageList';
+import { ForkMark } from '@/components/agent/ForkMark';
 import { useTaskStore } from '@/stores/taskStore';
 import {
   useConversationHistoryStore,
@@ -246,6 +247,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                                     <div className="min-w-0 flex-1">
                                       <div className="truncate font-medium">{conv.title}</div>
                                       <div className="text-[11px] text-zinc-500 mt-0.5">
+                                        {conv.forkedFromId && <ForkMark />}
                                         {new Date(conv.updatedAt).toLocaleString()}
                                       </div>
                                     </div>

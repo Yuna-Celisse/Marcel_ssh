@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import ContextMenu from '@/components/ui/ContextMenu';
 import MobileSheet from '@/mobile/ui/MobileSheet';
 import { buildTurnTranscript, formatTurnElapsed, type TurnFooter } from '@/lib/turnTranscript';
+import { getErrorMessage } from '@/lib/errors';
 
 type CopyScope = 'reply' | 'task';
 type CopyStatus = 'idle' | 'copied' | 'failed';
@@ -16,10 +17,18 @@ const COPY_OPTIONS: ReadonlyArray<{ scope: CopyScope; label: string; description
 const MENU_WIDTH = 224;
 const MENU_HEIGHT = 112;
 
+type ForkStatus = 'idle' | 'working' | 'failed';
+
 interface Props {
   footer: TurnFooter;
   /** 写剪贴板；失败请直接抛出，这里负责告诉用户「没复制成功」。 */
   onCopyText: (text: string) => void | Promise<void>;
+  /**
+   * 从这个任务收尾处分叉出新会话（参数 = 本任务最后一条回复的消息 id）。成功后调用方会把界面
+   * 切到分叉里，本组件随之卸载；失败请直接抛出，这里负责告诉用户「没分叉成功」。
+   * 不传 = 不显示分叉按钮。
+   */
+  onFork?: (messageId: string) => void | Promise<void>;
   /** 触屏端：无 hover → 条常显，选项走底部面板而不是浮层菜单。 */
   mobile?: boolean;
 }
@@ -38,18 +47,45 @@ interface Props {
  * 注意：按钮**不能**带 `aria-expanded` —— 消息列表把任何 `button[aria-expanded]`
  * 的点击当成「折叠/展开」，会因此取消贴底跟随并记录折叠锚点。
  */
-function TurnActions({ footer, onCopyText, mobile = false }: Props) {
+function TurnActions({ footer, onCopyText, onFork, mobile = false }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; anchor: 'below' | 'above' } | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [status, setStatus] = useState<CopyStatus>('idle');
+  const [forkStatus, setForkStatus] = useState<ForkStatus>('idle');
+  const [forkError, setForkError] = useState('');
   const resetTimer = useRef<number | null>(null);
+  const forkResetTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
 
   useEffect(
     () => () => {
+      mounted.current = false;
       if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
+      if (forkResetTimer.current !== null) window.clearTimeout(forkResetTimer.current);
     },
     [],
   );
+
+  const runFork = useCallback(async () => {
+    if (!onFork || forkStatus === 'working') return;
+    setForkStatus('working');
+    try {
+      await onFork(footer.messageId);
+      // 成功时调用方已把界面切到分叉、这条收尾条多半已卸载；没卸载（比如切换被别的
+      // 操作抢占）就回到初始状态，别一直卡在「分叉中」。
+      if (mounted.current) setForkStatus('idle');
+    } catch (err) {
+      console.error('Failed to fork conversation:', err);
+      if (!mounted.current) return;
+      setForkError(getErrorMessage(err));
+      setForkStatus('failed');
+      if (forkResetTimer.current !== null) window.clearTimeout(forkResetTimer.current);
+      forkResetTimer.current = window.setTimeout(() => {
+        setForkStatus('idle');
+        forkResetTimer.current = null;
+      }, 2600);
+    }
+  }, [onFork, forkStatus, footer.messageId]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -115,7 +151,7 @@ function TurnActions({ footer, onCopyText, mobile = false }: Props) {
     });
   };
 
-  const forcedVisible = menu !== null || sheetOpen || status !== 'idle';
+  const forcedVisible = menu !== null || sheetOpen || status !== 'idle' || forkStatus !== 'idle';
   const visibility = mobile || forcedVisible
     ? 'opacity-100 translate-y-0'
     : 'opacity-0 translate-y-1 group-hover/turn:opacity-100 group-hover/turn:translate-y-0';
@@ -182,6 +218,43 @@ function TurnActions({ footer, onCopyText, mobile = false }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+
+      {onFork && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void runFork();
+          }}
+          disabled={forkStatus === 'working'}
+          aria-label="分叉会话"
+          title={
+            forkStatus === 'failed'
+              ? forkError
+              : '从这里分叉出一个新会话继续：原会话保持不变，随时可以回来'
+          }
+          data-testid="turn-fork"
+          className={`flex items-center gap-1 rounded p-1 transition-colors hover:bg-zinc-800 disabled:cursor-wait ${
+            forkStatus === 'failed' ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-200'
+          }`}
+        >
+          <svg
+            className={`h-3.5 w-3.5 ${forkStatus === 'working' ? 'animate-pulse' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 3v12m0 0a3 3 0 103 3 3 3 0 00-3-3zm12-6a3 3 0 10-3-3 3 3 0 003 3zm0 0a9 9 0 01-9 9"
+            />
+          </svg>
+          <span>{forkStatus === 'working' ? '分叉中…' : forkStatus === 'failed' ? '分叉失败' : '分叉'}</span>
+        </button>
+      )}
 
       {footer.elapsedMs !== null && (
         <span className="min-w-0 truncate" data-testid="turn-elapsed">

@@ -165,6 +165,37 @@ class SessionConversationBindingManager {
   }
 
   /**
+   * 分叉当前会话并切到分叉：`anchorMessageId` 所在回合（缺省 = 整个会话）之前的历史被复制成
+   * 一条独立会话，原会话原封不动留在列表里，随时可以回去继续。
+   *
+   * 切换走 `selectOrJumpToConversation`，与点历史列表同一条路径（占用检测、绑定、
+   * 代际令牌都不用在这里重做）。同一个分叉点的重复触发（双击、两个入口同时点）共用
+   * 一次请求——否则会各自复制出一条，列表里平白多出一堆重复分支。
+   */
+  public forkAndOpen(
+    conversationId: string,
+    anchorMessageId: string | null,
+    currentSessionId: string | null,
+  ): Promise<AgentConversation> {
+    const key = `${conversationId}\u0000${anchorMessageId ?? ''}`;
+    const pending = this.forksInFlight.get(key);
+    if (pending) return pending;
+    const run = (async () => {
+      const forked = await useConversationStore
+        .getState()
+        .forkConversation(conversationId, anchorMessageId);
+      await this.selectOrJumpToConversation(forked.id, currentSessionId);
+      return forked;
+    })().finally(() => {
+      this.forksInFlight.delete(key);
+    });
+    this.forksInFlight.set(key, run);
+    return run;
+  }
+
+  private readonly forksInFlight = new Map<string, Promise<AgentConversation>>();
+
+  /**
    * 当 SSH 会话连接成功时触发：
    * 1. 加载本连接的历史对话；
    * 2. 检查本 session 是否已有绑定的对话；

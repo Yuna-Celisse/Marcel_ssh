@@ -8,9 +8,11 @@ import type { AgentMode, Skill } from '@/lib/types';
 
 export type MenuEntry =
   | { kind: 'header'; title: string }
-  | { kind: 'command'; id: 'toggle-mode' | 'compact'; label: string; keywords: string[]; hint?: string }
+  | { kind: 'command'; id: 'toggle-mode' | 'compact' | 'fork'; label: string; keywords: string[]; hint?: string }
   | { kind: 'skill'; skill: Skill }
   | { kind: 'mode'; mode: (typeof AGENT_MODES)[number] };
+
+const FORK_KEYWORDS = ['fork', 'branch', '分叉', '分支', '另开', '复制会话'];
 
 export function isCommandDraft(input: string): boolean {
   return input.startsWith('/') && !/\s/.test(input);
@@ -60,6 +62,15 @@ export function buildAgentCommandEntries(opts: {
       id: 'compact',
       label: '压缩上下文',
       keywords: ['compact', '压缩', 'context', '上下文'],
+    });
+  }
+  if (matchesCommand('分叉会话', FORK_KEYWORDS, q)) {
+    commandEntries.push({
+      kind: 'command',
+      id: 'fork',
+      label: '分叉会话',
+      keywords: FORK_KEYWORDS,
+      hint: '复制到新会话继续，原会话不变',
     });
   }
   // 内置教学 skill 供 AI 调用，不进 `/` 插入面板；用户 skill 按手动排序展示

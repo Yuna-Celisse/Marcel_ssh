@@ -40,12 +40,14 @@ interface AgentCommandMenuProps {
   selectedSkillIds?: readonly string[];
   /** 选中「压缩上下文」 */
   onCompact: () => void;
+  /** 选中「分叉会话」：把当前会话整份复制成新会话并切过去 */
+  onFork: () => void;
   onClose: () => void;
 }
 
 const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProps>(
   function AgentCommandMenu(
-    { open, query, currentMode, onSelectMode, onPickSkill, selectedSkillIds, onCompact, onClose },
+    { open, query, currentMode, onSelectMode, onPickSkill, selectedSkillIds, onCompact, onFork, onClose },
     ref,
   ) {
     const [activeIndex, setActiveIndex] = useState(0);
@@ -107,9 +109,10 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
           setActiveIndex(0);
           return;
         }
-        // compact：先关面板，再由调用方触发压缩
+        // compact / fork：先关面板（清掉 "/xxx"），再由调用方触发
         onClose();
-        onCompact();
+        if (entry.id === 'fork') onFork();
+        else onCompact();
         return;
       }
       if (entry.kind === 'skill') {

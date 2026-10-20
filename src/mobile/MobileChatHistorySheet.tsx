@@ -10,6 +10,7 @@ import { useConnectionStore } from '@/stores/connectionStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { getConversationAgentStatus } from '@/stores/agentStatusSelectors';
 import { AgentStatusIndicator } from '@/components/agent/AgentStatusIndicator';
+import { ForkMark } from '@/components/agent/ForkMark';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
 import { formatNameWithAddress } from '@/lib/privacy';
 import { groupConversationsWithPinned } from '@/lib/dateGrouping';
@@ -404,6 +405,7 @@ export default function MobileChatHistorySheet({
                                             {conv.title}
                                           </div>
                                           <div className="mt-0.5 text-[11px] text-zinc-500">
+                                            {conv.forkedFromId && <ForkMark />}
                                             {new Date(conv.updatedAt).toLocaleString()}
                                           </div>
                                         </div>

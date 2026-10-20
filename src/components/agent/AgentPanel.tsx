@@ -48,6 +48,8 @@ import { AgentHistoryDrawer } from "./panel/AgentHistoryDrawer";
 import { AgentComposer } from "./panel/AgentComposer";
 import { SubconversationBar } from "./panel/SubconversationBar";
 import { RollbackNoticeBar } from "./panel/RollbackNoticeBar";
+import { ForkOriginBar } from "./panel/ForkOriginBar";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function AgentPanel() {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
@@ -55,6 +57,8 @@ export default function AgentPanel() {
   const [tasksDrawerOpen, setTasksDrawerOpen] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [rollbackNotice, setRollbackNotice] = useState<string | null>(null);
+  /** 输入区操作失败的提示（如命令面板分叉失败），与撤回提示共用同一条提示位。 */
+  const [noticeError, setNoticeError] = useState(false);
   const [tasksDrawerTab, setTasksDrawerTab] = useState<'agents' | 'jobs'>('agents');
   /** 用户主动发送后允许一次强制贴底；流式更新只跟随近底区。 */
   const userJustSentRef = useRef(false);
@@ -289,8 +293,9 @@ export default function AgentPanel() {
     }
   };
 
-  const showRollbackNotice = useCallback((removedCount: number) => {
-    setRollbackNotice(`已撤回 ${removedCount} 条消息，文字与附件已恢复到草稿`);
+  const showNotice = useCallback((text: string, isError = false) => {
+    setRollbackNotice(text);
+    setNoticeError(isError);
     if (rollbackNoticeTimerRef.current !== null) {
       window.clearTimeout(rollbackNoticeTimerRef.current);
     }
@@ -299,6 +304,43 @@ export default function AgentPanel() {
       rollbackNoticeTimerRef.current = null;
     }, 4200);
   }, []);
+
+  const showRollbackNotice = useCallback(
+    (removedCount: number) =>
+      showNotice(`已撤回 ${removedCount} 条消息，文字与附件已恢复到草稿`),
+    [showNotice],
+  );
+
+  // ── 分叉 ───────────────────────────────────────────────────────────────
+  // 任务收尾条的「分叉」：从该任务收尾处分叉，失败抛给收尾条自己提示。
+  const handleForkAt = useCallback(
+    async (messageId: string) => {
+      if (!activeConversationId) return;
+      await sessionConversationBindingManager.forkAndOpen(
+        activeConversationId,
+        messageId,
+        activeSessionId,
+      );
+    },
+    [activeConversationId, activeSessionId],
+  );
+
+  // `/分叉会话`：整个会话分叉。命令面板没有可着色的位置，失败走输入区上方的提示条。
+  const handleForkWhole = useCallback(() => {
+    if (!activeConversationId) return;
+    sessionConversationBindingManager
+      .forkAndOpen(activeConversationId, null, activeSessionId)
+      .catch((err) => {
+        console.error("Failed to fork conversation:", err);
+        showNotice(`分叉失败：${getErrorMessage(err)}`, true);
+      });
+  }, [activeConversationId, activeSessionId, showNotice]);
+
+  // 分叉会话的来路：来源仍在列表里才给「返回原会话」（来源被删后后端已置空，
+  // 没加载进来时同样不给——指向一个打不开的会话比没有入口更糟）。
+  const forkOrigin = activeConversation?.forkedFromId
+    ? conversations[activeConversation.forkedFromId]
+    : undefined;
 
   const { send: handleSend, rollback: handleRollbackMessage, sending } = useAgentDraftActions({
     attachments,
@@ -379,6 +421,13 @@ export default function AgentPanel() {
         onOpenTaskCenter={handleOpenTaskCenter}
       />
 
+      {forkOrigin && !isSubConversation && (
+        <ForkOriginBar
+          originTitle={forkOrigin.title}
+          onBack={() => void handleSelectConversation(forkOrigin.id)}
+        />
+      )}
+
       {/* Messages */}
       <AgentTranscript
         conversationId={activeConversationId}
@@ -387,6 +436,7 @@ export default function AgentPanel() {
         onRollback={handleRollbackMessage}
         onCopy={handleCopyMessage}
         onCopyText={handleCopyText}
+        onFork={canInteract && !isSubConversation ? handleForkAt : undefined}
         userJustSentRef={userJustSentRef}
         emptyState={<>
           {!activeSession && (
@@ -432,6 +482,7 @@ export default function AgentPanel() {
       {rollbackNotice && (
         <RollbackNoticeBar
           notice={rollbackNotice}
+          variant={noticeError ? "error" : "rollback"}
           onDismiss={() => setRollbackNotice(null)}
         />
       )}
@@ -459,6 +510,7 @@ export default function AgentPanel() {
           onKeyDown={handleKeyDown}
           onPickSkill={handlePickSkill}
           onCompact={handleCompact}
+          onFork={handleForkWhole}
           setInput={setInput}
           registry={registry}
           activeConversation={activeConversation}

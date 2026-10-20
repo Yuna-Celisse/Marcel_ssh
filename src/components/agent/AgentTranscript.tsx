@@ -20,6 +20,8 @@ interface Props {
   onCopy: (message: AgentMessage) => void;
   /** 任务收尾条的「复制」写剪贴板用；失败请抛出。不传 = 不显示收尾条。 */
   onCopyText?: (text: string) => void | Promise<void>;
+  /** 任务收尾条的「分叉」：从该任务收尾处分叉出新会话。不传 = 不显示分叉按钮。 */
+  onFork?: (messageId: string) => void | Promise<void>;
   emptyState: ReactNode;
   mobile?: boolean;
   visible?: boolean;
@@ -28,7 +30,7 @@ interface Props {
 /** The transcript alone subscribes to message frames; hidden mobile pages keep their last view. */
 export default memo(function AgentTranscript({
   canInteract, conversationId, rollbackDisabled, userJustSentRef,
-  onRollback, onCopy, onCopyText, emptyState, mobile = false, visible = true,
+  onRollback, onCopy, onCopyText, onFork, emptyState, mobile = false, visible = true,
 }: Props) {
   const snapshot = useRef(EMPTY_MESSAGES);
   const messages = useConversationStore((s) =>
@@ -120,6 +122,7 @@ export default memo(function AgentTranscript({
               onRollback={onRollback}
               onCopy={onCopy}
               onCopyText={onCopyText}
+              onFork={onFork}
               alwaysShowActions={mobile}
               maxRetainedViews={mobile ? MOBILE_MAX_RETAINED_VIEWS : undefined}
               enableStickyFollow={false}

@@ -31,6 +31,7 @@ type AgentComposerProps = {
   onKeyDown: (e: React.KeyboardEvent) => void;
   onPickSkill: (skill: Skill) => void;
   onCompact: () => void;
+  onFork: () => void;
   setInput: (text: string | ((prev: string) => string)) => void;
   registry: LlmRegistry;
   activeConversation: AgentConversation | null;
@@ -63,6 +64,7 @@ export function AgentComposer({
   onKeyDown,
   onPickSkill,
   onCompact,
+  onFork,
   setInput,
   registry,
   activeConversation,
@@ -129,6 +131,7 @@ export function AgentComposer({
           onPickSkill={onPickSkill}
           selectedSkillIds={selectedSkillIds}
           onCompact={onCompact}
+          onFork={onFork}
           onClose={() => setInput("")}
         />
         {/* Input field — 顶部整行，操作工具条移至下方 */}

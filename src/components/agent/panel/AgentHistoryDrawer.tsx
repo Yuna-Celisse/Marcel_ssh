@@ -5,6 +5,7 @@ import { groupConversationsWithPinned } from "@/lib/dateGrouping";
 import { getErrorMessage } from "@/lib/errors";
 import { getConversationAgentStatus } from "@/stores/agentStatusSelectors";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
+import { ForkMark } from "../ForkMark";
 import type { AgentConversation, AgentTask } from "@/lib/types";
 
 type AgentHistoryDrawerProps = {
@@ -203,6 +204,7 @@ export function AgentHistoryDrawer({
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium leading-snug">{conv.title}</div>
                             <div className="text-[11px] text-zinc-500 mt-0.5">
+                              {conv.forkedFromId && <ForkMark />}
                               {new Date(conv.updatedAt).toLocaleString()}
                             </div>
                           </div>

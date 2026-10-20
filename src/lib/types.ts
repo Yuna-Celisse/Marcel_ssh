@@ -1234,6 +1234,12 @@ export interface AgentConversation {
   /** 子agent对话（subagent 工具创建）的父对话 id；主对话无此字段。 */
   parentConversationId?: string;
   /**
+   * 分叉来源：从哪个会话分出来的。分叉是**独立的主会话**（照常出现在列表里、
+   * 不随来源删除），这个字段只用来给出「分叉自 X / 返回原会话」。来源被删后
+   * 后端置空；来源不在当前列表里（还没加载）时界面同样不给入口。
+   */
+  forkedFromId?: string;
+  /**
    * 会话级模型选择（llmRegistry 模型条目 id）。**仅作旧数据/快照遗留**：
    * 新架构不落盘每会话模型，真正的会话记忆在内存
    * （`sessionModels` store 层 / 后端 `agent_get_session_model`）。

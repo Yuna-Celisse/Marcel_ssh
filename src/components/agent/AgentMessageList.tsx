@@ -50,6 +50,11 @@ interface Props {
    * 不传 = 不显示任务收尾条（没有剪贴板能力的只读场景）。
    */
   onCopyText?: (text: string) => void | Promise<void>;
+  /**
+   * 从某个任务收尾处分叉出新会话（参数是该任务最后一条回复的消息 id）。失败请抛出。
+   * 不传 = 收尾条不显示分叉按钮（只读历史浏览等没有会话可切的场景）。
+   */
+  onFork?: (messageId: string) => void | Promise<void>;
   messagesEndRef?: RefObject<HTMLDivElement>;
   highlightMessageId?: string | null;
   matchedMessageIds?: string[];
@@ -120,7 +125,7 @@ function DedicatedViewRetention({
 }
 
 function MessageList({
-  messages, conversationId = '', rollbackDisabled = false, onRollback, onCopy, onCopyText, messagesEndRef,
+  messages, conversationId = '', rollbackDisabled = false, onRollback, onCopy, onCopyText, onFork, messagesEndRef,
   highlightMessageId = null, matchedMessageIds, searchKeyword, alwaysShowActions = false,
   foldTurns: foldTurnsProp, enableStickyFollow = true, listRef, onManualLayout, maxRetainedViews,
 }: Props) {
@@ -493,7 +498,7 @@ function MessageList({
           ${flash === message.id ? 'bg-indigo-500/20 ring-1 ring-indigo-400/30' : ''}`}>
         <MemoMessageBody message={message} grouped={row.grouped} rollbackDisabled={rollbackDisabled}
           onRollback={onRollback} onCopy={onCopy} searchKeyword={searchKeyword} alwaysShowActions={alwaysShowActions} />
-        {footer && onCopyText && <TurnActions footer={footer} onCopyText={onCopyText} mobile={alwaysShowActions} />}
+        {footer && onCopyText && <TurnActions footer={footer} onCopyText={onCopyText} onFork={onFork} mobile={alwaysShowActions} />}
         {notesView}
       </div>
     </MessageViewIdContext.Provider>;
