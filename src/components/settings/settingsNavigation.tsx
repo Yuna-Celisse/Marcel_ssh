@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Bot, Cpu, Info, Monitor, Plug, Store, UploadCloud, Wrench } from 'lucide-react';
+import { Bookmark, Bot, Cpu, Info, Monitor, Plug, Store, UploadCloud, Wrench } from 'lucide-react';
 
 export interface SettingsCategory {
   id: string;
@@ -18,6 +18,9 @@ export const SETTINGS_SECTION_SPAN: Record<string, SettingsSectionSpan> = {
   'settings-command-policy': 'full',
   'settings-agent-system-prompt': 'full',
   'settings-notification': 'half',
+  'settings-memory': 'full',
+  // 作用域目录 + 列表 + 整理助手，窄了列表就挤成一条缝
+  'settings-memory-manage': 'full',
   'settings-experimental': 'half',
   // 含 JSON 配置片段，需要整行宽度才不会被折断成看不懂的样子
   'settings-mcp-server': 'full',
@@ -49,6 +52,12 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
       'settings-agent-system-prompt',
       'settings-notification',
     ],
+  },
+  {
+    id: 'memory',
+    label: '记忆',
+    icon: <Bookmark className="w-4 h-4" />,
+    sections: ['settings-memory', 'settings-memory-manage'],
   },
   {
     id: 'tools',

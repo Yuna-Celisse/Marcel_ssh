@@ -33,6 +33,7 @@ describe('llmRegistry model routing (session memory → lastUsed → first)', ()
     expect(emptySlots()).toEqual({
       modelApprovalModelId: '',
       summarizerModelId: '',
+      memoryModelId: '',
     });
   });
 

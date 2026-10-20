@@ -21,6 +21,7 @@ describe('MOBILE_SETTINGS_CATEGORIES', () => {
       'llm',
       'agent-policy',
       'agent-tools',
+      'memory',
       'commands-skills',
       'notification-background',
       'about',

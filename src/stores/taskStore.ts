@@ -155,6 +155,11 @@ export interface TaskState {
    * 写库后的累计值，前端的活就是把它显示出来。
    */
   recordContextUsage: (conversationId: string, ev: ContextUsageEvent) => void;
+  /**
+   * 任务之外花掉的 token（后台复盘）记进会话后，后端发来的新累计值。只换累计数，
+   * `lastContext`（上下文占用）沿用后端读数——复盘不占这段对话的上下文。
+   */
+  applySideUsage: (conversationId: string, usage: ConversationUsage) => void;
   /** 流式文本增量（正文 / 思考 / 工具参数）→ 累加当前轮的输出 token 估算。 */
   recordOutputDelta: (conversationId: string, text: string) => void;
 
@@ -752,6 +757,22 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         },
       },
     }));
+  },
+
+  applySideUsage: (conversationId, usage) => {
+    set((state) => {
+      const prev = state.usageByConversation[conversationId];
+      const windowTokens =
+        prev?.windowTokens ??
+        useConversationStore.getState().conversations[conversationId]?.contextWindow ??
+        0;
+      return {
+        usageByConversation: {
+          ...state.usageByConversation,
+          [conversationId]: { usage, windowTokens },
+        },
+      };
+    });
   },
 
   clearActiveTask: () => {

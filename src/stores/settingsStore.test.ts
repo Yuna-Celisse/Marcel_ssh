@@ -65,6 +65,7 @@ describe('settingsStore', () => {
     expect(r.slots).toEqual({
       modelApprovalModelId: '',
       summarizerModelId: '',
+      memoryModelId: '',
     });
     expect(r.lastUsedModelId).toBeUndefined();
   });
@@ -91,6 +92,7 @@ describe('settingsStore', () => {
     expect(r.slots).toEqual({
       modelApprovalModelId: '',
       summarizerModelId: '',
+      memoryModelId: '',
     });
   });
 
@@ -114,7 +116,7 @@ describe('settingsStore', () => {
         llmRegistry: {
           channels: [ch],
           models: [m, { ...m }],
-          slots: { modelApprovalModelId: '', summarizerModelId: '' },
+          slots: { modelApprovalModelId: '', summarizerModelId: '', memoryModelId: '' },
         } as never,
       },
       hasApiKey: false,
@@ -149,7 +151,7 @@ describe('settingsStore', () => {
         llmRegistry: {
           channels: [ch],
           models: [m],
-          slots: { modelApprovalModelId: '', summarizerModelId: '' },
+          slots: { modelApprovalModelId: '', summarizerModelId: '', memoryModelId: '' },
           lastUsedModelId: 'm-1',
         } as never,
       },
@@ -183,7 +185,7 @@ describe('settingsStore', () => {
         llmRegistry: {
           channels: [ch],
           models: [m],
-          slots: { modelApprovalModelId: '', summarizerModelId: '' },
+          slots: { modelApprovalModelId: '', summarizerModelId: '', memoryModelId: '' },
           lastUsedModelId: 'ghost-deleted-model',
         } as never,
       },

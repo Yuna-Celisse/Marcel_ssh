@@ -745,6 +745,11 @@ export interface ModelSlots {
   modelApprovalModelId: string;
   /** 上下文压缩摘要模型。空 = 跟随会话模型。 */
   summarizerModelId: string;
+  /**
+   * 长期记忆模型（后台复盘与记忆整理助手）。空 = 跟随会话主模型，
+   * **不**回落压缩模型。旧配置里没有这个键，读进来按空处理。
+   */
+  memoryModelId?: string;
 }
 
 /** 子agent 可选模型候选：主 agent 派发子agent 时可从中按任务难度选一个。 */
@@ -927,6 +932,14 @@ export interface WorkspaceLayoutSettings {
   agentPrimary: boolean;
 }
 
+/** 长期记忆设置（后端 `MemorySettings`）。 */
+export interface MemorySettings {
+  /** 总开关：关掉后不注入、不注册记忆工具、不复盘；已有记忆保留。 */
+  enabled: boolean;
+  /** 后台复盘：一段对话告一段落后用记忆模型整理值得记住的。默认开。 */
+  autoReflect: boolean;
+}
+
 /** 更新方式三态（与后端 `UpdateMode` 的线上取值一一对应）。 */
 export type UpdateMode = 'auto' | 'notify' | 'off';
 
@@ -939,6 +952,8 @@ export interface AppSettings {
   llmRegistry: LlmRegistry;
   agentModeSettings: AgentModeSettings;
   experimentalSettings?: ExperimentalSettings;
+  /** 长期记忆：总开关 + 后台复盘开关（记忆模型在 `llmRegistry.slots.memoryModelId`）。 */
+  memorySettings: MemorySettings;
   /**
    * 旧版本的目录记忆（最近一次 / 按连接）。**只读兜底**：新的目录记忆在 localStorage，
    * 见 `lib/fileManagerPathMemory.ts`——切目录不再整份保存设置。

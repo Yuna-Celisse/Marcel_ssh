@@ -34,7 +34,7 @@ const descriptionInputClass =
 /** 空注册表兜底（settings 尚未初始化时）：用 lib/llmRegistry 的共享版。 */
 
 /** 模型选择底部弹层（辅助场景槽位选择用）。 */
-function MobileModelPickerSheet({
+export function MobileModelPickerSheet({
   open,
   onClose,
   title,

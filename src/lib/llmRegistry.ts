@@ -44,7 +44,7 @@ export function emptyRegistry(): LlmRegistry {
 }
 
 export function emptySlots(): ModelSlots {
-  return { modelApprovalModelId: '', summarizerModelId: '' };
+  return { modelApprovalModelId: '', summarizerModelId: '', memoryModelId: '' };
 }
 
 export function findChannel(r: LlmRegistry, channelId: string): ChannelConfig | undefined {
@@ -283,6 +283,7 @@ export function mergeChannelModels(
   const slots = { ...r.slots };
   if (!slotTargets.has(slots.modelApprovalModelId)) slots.modelApprovalModelId = '';
   if (!slotTargets.has(slots.summarizerModelId)) slots.summarizerModelId = '';
+  if (slots.memoryModelId && !slotTargets.has(slots.memoryModelId)) slots.memoryModelId = '';
 
   // 子agent 候选清理：指向被删模型的候选整条移除（与槽位清理同批发生）
   const subagentModels = (r.subagentModels ?? []).filter((c) => slotTargets.has(c.modelId));
@@ -330,6 +331,7 @@ function clearSlotsForRemoved(slots: ModelSlots, removedIds: Set<string>): Model
   const next = { ...slots };
   if (removedIds.has(next.modelApprovalModelId)) next.modelApprovalModelId = '';
   if (removedIds.has(next.summarizerModelId)) next.summarizerModelId = '';
+  if (next.memoryModelId && removedIds.has(next.memoryModelId)) next.memoryModelId = '';
   return next;
 }
 

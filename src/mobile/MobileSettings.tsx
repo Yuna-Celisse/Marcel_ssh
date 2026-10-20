@@ -17,6 +17,7 @@ import { MobileAgentToolsSection } from './settings/MobileAgentToolsSection';
 import { MobileAppearanceSection } from './settings/MobileAppearanceSection';
 import { MobileCommandsSkillsSection } from './settings/MobileCommandsSkillsSection';
 import { MobileModelSection } from './settings/MobileModelSection';
+import { MobileMemorySection } from './settings/MobileMemorySection';
 import { MobileNotificationBackgroundSection } from './settings/MobileNotificationBackgroundSection';
 import { registerBackHandler } from './backHandler';
 import DebugPage from '@/components/debug/DebugPage';
@@ -231,6 +232,12 @@ export default function MobileSettings({
           {activeCategory === 'agent-tools' && (
             <div className="p-3">
               <MobileAgentToolsSection />
+            </div>
+          )}
+
+          {activeCategory === 'memory' && (
+            <div className="p-3">
+              <MobileMemorySection />
             </div>
           )}
 

@@ -22,6 +22,7 @@ export type MobileSettingsCategoryId =
   | 'llm'
   | 'agent-policy'
   | 'agent-tools'
+  | 'memory'
   | 'commands-skills'
   | 'notification-background'
   | 'about';
@@ -52,6 +53,11 @@ export const MOBILE_SETTINGS_CATEGORIES: readonly MobileSettingsCategory[] = [
     id: 'agent-tools',
     title: 'Agent 工具',
     description: '联网搜索、网页抓取与搜索 API',
+  },
+  {
+    id: 'memory',
+    title: '记忆',
+    description: '长期记忆、后台复盘与整理助手',
   },
   {
     id: 'commands-skills',

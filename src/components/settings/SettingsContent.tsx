@@ -6,6 +6,7 @@ import AboutSection from './AboutSection';
 import { ConversationDisplaySection } from './ConversationDisplaySection';
 import { ModelServiceSection } from './ModelServiceSection';
 import { NotificationSection } from './NotificationSection';
+import { MemoryManageSection, MemorySection } from './MemorySection';
 import { TerminalAppearanceSection } from './TerminalAppearanceSection';
 import { WorkspaceLayoutSection } from './WorkspaceLayoutSection';
 import { ToolCapabilitiesSection } from './ToolCapabilitiesSection';
@@ -62,6 +63,8 @@ export function SettingsContent({ activeCategory, searchQuery }: SettingsContent
     { id: 'settings-command-policy', element: <AgentPolicySection /> },
     { id: 'settings-agent-system-prompt', element: <AgentSystemPromptSection /> },
     { id: 'settings-notification', element: <NotificationSection /> },
+    { id: 'settings-memory', element: <MemorySection /> },
+    { id: 'settings-memory-manage', element: <MemoryManageSection /> },
     { id: 'settings-experimental', element: <ToolCapabilitiesSection /> },
     { id: 'settings-mcp-server', element: <McpServerSection /> },
     { id: 'settings-transfer', element: <TransferSection /> },

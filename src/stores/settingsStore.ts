@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as tauri from '@/lib/tauri';
-import type { AppSettings, AgentModeSettings, ExperimentalSettings, NotificationSettings, MobileNotificationSettings, MobileBackgroundSettings, LlmRegistry, ChannelKeyStatus } from '@/lib/types';
+import type { AppSettings, AgentModeSettings, ExperimentalSettings, NotificationSettings, MobileNotificationSettings, MobileBackgroundSettings, MemorySettings, LlmRegistry, ChannelKeyStatus } from '@/lib/types';
 import { DEFAULT_TERMINAL_COLORS } from '@/lib/constants';
 import { DEFAULT_WORKSPACE_LAYOUT, normalizeWorkspaceLayout } from '@/lib/workspaceLayout';
 import { setNotificationVolume } from '@/lib/notificationSound';
@@ -101,6 +101,11 @@ export const DEFAULT_MOBILE_BACKGROUND_SETTINGS: MobileBackgroundSettings = {
   keepAliveEnabled: false,
 };
 
+export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
+  enabled: true,
+  autoReflect: true,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
   terminalColors: DEFAULT_TERMINAL_COLORS,
   fontSize: 14,
@@ -109,6 +114,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   llmRegistry: DEFAULT_LLM_REGISTRY,
   agentModeSettings: DEFAULT_AGENT_MODE_SETTINGS,
   experimentalSettings: DEFAULT_EXPERIMENTAL_SETTINGS,
+  memorySettings: DEFAULT_MEMORY_SETTINGS,
   updateMode: 'auto',
   autoUpdate: true,
   fileManagerShowHidden: false,
@@ -251,6 +257,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       },
       llmRegistry: normalizeRegistry(fromDisk.llmRegistry),
       experimentalSettings: hydrateExperimental(fromDisk.experimentalSettings),
+      memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(fromDisk.memorySettings ?? {}) },
       fileManagerPaths: fromDisk.fileManagerPaths ?? {},
       workspaceLayout: normalizeWorkspaceLayout(fromDisk.workspaceLayout),
       mobileNotificationSettings: {
@@ -296,6 +303,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         },
         llmRegistry: normalizeRegistry(fromDisk.llmRegistry),
         experimentalSettings: hydrateExperimental(fromDisk.experimentalSettings),
+        memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(fromDisk.memorySettings ?? {}) },
         fileManagerPaths: fromDisk.fileManagerPaths ?? {},
         workspaceLayout: normalizeWorkspaceLayout(fromDisk.workspaceLayout),
         // 移动端独立设置：旧数据无此字段时用默认值兜底（兼容旧数据 = 保持原样 + 默认值填充）
