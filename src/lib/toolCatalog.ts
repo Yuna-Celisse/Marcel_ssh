@@ -404,12 +404,12 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
     deliverable: true,
   },
   {
-    // 写长期记忆。成功的调用由 `toolViews` 的专属卡片接管（已记住 · 作用域：标题 +
-    // 撤销 / 编辑）；它是用户要知道、可能要撤销的结果，不是过程 —— 回合折叠时照样显示。
+    // 写长期记忆。成功的调用由 `toolViews` 的专属 view 接管（骨架与工具卡相同，展开后
+    // 可撤销 / 编辑）。**不是 deliverable**：它和别的工具调用一样是过程，连续几次并进
+    // 同一个工具分组、回合折叠时一起收起 —— 单独豁免只会让一串记忆卡堆在对话里。
     name: 'memory',
     label: '记忆',
     iconPaths: ICON_BOOKMARK,
-    deliverable: true,
     preview: (args) => {
       const action = asArgString(args.action) ?? '';
       const title = asArgString(args.title);

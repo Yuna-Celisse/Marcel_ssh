@@ -625,3 +625,10 @@ describe('已登记的消费方不再自带工具名判定（白名单制，见�
     });
   }
 });
+
+describe('memory 工具不是交付物', () => {
+  it('写记忆与别的工具调用一样是过程：连续几次并进同一个工具分组、回合折叠时一起收起', () => {
+    expect(isDeliverableTool('memory')).toBe(false);
+    expect(isDeliverableTool('render_html')).toBe(true);
+  });
+});

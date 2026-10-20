@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { ChevronDown, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { getErrorMessage } from '@/lib/errors';
 import { findModel, modelLabel } from '@/lib/llmRegistry';
 import { openMemorySettings } from '@/lib/memoryNav';
@@ -15,6 +15,7 @@ import {
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useMemoryStore } from '@/stores/memoryStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { ToolCardFrame } from './toolCardChrome';
 
 const INTRO_DISMISSED_KEY = 'marcel.memory.reflectionIntroDismissed';
 
@@ -85,49 +86,47 @@ function NoteLine({ note, mobile }: { note: ReflectionNote; mobile: boolean }) {
     <div className="flex min-w-0 flex-col gap-1.5">
       {showIntro && <IntroCard mobile={mobile} onDone={() => { writeIntroDismissed(); setIntroHidden(true); }} />}
       {note.ops.length > 0 && (
-        <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-500">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
-            <button
-              type="button"
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-              className="flex min-w-0 items-center gap-1 hover:text-zinc-300 transition-colors"
-            >
-              <span>后台复盘 · {allReverted ? '改动已全部撤销' : summary}</span>
-              <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
-            </button>
-            {!allReverted && note.batchId && (
-              <button
-                type="button"
-                className={btn}
-                disabled={!!busy}
-                onClick={() => void run('batch', () => useMemoryStore.getState().revertBatch(note.batchId!))}
-              >
-                {busy === 'batch' ? '撤销中…' : '全部撤销'}
-              </button>
-            )}
-          </div>
+        <div className="min-w-0 max-w-[85%]">
+        <ToolCardFrame
+          toolName="memory"
+          label="后台复盘"
+          preview={allReverted ? '改动已全部撤销' : summary}
+          expanded={open}
+          onToggle={() => setOpen((v) => !v)}
+        >
           {open && (
-            <ul className="mt-1 flex flex-col gap-1 pl-5">
-              {note.ops.map((op) => (
-                <OpRow
-                  key={op.id}
-                  op={op}
-                  btn={btn}
-                  busy={busy === `op:${op.id}`}
-                  disabled={!!busy}
-                  onUndo={() => void run(`op:${op.id}`, () => useMemoryStore.getState().revertOp(op.id))}
-                />
-              ))}
-              <li>
-                <button type="button" className={`${btn} -ml-1.5`} onClick={() => openMemorySettings()}>
+            <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+              <ul className="flex flex-col gap-1">
+                {note.ops.map((op) => (
+                  <OpRow
+                    key={op.id}
+                    op={op}
+                    btn={btn}
+                    busy={busy === `op:${op.id}`}
+                    disabled={!!busy}
+                    onUndo={() => void run(`op:${op.id}`, () => useMemoryStore.getState().revertOp(op.id))}
+                  />
+                ))}
+              </ul>
+              <div className="mt-1 -ml-1.5 flex flex-wrap items-center gap-0.5">
+                {!allReverted && note.batchId && (
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={!!busy}
+                    onClick={() => void run('batch', () => useMemoryStore.getState().revertBatch(note.batchId!))}
+                  >
+                    {busy === 'batch' ? '撤销中…' : '全部撤销'}
+                  </button>
+                )}
+                <button type="button" className={btn} onClick={() => openMemorySettings()}>
                   在记忆管理里查看
                 </button>
-              </li>
-            </ul>
+              </div>
+              {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+            </div>
           )}
-          {error && <p className="mt-1 pl-5 text-xs text-red-400">{error}</p>}
+        </ToolCardFrame>
         </div>
       )}
     </div>

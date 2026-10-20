@@ -94,7 +94,7 @@ function MessageBody({ message, grouped, ...props }: {
   const [expanded, setExpanded] = useMessageViewState('tool-width-expanded', false);
   const onExpand = useCallback((_id: string, open: boolean) => setExpanded(open), [setExpanded]);
   const ToolView = message.toolResult && getToolView(message.toolResult.toolName);
-  if (ToolView) return <ToolView message={message} />;
+  if (ToolView) return <ToolView message={message} grouped={grouped} />;
   if (message.toolResult || (message.role === 'assistant' && message.toolCall)) {
     return <div className={`flex min-w-0 justify-start ${grouped ? 'pl-3' : ''}`}>
       <div className={`min-w-0 ${expanded ? 'w-full' : 'max-w-[85%]'}`}>

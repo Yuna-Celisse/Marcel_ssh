@@ -1,5 +1,4 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { Bookmark } from 'lucide-react';
 import type { AgentMessage } from '@/lib/types';
 import { getErrorMessage } from '@/lib/errors';
 import { collectPlatformHints, isMobilePlatform } from '@/platform';
@@ -7,6 +6,9 @@ import type { MemoryItem, MemoryOpKind } from '@/lib/memory';
 import { useMemoryStore } from '@/stores/memoryStore';
 import MemoryEditDialog from '@/components/memory/MemoryEditDialog';
 import ToolCallCard from './ToolCallCard';
+import { ToolCardFrame, ToolChip } from './toolCardChrome';
+import { useMessageViewState } from './messageViewState';
+import type { ToolViewProps } from './toolViews';
 
 /** 后端 `memory` 工具结果里的 `metadata.memory`（`agent/tools/memory.rs::op_metadata`）。 */
 interface MemoryToolMeta {
@@ -32,31 +34,39 @@ const HEADLINE: Record<MemoryOpKind, string> = {
 };
 
 /**
- * 对话里 agent 写记忆的那张卡片：「已记住 · 机器「web-01」」+ 标题，点开看正文；
- * 右侧「撤销」「编辑」。撤销后卡片划掉并标「已撤销」——而且后台复盘不会再把它
- * 加回来（后端记了拒绝）。
+ * 对话里 agent 写记忆的那一行：用的是工具卡的同一副骨架（`ToolCardFrame`），所以长相、
+ * 间距、展开方式和别的工具调用完全一致，连续几次写记忆也和其它工具一样并进同一个分组。
+ * 标题行：「已记住」+ 记忆标题 + 作用域小标记；点开看正文，并能「编辑」「撤销」。
+ * 撤销后标题划掉并标「已撤销」——而且后台复盘不会再把它加回来（后端记了拒绝）。
  *
  * 失败的调用（标题重复、作用域不可用……）不走这里，退回通用工具卡片显示原因。
  */
-function MemoryToolView({ message }: { message: AgentMessage }) {
+function MemoryToolView({ message, grouped }: ToolViewProps) {
   const meta = readMeta(message);
   const success = message.toolResult?.success === true;
+  const wrap = grouped ? 'pl-3' : '';
   if (!meta || !success) {
     return (
-      <div className="flex min-w-0 justify-start">
+      <div className={`flex min-w-0 justify-start ${wrap}`}>
         <div className="min-w-0 max-w-[85%]">
           <ToolCallCard message={message} />
         </div>
       </div>
     );
   }
-  return <MemoryCard meta={meta} />;
+  return (
+    <div className={`flex min-w-0 justify-start ${wrap}`}>
+      <div className="min-w-0 max-w-[85%]">
+        <MemoryCard meta={meta} />
+      </div>
+    </div>
+  );
 }
 
 function MemoryCard({ meta }: { meta: MemoryToolMeta }) {
   const mobile = useMemo(() => isMobilePlatform(collectPlatformHints()), []);
   const batch = useMemoryStore((s) => s.batches[meta.batchId]);
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useMessageViewState('tool-expanded', false);
   const [busy, setBusy] = useState(false);
   const [localReverted, setLocalReverted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,64 +108,51 @@ function MemoryCard({ meta }: { meta: MemoryToolMeta }) {
   }`;
 
   return (
-    <div className="flex min-w-0 justify-start">
-      <div
-        className={`min-w-0 max-w-[85%] rounded-lg border px-3 py-2 transition-colors ${
-          reverted ? 'border-zinc-800 bg-transparent' : 'border-zinc-700/60 bg-zinc-800/40'
-        }`}
+    <>
+      <ToolCardFrame
+        toolName="memory"
+        label={reverted ? '已撤销' : HEADLINE[meta.op]}
+        preview={reverted ? <span className="line-through opacity-60">{title}</span> : title}
+        chips={
+          <ToolChip title={`作用域：${meta.scopeLabel}`} shrinkable className="truncate">
+            {meta.scopeLabel}
+          </ToolChip>
+        }
+        expanded={expanded}
+        onToggle={() => setExpanded((v) => !v)}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <Bookmark
-            className={`h-3.5 w-3.5 shrink-0 ${reverted ? 'text-zinc-600' : 'text-indigo-400'}`}
-            aria-hidden
-          />
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left text-xs"
-          >
-            <span className={`shrink-0 font-medium ${reverted ? 'text-zinc-500' : 'text-zinc-300'}`}>
-              {reverted ? '已撤销' : HEADLINE[meta.op]}
-            </span>
-            <span className="shrink-0 text-zinc-500">· {meta.scopeLabel}：</span>
-            <span
-              className={`min-w-0 truncate ${reverted ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}
-              title={title}
-            >
-              {title}
-            </span>
-          </button>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {!reverted && meta.op !== 'delete' && (
-              <button type="button" className={btn} onClick={() => void edit()}>
-                编辑
-              </button>
-            )}
+        {expanded && item && (
+          <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+            <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-zinc-400">
+              {meta.op === 'update' && meta.before && meta.before.content !== item.content ? (
+                <>
+                  <span className="text-zinc-600 line-through">{meta.before.content}</span>
+                  <br />
+                  {item.content}
+                </>
+              ) : (
+                item.content
+              )}
+            </div>
             {!reverted && (
-              <button type="button" className={btn} disabled={busy} onClick={() => void undo()}>
-                {busy ? '撤销中…' : '撤销'}
-              </button>
+              <div className="mt-1 -ml-1.5 flex items-center gap-0.5">
+                {meta.op !== 'delete' && (
+                  <button type="button" className={btn} onClick={() => void edit()}>
+                    编辑
+                  </button>
+                )}
+                <button type="button" className={btn} disabled={busy} onClick={() => void undo()}>
+                  {busy ? '撤销中…' : '撤销'}
+                </button>
+              </div>
             )}
-          </div>
-        </div>
-        {open && item && (
-          <div className="mt-1.5 whitespace-pre-wrap break-words pl-[22px] text-xs leading-relaxed text-zinc-400">
-            {meta.op === 'update' && meta.before && meta.before.content !== item.content ? (
-              <>
-                <span className="text-zinc-600 line-through">{meta.before.content}</span>
-                {'\n'}
-                {item.content}
-              </>
-            ) : (
-              item.content
-            )}
+            {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
           </div>
         )}
-        {error && <p className="mt-1 pl-[22px] text-xs text-red-400">{error}</p>}
-      </div>
+        {expanded && !item && error && <p className="ml-3 pl-3 text-xs text-red-400">{error}</p>}
+      </ToolCardFrame>
       <MemoryEditDialog open={!!editing} item={editing} onClose={() => setEditing(null)} />
-    </div>
+    </>
   );
 }
 

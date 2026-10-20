@@ -7,6 +7,8 @@ import MemoryToolView from "./MemoryToolView";
 
 export interface ToolViewProps {
   message: AgentMessage;
+  /** 在已展开的工具分组里：与通用工具卡一样缩进一格。独占一行的 view（图表）可以不理。 */
+  grouped?: boolean;
 }
 
 /**
@@ -40,7 +42,7 @@ const TOOL_VIEWS: Record<string, ToolViewEntry> = {
     mobile: MobileHtmlVisualization,
     retain: true,
   },
-  // 「已记住 · 作用域：标题」+ 撤销 / 编辑；两端同一个组件（按钮尺寸随平台）。
+  // 工具卡同一副骨架：「已记住 · 标题 · 作用域」，展开后有 撤销 / 编辑；两端同一个组件。
   memory: {
     desktop: MemoryToolView,
   },
