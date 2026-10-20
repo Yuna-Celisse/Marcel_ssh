@@ -16,6 +16,7 @@ import { MobileAgentPolicySection } from './settings/MobileAgentPolicySection';
 import { MobileAgentToolsSection } from './settings/MobileAgentToolsSection';
 import { MobileAppearanceSection } from './settings/MobileAppearanceSection';
 import { MobileCommandsSkillsSection } from './settings/MobileCommandsSkillsSection';
+import { MobileMcpServerSection } from './settings/MobileMcpServerSection';
 import { MobileModelSection } from './settings/MobileModelSection';
 import { MobileMemorySection } from './settings/MobileMemorySection';
 import { MobileNotificationBackgroundSection } from './settings/MobileNotificationBackgroundSection';
@@ -244,6 +245,12 @@ export default function MobileSettings({
           {activeCategory === 'commands-skills' && (
             <div className="p-3">
               <MobileCommandsSkillsSection />
+            </div>
+          )}
+
+          {activeCategory === 'mcp-server' && (
+            <div className="p-3">
+              <MobileMcpServerSection />
             </div>
           )}
 

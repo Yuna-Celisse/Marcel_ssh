@@ -67,13 +67,56 @@ export function startForegroundService(title: string, body: string): void {
   }
 }
 
-/** 停止前台保活服务。 */
-export function stopForegroundService(): void {
+function rawStopForegroundService(): void {
   try {
     window.AndroidBridge?.stopForegroundService();
   } catch (e) {
     console.warn('[mobileBridge] stopForegroundService failed:', e);
   }
+}
+
+/**
+ * 有「必须一直活着」的功能（如 MCP 服务）时登记在这里：key → 常驻通知文案。
+ *
+ * 前台服务本来只有「用户保活开关」和「临时保活」两类使用者，各自 start/stop。
+ * MCP 服务开着时，它们任何一方 stop 都会把服务一并关掉、进程随后被系统回收。
+ * 所有 stop 都经 [stopForegroundService]，所以在那里统一拦截，比让每个调用点
+ * 各自去问「MCP 还开着吗」更不容易漏。
+ */
+const foregroundHolds = new Map<string, { title: string; body: string }>();
+
+/** 登记一项保活需求并确保前台服务在跑（重复登记同一个 key 只更新通知文案）。 */
+export function holdForeground(key: string, title: string, body: string): void {
+  foregroundHolds.set(key, { title, body });
+  startForegroundService(title, body);
+}
+
+/**
+ * 释放一项保活需求。
+ *
+ * 还有别的需求时只刷新通知；没有了才看用户自己的保活开关——开着就恢复默认文案，
+ * 关着才真正停服务。
+ */
+export function releaseForeground(key: string, keepAliveEnabled: boolean): void {
+  if (!foregroundHolds.delete(key)) return;
+  const remaining = [...foregroundHolds.values()].pop();
+  if (remaining) {
+    startForegroundService(remaining.title, remaining.body);
+  } else if (keepAliveEnabled) {
+    startForegroundService('Marcel SSH', '运行中');
+  } else {
+    rawStopForegroundService();
+  }
+}
+
+/** 停止前台保活服务。仍有保活需求（见 [holdForeground]）时不停，只把通知文案换回那一项。 */
+export function stopForegroundService(): void {
+  const remaining = [...foregroundHolds.values()].pop();
+  if (remaining) {
+    startForegroundService(remaining.title, remaining.body);
+    return;
+  }
+  rawStopForegroundService();
 }
 
 /**

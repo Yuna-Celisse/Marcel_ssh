@@ -23,6 +23,7 @@ describe('MOBILE_SETTINGS_CATEGORIES', () => {
       'agent-tools',
       'memory',
       'commands-skills',
+      'mcp-server',
       'notification-background',
       'about',
     ]);

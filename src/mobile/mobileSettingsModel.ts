@@ -24,6 +24,7 @@ export type MobileSettingsCategoryId =
   | 'agent-tools'
   | 'memory'
   | 'commands-skills'
+  | 'mcp-server'
   | 'notification-background'
   | 'about';
 
@@ -63,6 +64,11 @@ export const MOBILE_SETTINGS_CATEGORIES: readonly MobileSettingsCategory[] = [
     id: 'commands-skills',
     title: '快捷命令与技能',
     description: '管理终端快捷命令与 Agent 技能',
+  },
+  {
+    id: 'mcp-server',
+    title: 'MCP 服务',
+    description: '让手机上的 Agent 或局域网设备通过 HTTP 接入',
   },
   {
     id: 'notification-background',
