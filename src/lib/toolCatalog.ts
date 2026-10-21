@@ -432,6 +432,35 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
       return `「${clip(asArgString(args.query) ?? '')}」`;
     },
   },
+  // ── 记忆整理助手（`memory/assistant.rs`）的工具：不在主 agent 的工具集里，对话视图直接
+  //    复用 Agent 的消息列表来渲染助手的每一步，所以在这里登记显示名与图标。
+  //    都**不进 exploration 分组**：「它翻了哪些记忆、读了哪段会话」要让用户看得见。
+  //    标题行的预览是助手给出的「对谁做的」（`toolResult.summary`），不走参数。
+  {
+    name: 'memory_list',
+    label: '查看记忆',
+    iconPaths: ICON_BOOKMARK,
+  },
+  {
+    name: 'memory_apply',
+    label: '修改记忆',
+    iconPaths: ICON_BOOKMARK,
+  },
+  {
+    name: 'history_list',
+    label: '查看历史会话',
+    iconPaths: ICON_HISTORY,
+  },
+  {
+    name: 'history_search',
+    label: '搜索历史会话',
+    iconPaths: ICON_MAGNIFIER,
+  },
+  {
+    name: 'history_read',
+    label: '阅读历史会话',
+    iconPaths: ICON_HISTORY,
+  },
   // ── 本机工具族（`local_*`）：在运行 Marcel SSH 的这台电脑上干活，与远端同名
   //    工具一一对应。图标 / 预览 / 折叠分组一律照远端那一行（同类动作共用一副
   //    长相），另加两条真正不同的声明：`localExecution`（审批面板的本机横幅）与

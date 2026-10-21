@@ -12,11 +12,13 @@ import {
 } from '@/lib/memory';
 
 export type AssistantEntry =
-  | { id: string; role: 'user'; text: string }
+  | { id: string; role: 'user'; text: string; at: string }
   | {
       id: string;
       role: 'assistant';
       runId: string;
+      /** 开始的时间（ISO）。 */
+      at: string;
       text: string;
       status: 'running' | 'done' | 'cancelled' | 'error';
       /** 运行中「正在做什么」（查看记忆 / 搜索历史会话……）。 */
@@ -30,7 +32,7 @@ export type AssistantEntry =
       error: string | null;
     };
 
-type AssistantReplyEntry = Extract<AssistantEntry, { role: 'assistant' }>;
+export type AssistantReplyEntry = Extract<AssistantEntry, { role: 'assistant' }>;
 
 /**
  * 记忆管理页的整理助手：用户一句话（「把重复的合并」「从历史会话整理 web-01 的记忆」），
@@ -133,15 +135,17 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
     }
     const history = historyFrom(get().entries);
     const runId = crypto.randomUUID();
+    const at = new Date().toISOString();
     set((s) => ({
       runningId: runId,
       entries: [
         ...s.entries,
-        { id: `u-${runId}`, role: 'user', text },
+        { id: `u-${runId}`, role: 'user', text, at },
         {
           id: `a-${runId}`,
           role: 'assistant',
           runId,
+          at,
           text: '',
           status: 'running',
           activity: null,

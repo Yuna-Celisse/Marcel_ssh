@@ -41,7 +41,22 @@ export default memo(function AgentRunStatus({ conversationId }: { conversationId
     const e = s.taskOutputByConversation[conversationId];
     return e ? Math.round(e.settled + e.live) : 0;
   });
-  const shown = useSettledValue(output, 400);
+  return <RunStatusLine output={output} />;
+});
+
+/**
+ * 状态条本体（只管长相，不认 store）：跳动圆点 + 文案 + 可选的输出 token 数。
+ * 记忆整理助手这类没有 agent 任务的运行也用它，和对话里的运行状态长得一样。
+ */
+export const RunStatusLine = memo(function RunStatusLine({
+  output,
+  label = '任务运行中',
+}: {
+  /** 本次已输出的 token 数；不传 = 没有这个数，不显示。 */
+  output?: number;
+  label?: string;
+}) {
+  const shown = useSettledValue(output ?? 0, 400);
   return (
     <div
       role="status"
@@ -51,14 +66,16 @@ export default memo(function AgentRunStatus({ conversationId }: { conversationId
       <span className="run-dots flex flex-shrink-0 items-center gap-[3px]" aria-hidden="true">
         <i /><i /><i />
       </span>
-      <span>任务运行中</span>
-      <span
-        className="flex items-center gap-0.5 tabular-nums text-zinc-300"
-        title={`本次任务模型已输出 ${formatExactTokens(output)} tokens`}
-      >
-        <ArrowDown className="h-3 w-3 text-indigo-400" aria-hidden="true" />
-        <RollingText text={formatLiveOutputTokens(shown)} />
-      </span>
+      <span>{label}</span>
+      {output !== undefined && (
+        <span
+          className="flex items-center gap-0.5 tabular-nums text-zinc-300"
+          title={`本次任务模型已输出 ${formatExactTokens(output)} tokens`}
+        >
+          <ArrowDown className="h-3 w-3 text-indigo-400" aria-hidden="true" />
+          <RollingText text={formatLiveOutputTokens(shown)} />
+        </span>
+      )}
     </div>
   );
 });

@@ -295,9 +295,9 @@ function AgentMessage({
           >
             <span className="min-w-0 truncate">{sentAt}</span>
             <div className="flex items-center gap-0.5">
-              <button
+              {onRollback && <button
                 type="button"
-                onClick={() => onRollback?.(message)}
+                onClick={() => onRollback(message)}
                 disabled={rollbackDisabled}
                 className="p-1 rounded text-zinc-500 hover:text-amber-300 hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title={
@@ -317,7 +317,7 @@ function AgentMessage({
                     d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
                   />
                 </svg>
-              </button>
+              </button>}
               <button
                 type="button"
                 onClick={handleCopy}

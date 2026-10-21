@@ -603,8 +603,15 @@ describe('已登记的消费方不再自带工具名判定（白名单制，见�
         `|\\.(includes|startsWith|endsWith)\\(\\s*['"\`]${name}['"\`]`,
     );
 
-  it('catalog 的每个名字都是后端内置工具（别名除外）', () => {
-    const backend = new Set(BACKEND_BUILTIN_TOOLS);
+  /**
+   * 记忆整理助手自己的工具（镜像 `src-tauri/src/memory/assistant.rs` 的工具定义）。它们不在
+   * 主 agent 的工具集里，但整理助手的对话视图复用 Agent 的消息列表来渲染，所以在 catalog
+   * 里登记显示名与图标。
+   */
+  const MEMORY_ASSISTANT_TOOLS = ['memory_list', 'memory_apply', 'history_list', 'history_search', 'history_read'];
+
+  it('catalog 的每个名字都是后端内置工具或整理助手的工具（别名除外）', () => {
+    const backend = new Set([...BACKEND_BUILTIN_TOOLS, ...MEMORY_ASSISTANT_TOOLS]);
     const strangers = TOOL_CATALOG.map((s) => s.name).filter((n) => !backend.has(n));
     expect(strangers, 'catalog 里有后端不存在的工具名（拼错或已改名）').toEqual([]);
   });

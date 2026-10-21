@@ -1,12 +1,14 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Loader2, Square, Wand2 } from 'lucide-react';
-import MarkdownBody from '@/components/agent/MarkdownBody';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUp, Square } from 'lucide-react';
+import AgentMessageList, { type AgentMessageListHandle } from '@/components/agent/AgentMessageList';
+import { RunStatusLine } from '@/components/agent/AgentRunStatus';
+import type { AgentMessage } from '@/lib/types';
 import { getErrorMessage } from '@/lib/errors';
 import { scopeLabel, type ScopeRef } from '@/lib/memory';
 import { useConnectionStore } from '@/stores/connectionStore';
-import { useMemoryAssistantStore, type AssistantEntry } from '@/stores/memoryAssistantStore';
-import { OpList, StepLog } from './AssistantProcess';
+import { useMemoryAssistantStore, type AssistantReplyEntry } from '@/stores/memoryAssistantStore';
 import AssistantModelPicker from './AssistantModelPicker';
+import { assistantMessages } from './assistantMessages';
 import { assistantSuggestions } from './assistantSuggestions';
 
 interface Props {
@@ -17,30 +19,35 @@ interface Props {
 
 /** 输入框最高长到多少 px（约 5 行），再多就在框里滚。 */
 const INPUT_MAX_HEIGHT = 120;
-/** 离底部不到这么多 px 就算「在底部」，新内容来了继续跟随。 */
-const FOLLOW_THRESHOLD_PX = 48;
 
 /**
  * 整理助手的对话视图：上面是对话记录，下面是输入框。两端共用（`mobile` 只调尺寸与发送方式）。
  *
  * **滚动只有一层**：对话记录是这个视图里唯一的滚动容器，输入框钉在它下面，不参与滚动；
  * 视图自己填满宿主给的高度（桌面是弹窗、手机是底部面板），不再有「页面一个滚动条、
- * 里面又一个」。跟随规则：在底部就跟着新内容走，往上翻着读就不抢位置，自己发送时一定回到底部。
+ * 里面又一个」。
+ *
+ * **对话记录直接用 Agent 的消息列表渲染**（`assistantMessages` 把记录翻译成 Agent 的消息）：
+ * 气泡、工具卡、记忆卡、分组、展开、流式跟随都是同一套，不另画一份。跟随规则也由它负责：
+ * 在底部就跟着新内容走，往上翻着读就不抢位置；这里只在自己发送时叫它回到底部。
  */
 export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const entries = useMemoryAssistantStore((s) => s.entries);
   const runningId = useMemoryAssistantStore((s) => s.runningId);
   const connections = useConnectionStore((s) => s.connections);
   const [draft, setDraft] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<AgentMessageListHandle | null>(null);
   const focusLabel = focus ? scopeLabel(focus, connections) : null;
   const running = runningId !== null;
 
-  // 在布局阶段、绘制之前改滚动位置：新内容不会先以旧位置闪一帧再跳到底。
-  const stickToBottom = useRef(true);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  const messages = useMemo(() => assistantMessages(entries, connections), [entries, connections]);
+  // 撤销整次改动的入口挂在最近一次有改动的回复上；更早的每张记忆卡自己有「撤销」。
+  const lastChange = useMemo(() => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e.role === 'assistant' && e.ops.length > 0) return e;
+    }
+    return null;
   }, [entries]);
 
   // 输入框随内容长高（到上限后内部滚动）。
@@ -55,21 +62,14 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   const send = (text: string) => {
     if (!text.trim() || running) return;
     setDraft('');
-    stickToBottom.current = true;
+    listRef.current?.followBottom();
     void useMemoryAssistantStore.getState().send(text, focus);
   };
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <AssistantModelPicker mobile={mobile} />
-      <div
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
-        }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
-      >
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         {entries.length === 0 ? (
           <div className="flex flex-col gap-3">
             <p className={`${mobile ? 'text-sm' : 'text-[13px]'} leading-relaxed text-zinc-400`}>
@@ -93,11 +93,17 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {entries.map((e) => (
-              <EntryView key={e.id} entry={e} mobile={mobile} />
-            ))}
-          </div>
+          <>
+            <AgentMessageList
+              messages={messages}
+              listRef={listRef}
+              foldTurns={false}
+              onCopy={copyMessage}
+              alwaysShowActions={mobile}
+            />
+            {running && <RunStatusLine label="整理中" />}
+            {lastChange && <BatchUndoBar entry={lastChange} mobile={mobile} />}
+          </>
         )}
       </div>
 
@@ -152,10 +158,7 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
           <div className="mt-1.5 flex justify-end">
             <button
               type="button"
-              onClick={() => {
-                stickToBottom.current = true;
-                useMemoryAssistantStore.getState().clear();
-              }}
+              onClick={() => useMemoryAssistantStore.getState().clear()}
               className="text-xs text-zinc-500 transition-colors hover:text-zinc-300"
             >
               清空对话
@@ -167,20 +170,18 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
   );
 }
 
-const EntryView = memo(function EntryView({ entry, mobile }: { entry: AssistantEntry; mobile: boolean }) {
-  if (entry.role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-indigo-600/80 px-3 py-2 text-sm text-white">
-          {entry.text}
-        </div>
-      </div>
-    );
-  }
-  return <ReplyView entry={entry} mobile={mobile} />;
-});
+function copyMessage(message: AgentMessage) {
+  void navigator.clipboard?.writeText(message.content).catch(() => undefined);
+}
 
-function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: 'assistant' }>; mobile: boolean }) {
+/** 「这次改了 N 处 · 撤销这次」：一键回退这次请求的全部改动。 */
+function BatchUndoBar({
+  entry,
+  mobile,
+}: {
+  entry: AssistantReplyEntry;
+  mobile: boolean;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const live = entry.ops.filter((o) => !o.reverted);
@@ -198,57 +199,24 @@ function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: '
     }
   };
 
-  const running = entry.status === 'running';
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      {/* 过程在前、结论在后：先看它做了什么，再看它怎么说 */}
-      {(entry.steps.length > 0 || running) && (
-        <div className="ml-6">
-          {entry.steps.length > 0 ? (
-            <StepLog steps={entry.steps} running={running} />
-          ) : (
-            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-              正在想…
-            </div>
-          )}
-        </div>
-      )}
-      <div className="flex items-start gap-2">
-        <Wand2 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" aria-hidden />
-        <div className="min-w-0 flex-1 text-sm text-zinc-200">
-          {entry.text ? (
-            <MarkdownBody content={entry.text} sync />
-          ) : entry.status === 'running' ? null : (
-            <span className="text-zinc-500">{entry.status === 'cancelled' ? '已停止。' : ''}</span>
-          )}
-          {entry.status === 'cancelled' && entry.text && <div className="mt-1 text-xs text-zinc-500">已停止。</div>}
-          {entry.error && <div className="mt-1 text-xs text-red-400">{entry.error}</div>}
-        </div>
+    <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs">
+      <div className="flex items-center gap-2 px-1 text-zinc-500">
+        <span>{entry.reverted ? `已撤销这次的 ${entry.ops.length} 处改动` : `这次改了 ${entry.ops.length} 处`}</span>
+        {canUndo && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void undo()}
+            className={`rounded-md text-zinc-300 transition hover:bg-zinc-700/60 active:scale-[0.96] disabled:opacity-40 ${
+              mobile ? 'px-2.5 py-1.5' : 'px-2 py-0.5'
+            }`}
+          >
+            {busy ? '撤销中…' : '撤销这次'}
+          </button>
+        )}
       </div>
-      {entry.ops.length > 0 && (
-        <div className="ml-6 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-zinc-400">
-              {entry.reverted ? `已撤销这次的 ${entry.ops.length} 处改动` : `这次改了 ${entry.ops.length} 处`}
-            </span>
-            {canUndo && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void undo()}
-                className={`rounded-md text-zinc-300 hover:bg-zinc-700/60 active:scale-[0.96] transition disabled:opacity-40 ${
-                  mobile ? 'px-2.5 py-1.5' : 'px-2 py-0.5'
-                }`}
-              >
-                {busy ? '撤销中…' : '撤销这次'}
-              </button>
-            )}
-          </div>
-          <OpList entryId={entry.id} ops={entry.ops} reverted={entry.reverted} mobile={mobile} />
-          {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
-        </div>
-      )}
+      {error && <p className="px-1 text-red-400">{error}</p>}
     </div>
   );
 }
