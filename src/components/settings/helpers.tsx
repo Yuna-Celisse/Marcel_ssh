@@ -74,11 +74,14 @@ export function useSettingsLayout() {
 export function Card({
   id,
   title,
+  badge,
   description,
   children,
 }: {
   id?: string;
   title: string;
+  /** 标题后面的小标（「Beta」之类）。 */
+  badge?: React.ReactNode;
   description?: string;
   children: React.ReactNode;
 }) {
@@ -88,7 +91,10 @@ export function Card({
     // 不能 overflow-hidden：卡片里最后一项的下拉列表会被卡片边缘裁掉。圆角改由首尾子元素自己带。
     <div id={id} className="rounded-xl border border-zinc-800 bg-zinc-900/50">
       <div className={`settings-card-header ${layout.mode === 'compact' ? 'px-5' : 'px-6'} py-4 border-b border-zinc-800 rounded-t-xl`}>
-        <h3 className="text-base font-semibold text-zinc-100">{title}</h3>
+        <h3 className="flex items-center gap-2 text-base font-semibold text-zinc-100">
+          {title}
+          {badge}
+        </h3>
         {description && <p className="text-xs text-zinc-500 mt-1">{description}</p>}
       </div>
       <div className="divide-y divide-zinc-800 [&>*:last-child]:rounded-b-xl">{children}</div>

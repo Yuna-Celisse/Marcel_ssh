@@ -18,6 +18,7 @@ import { MobileAppearanceSection } from './settings/MobileAppearanceSection';
 import { MobileCommandsSkillsSection } from './settings/MobileCommandsSkillsSection';
 import { MobileMcpServerSection } from './settings/MobileMcpServerSection';
 import { MobileModelSection } from './settings/MobileModelSection';
+import BetaTag from '@/components/ui/BetaTag';
 import { MobileMemorySection } from './settings/MobileMemorySection';
 import { MobileNotificationBackgroundSection } from './settings/MobileNotificationBackgroundSection';
 import { registerBackHandler } from './backHandler';
@@ -163,8 +164,9 @@ export default function MobileSettings({
               返回设置
             </button>
           ) : null}
-          <h1 className="text-base font-semibold text-zinc-100">
+          <h1 className="flex items-center gap-2 text-base font-semibold text-zinc-100">
             {activeMeta?.title ?? '设置'}
+            {activeMeta?.beta && <BetaTag />}
           </h1>
           {activeMeta?.description ? (
             <p className="mt-0.5 text-xs text-zinc-500">
@@ -199,8 +201,9 @@ export default function MobileSettings({
                   className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-zinc-100">
+                    <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
                       {cat.title}
+                      {cat.beta && <BetaTag />}
                     </div>
                     <div className="mt-0.5 text-xs text-zinc-500">
                       {cat.description}

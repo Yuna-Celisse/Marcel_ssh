@@ -6,6 +6,8 @@ export interface SettingsCategory {
   label: string;
   icon: React.ReactNode;
   sections: string[];
+  /** 名字后面标「Beta」。 */
+  beta?: boolean;
 }
 
 export type SettingsSectionSpan = 'half' | 'full';
@@ -58,6 +60,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     label: '记忆',
     icon: <Bookmark className="w-4 h-4" />,
     sections: ['settings-memory', 'settings-memory-manage'],
+    beta: true,
   },
   {
     id: 'tools',

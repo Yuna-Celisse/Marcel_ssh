@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pin, Plus, Search } from 'lucide-react';
 import Select from '@/components/ui/Select';
 import Toggle from '@/components/ui/Toggle';
+import BetaTag from '@/components/ui/BetaTag';
 import MemoryEditDialog from '@/components/memory/MemoryEditDialog';
 import MemoryAssistantLauncher from '@/components/memory/MemoryAssistantLauncher';
 import { filterKey, useMemoryManager, type MemoryManager } from '@/components/memory/useMemoryManager';
@@ -40,6 +41,7 @@ export function MemorySection() {
     <Card
       id={SECTION}
       title="长期记忆"
+      badge={<BetaTag />}
       description="Agent 会记住你的习惯、每台机器的情况和踩过的坑，下次在同一台机器上对话时自动带上"
     >
       <SettingItem
