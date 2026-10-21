@@ -8,7 +8,8 @@ vi.mock('@/stores/connectionStore', () => {
   return { useConnectionStore };
 });
 
-import { GROUP_PREVIEW, groupInjected, InjectedMemoryList } from './InjectedMemories';
+import { InjectedMemoryList } from './InjectedMemories';
+import { GROUP_PREVIEW, groupInjected } from './injectedGroups';
 
 function mem(id: string, over: Partial<MemoryItem> = {}): MemoryItem {
   return {
