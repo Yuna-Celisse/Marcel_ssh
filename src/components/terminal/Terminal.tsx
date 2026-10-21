@@ -24,6 +24,12 @@ import {
 import { isDebugSession } from '@/lib/debugServer';
 import { resolveTerminalColors } from '@/lib/terminalTheme';
 import { useDebugStore } from '@/stores/debugStore';
+import { useTerminalFontZoom } from '@/hooks/useTerminalFontZoom';
+import { isFontZooming, wheelZoomSteps } from '@/lib/terminalFontZoom';
+import { TerminalZoomHint } from './TerminalZoomHint';
+
+/** 最后一次 Ctrl+滚轮 / 触控板捏合之后，停多久才算这次缩放结束并落盘。 */
+const FONT_ZOOM_COMMIT_DELAY_MS = 250;
 
 export default function Terminal() {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -132,6 +138,36 @@ export default function Terminal() {
   }, [panelOpen, panelTransition]);
 
   useEffect(() => () => panelTransition.settle(), [panelTransition]);
+
+  // Ctrl+滚轮 / 触控板捏合调终端字号。Chromium 把触控板捏合也报成 ctrlKey 的 wheel，
+  // 所以一个监听两种输入都管。途中只在本地重排，停手后才落盘并通知远端 resize。
+  const fontZoom = useTerminalFontZoom({
+    commitDelayMs: FONT_ZOOM_COMMIT_DELAY_MS,
+    onSettled: () => {
+      const instanceId = activeInstanceIdRef.current;
+      const instance = instanceId ? terminalInstanceManager.get(instanceId) : undefined;
+      if (!instance?.fitAddon) return;
+      terminalInstanceManager.fit(instance);
+      terminalInstanceManager.resizeRemoteIfChanged(instance);
+    },
+  });
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    let residual = 0;
+    // 捕获阶段 + 非 passive：既要抢在 xterm 自己的滚轮处理（回滚 / 鼠标上报）之前，
+    // 也要 preventDefault，免得 WebView 把 Ctrl+滚轮当成整页缩放。只拦终端区域内的。
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const result = wheelZoomSteps(event.deltaY, event.deltaMode, residual);
+      residual = result.residual;
+      if (result.steps !== 0) fontZoom.step(result.steps);
+    };
+    wrapper.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => wrapper.removeEventListener('wheel', onWheel, { capture: true });
+  }, [fontZoom]);
 
   const scheduleActiveFit = () => {
     if (fitFrameRef.current !== null) return;
@@ -258,7 +294,8 @@ export default function Terminal() {
       if (!instance.terminal) continue;
       requestAnimationFrame(() => {
         terminalInstanceManager.fit(instance);
-        if (instance.id === activeInstanceId) {
+        // 缩放手势途中只在本地重排，远端 resize 等手势结束由 fontZoom 的 onSettled 补发。
+        if (instance.id === activeInstanceId && !isFontZooming()) {
           terminalInstanceManager.resizeRemoteIfChanged(instance);
         }
       });
@@ -272,6 +309,7 @@ export default function Terminal() {
       {/* overflow-hidden：过渡期间终端内容带着位移，不能越过终端区盖住正在滑动的面板 */}
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div ref={wrapperRef} className="absolute inset-0" />
+        <TerminalZoomHint />
         {!hasSessions && (
           <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/95 z-10">
             <div className="text-center">

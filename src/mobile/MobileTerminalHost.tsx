@@ -47,6 +47,10 @@ import { attachXtermMomentumScroll } from './terminalMomentum';
 import { createRemoteScrollForwarder } from '@/lib/terminalScrollGesture';
 import { attachTouchSelection } from './terminalSelection';
 import { attachTapLocate } from './terminalTapLocate';
+import { attachPinchZoom } from './terminalPinchZoom';
+import { isFontZooming } from '@/lib/terminalFontZoom';
+import { useTerminalFontZoom } from '@/hooks/useTerminalFontZoom';
+import { TerminalZoomHint } from '@/components/terminal/TerminalZoomHint';
 import { DEBUG_SERVER_PROMPT, isDebugSession } from '@/lib/debugServer';
 import { resolveTerminalColors } from '@/lib/terminalTheme';
 import { useDebugStore } from '@/stores/debugStore';
@@ -110,6 +114,24 @@ export default function MobileTerminalHost({
 
   inputStateRef.current = inputState;
   activeSessionIdRef.current = activeSessionId;
+
+  // 两指捏合调字号：途中只在本地重排，松手后才落盘并通知远端 resize（原因见 terminalFontZoom.ts）。
+  const fontZoom = useTerminalFontZoom({
+    onSettled: () => {
+      const term = termRef.current;
+      if (!term) return;
+      try {
+        fitAddonRef.current?.fit();
+        const sid = activeSessionIdRef.current;
+        const sess = sid ? useSessionStore.getState().sessions[sid] : null;
+        if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
+          void tauri.sshResize(sid, term.cols, term.rows).catch(() => {});
+        }
+      } catch {
+        /* hidden */
+      }
+    },
+  });
 
   const hasAnySession = Object.keys(sessions).length > 0;
   const activeSession = activeSessionId
@@ -225,6 +247,8 @@ export default function MobileTerminalHost({
       },
     });
 
+    const pinchZoom = attachPinchZoom({ container: el, zoom: fontZoom });
+
     // Fast typing on Android: one invoke per keystroke is a full
     // WebView→Java→Rust roundtrip that saturates the main thread and makes
     // the WebView drop IME commits (swallowed characters). Batch printable
@@ -296,6 +320,7 @@ export default function MobileTerminalHost({
 
     return () => {
       touchSelection.dispose();
+      pinchZoom.dispose();
       momentum.dispose();
       tapLocate.dispose();
       inputBatcher.dispose();
@@ -321,7 +346,8 @@ export default function MobileTerminalHost({
       canvasAddonRef.current = null;
       boundSessionIdRef.current = null;
     };
-  }, []);
+    // fontZoom 在宿主整个生命周期里是同一个对象，不会触发重建 xterm。
+  }, [fontZoom]);
 
   useEffect(() => {
     const term = termRef.current;
@@ -332,6 +358,8 @@ export default function MobileTerminalHost({
     requestAnimationFrame(() => {
       try {
         fitAddonRef.current?.fit();
+        // 捏合途中只在本地重排；远端 resize 等手势结束由 onSettled 补发一次。
+        if (isFontZooming()) return;
         const sid = activeSessionIdRef.current;
         const sess = sid ? useSessionStore.getState().sessions[sid] : null;
         if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
@@ -711,6 +739,7 @@ export default function MobileTerminalHost({
 
       {/* Always in layout so xterm has real size; list overlay covers it when needed */}
       <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden px-1" />
+      {!showList && <TerminalZoomHint />}
 
       {!showList && (
         <>

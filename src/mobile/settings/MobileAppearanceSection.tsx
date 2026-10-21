@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { TerminalColors } from '@/lib/types';
 import { TERMINAL_COLOR_PRESETS } from '@/lib/constants';
+import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '@/lib/terminalFont';
 import { useSettingsActions } from '@/components/settings/SettingsActionsContext';
 import Toggle from '@/components/ui/Toggle';
 import { MobileSettingRow } from './MobileSettingRow';
@@ -157,8 +158,8 @@ export function MobileAppearanceSection() {
       >
         <input
           type="range"
-          min={10}
-          max={32}
+          min={TERMINAL_FONT_SIZE_MIN}
+          max={TERMINAL_FONT_SIZE_MAX}
           value={settings.fontSize}
           onChange={(e) => applyFontSize(parseInt(e.target.value, 10))}
           className="mt-1 h-2 w-full cursor-pointer appearance-none rounded-full bg-zinc-700 accent-indigo-500"

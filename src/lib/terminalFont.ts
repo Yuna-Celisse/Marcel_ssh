@@ -18,6 +18,16 @@
  * 顶着，不会退化成比例字体。
  */
 
+/** 终端字号的合法范围：设置页滑块、手势缩放共用这一份，别各写各的数。 */
+export const TERMINAL_FONT_SIZE_MIN = 10;
+export const TERMINAL_FONT_SIZE_MAX = 32;
+
+/** 取整并夹进合法范围；非有限数返回下限。 */
+export function clampTerminalFontSize(size: number): number {
+  if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_MIN;
+  return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, Math.round(size)));
+}
+
 /** 内置 Nerd Font 的 CSS 家族名（@font-face 见 styles/globals.css，字体文件在 public/fonts/）。 */
 export const BUNDLED_NERD_FONT_FAMILY = 'Marcel Nerd Font Mono';
 

@@ -1,4 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import {
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  clampTerminalFontSize,
+} from '@/lib/terminalFont';
 
 export function FontSizeInput({
   value,
@@ -31,7 +36,7 @@ export function FontSizeInput({
 
   const handleBlur = () => {
     const num = parseInt(inputValue, 10);
-    const clamped = Math.max(10, Math.min(32, num || 14));
+    const clamped = clampTerminalFontSize(num || 14);
     setInputValue(String(clamped));
     if (clamped !== value) {
       onChange(clamped);
@@ -55,8 +60,8 @@ export function FontSizeInput({
         >
           <input
             type="range"
-            min={10}
-            max={32}
+            min={TERMINAL_FONT_SIZE_MIN}
+            max={TERMINAL_FONT_SIZE_MAX}
             value={value}
             onMouseDown={(e) => e.stopPropagation()}
             onChange={(e) => {
@@ -69,9 +74,9 @@ export function FontSizeInput({
             className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
           />
           <div className="flex justify-between text-xs text-zinc-500 mt-1">
-            <span>10</span>
+            <span>{TERMINAL_FONT_SIZE_MIN}</span>
             <span className="text-indigo-400 font-medium">{value}px</span>
-            <span>32</span>
+            <span>{TERMINAL_FONT_SIZE_MAX}</span>
           </div>
         </div>
       )}
