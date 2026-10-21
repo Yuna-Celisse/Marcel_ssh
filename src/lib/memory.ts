@@ -120,18 +120,43 @@ export interface AssistantTurn {
   content: string;
 }
 
+/** 助手做的一步（`memory/assistant.rs::AssistantStep`）：看了什么、读了哪段会话、改了多少。 */
+export interface AssistantStep {
+  id: number;
+  tool: string;
+  label: string;
+  /** 对谁做的：机器、关键词、哪个会话…… */
+  detail: string;
+  /** 结果；失败时是原因；运行中为空。 */
+  outcome: string;
+  ok: boolean;
+  running: boolean;
+  /** 模型发起这一步之前说的话。 */
+  note: string;
+}
+
 export interface AssistantReply {
   text: string;
   batchId: string | null;
   ops: MemoryOpRecord[];
+  /** 完整步骤清单（权威；进度事件可能错过）。 */
+  steps: AssistantStep[];
 }
 
 export interface AssistantProgressEvent {
   runId: string;
-  kind: 'text' | 'tool' | 'ops';
+  kind: 'text' | 'tool' | 'step' | 'ops';
   text: string;
   batchId?: string;
   ops?: MemoryOpRecord[];
+  step?: AssistantStep;
+}
+
+/** 步骤清单的一句话汇总：「查看记忆 2 次、阅读历史会话 3 次、修改记忆 1 次」。 */
+export function summarizeSteps(steps: readonly AssistantStep[]): string {
+  const counts = new Map<string, number>();
+  for (const s of steps) counts.set(s.label, (counts.get(s.label) ?? 0) + 1);
+  return [...counts].map(([label, n]) => (n > 1 ? `${label} ${n} 次` : label)).join('、');
 }
 
 export interface MemoryChangedEvent {

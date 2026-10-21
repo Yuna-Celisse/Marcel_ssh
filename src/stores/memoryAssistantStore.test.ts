@@ -73,3 +73,37 @@ describe('memoryAssistantStore 模型选择', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('memoryAssistantStore 整理过程', () => {
+  const step = (over: Record<string, unknown>) => ({
+    id: 0, tool: 'memory_list', label: '查看记忆', detail: '全部', outcome: '', ok: true, running: true, note: '', ...over,
+  });
+
+  it('每一步开始、出结果都实时进清单，结束后以后端的完整清单为准', async () => {
+    const sending = useMemoryAssistantStore.getState().send('整理', null);
+    const runId = useMemoryAssistantStore.getState().runningId!;
+    const reply = () => {
+      const e = useMemoryAssistantStore.getState().entries.slice(-1)[0];
+      return e?.role === 'assistant' ? e : null;
+    };
+
+    emit({ runId, kind: 'tool', text: '查看记忆', step: step({ note: '先看看现有的' }) });
+    expect(reply()?.steps).toHaveLength(1);
+    expect(reply()?.steps[0].running).toBe(true);
+
+    // 后端的「出结果」事件带的是完整的一步（含 note）
+    emit({ runId, kind: 'step', text: '', step: step({ running: false, outcome: '列出 12 条', note: '先看看现有的' }) });
+    expect(reply()?.steps).toHaveLength(1); // 同一步更新，不是新增
+    expect(reply()?.steps[0]).toMatchObject({ running: false, outcome: '列出 12 条', note: '先看看现有的' });
+
+    emit({ runId, kind: 'tool', text: '阅读历史会话', step: step({ id: 1, tool: 'history_read', label: '阅读历史会话' }) });
+    expect(reply()?.steps).toHaveLength(2);
+
+    // 事件可能漏：最终回复带完整清单，以它为准
+    const full = [step({ running: false, outcome: '列出 12 条' }), step({ id: 1, label: '阅读历史会话', running: false, outcome: '读完了' }), step({ id: 2, label: '修改记忆', running: false, outcome: '已提交 1 条修改' })];
+    finishRun({ text: '好了', batchId: null, ops: [], steps: full });
+    await sending;
+    expect(reply()?.steps).toHaveLength(3);
+    expect(reply()?.steps.every((s) => !s.running)).toBe(true);
+  });
+});

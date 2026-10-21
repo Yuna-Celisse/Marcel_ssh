@@ -5,6 +5,7 @@ import { subscribeTauriEvent } from '@/lib/tauriEvent';
 import {
   EVENT_MEMORY_ASSISTANT_PROGRESS,
   type AssistantProgressEvent,
+  type AssistantStep,
   type AssistantTurn,
   type MemoryOpRecord,
   type ScopeRef,
@@ -20,6 +21,8 @@ export type AssistantEntry =
       status: 'running' | 'done' | 'cancelled' | 'error';
       /** 运行中「正在做什么」（查看记忆 / 搜索历史会话……）。 */
       activity: string | null;
+      /** 过程：每一步看了什么、读了哪段会话、结果如何（运行中实时追加，结束后以后端清单为准）。 */
+      steps: AssistantStep[];
       batchId: string | null;
       ops: MemoryOpRecord[];
       /** 用户点过「撤销这次」。 */
@@ -45,6 +48,8 @@ interface AssistantState {
   send: (prompt: string, focus: ScopeRef | null) => Promise<void>;
   cancel: () => Promise<void>;
   undo: (entryId: string) => Promise<void>;
+  /** 只撤销这次里的某一处改动。 */
+  undoOp: (entryId: string, opId: number) => Promise<void>;
   clear: () => void;
 }
 
@@ -62,6 +67,14 @@ function readModelId(): string {
 
 function patchRun(entries: AssistantEntry[], runId: string, fn: (e: AssistantReplyEntry) => AssistantReplyEntry) {
   return entries.map((e) => (e.role === 'assistant' && e.runId === runId ? fn(e) : e));
+}
+
+function upsertStep(steps: AssistantStep[], step: AssistantStep): AssistantStep[] {
+  const i = steps.findIndex((s) => s.id === step.id);
+  if (i < 0) return [...steps, step];
+  const next = steps.slice();
+  next[i] = step;
+  return next;
 }
 
 function mergeOps(prev: MemoryOpRecord[], next: MemoryOpRecord[]): MemoryOpRecord[] {
@@ -109,7 +122,10 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
             if (ev.kind === 'text') return { ...e, text: e.text + ev.text };
             // 调工具之前模型顺口说的话（「我先看看」）不是最终回复：后端最终只回传最后一轮的文字，
             // 这里不清掉的话，结束那一刻正文会整段换掉、卡片跟着跳一下。
-            if (ev.kind === 'tool') return { ...e, text: '', activity: ev.text };
+            if (ev.kind === 'tool' || ev.kind === 'step') {
+              const steps = ev.step ? upsertStep(e.steps, ev.step) : e.steps;
+              return ev.kind === 'tool' ? { ...e, text: '', activity: ev.text, steps } : { ...e, steps };
+            }
             return { ...e, batchId: ev.batchId ?? e.batchId, ops: mergeOps(e.ops, ev.ops ?? []) };
           }),
         }));
@@ -129,6 +145,7 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
           text: '',
           status: 'running',
           activity: null,
+          steps: [],
           batchId: null,
           ops: [],
           reverted: false,
@@ -144,6 +161,7 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
           text: reply.text,
           status: 'done',
           activity: null,
+          steps: reply.steps?.length ? reply.steps : e.steps,
           batchId: reply.batchId ?? e.batchId,
           ops: mergeOps(e.ops, reply.ops),
         })),
@@ -174,6 +192,17 @@ export const useMemoryAssistantStore = create<AssistantState>((set, get) => ({
     await memoryApi.memoryRevertBatch(entry.batchId);
     set((s) => ({
       entries: s.entries.map((e) => (e.id === entryId && e.role === 'assistant' ? { ...e, reverted: true } : e)),
+    }));
+  },
+
+  undoOp: async (entryId, opId) => {
+    await memoryApi.memoryRevertOp(opId);
+    set((s) => ({
+      entries: s.entries.map((e) =>
+        e.id === entryId && e.role === 'assistant'
+          ? { ...e, ops: e.ops.map((o) => (o.id === opId ? { ...o, reverted: true } : o)) }
+          : e,
+      ),
     }));
   },
 

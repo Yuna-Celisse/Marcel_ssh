@@ -84,6 +84,25 @@ pub struct AssistantTurn {
     pub content: String,
 }
 
+/// 助手做的一步：看了什么、读了哪段会话、改了多少。整理过程要摆在用户面前，不能是黑箱。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantStep {
+    /// 本次请求内的序号（事件与最终回复靠它对上同一步）。
+    pub id: usize,
+    pub tool: String,
+    /// 「查看记忆」「阅读历史会话」这类动作名。
+    pub label: String,
+    /// 对谁做的：机器、关键词、哪个会话……
+    pub detail: String,
+    /// 结果：「列出 12 条」「读完了」「没有命中」；失败时是原因。运行中为空。
+    pub outcome: String,
+    pub ok: bool,
+    pub running: bool,
+    /// 模型在发起这一步之前说的话（「我先看看现有的记忆」），没有则为空。
+    pub note: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssistantReply {
@@ -91,10 +110,12 @@ pub struct AssistantReply {
     /// 本次请求的改动所在 batch（没改任何东西时为 None）。
     pub batch_id: Option<String>,
     pub ops: Vec<MemoryOpRecord>,
+    /// 完整的步骤清单（权威：进度事件可能错过，以这份为准）。
+    pub steps: Vec<AssistantStep>,
 }
 
-/// 进度事件：`kind = "text"` 是回复正文的增量，`"tool"` 是「正在做什么」，
-/// `"ops"` 是刚提交生效的一批改动（带 batch id —— 中途停止时前端照样能「撤销这次」）。
+/// 进度事件：`kind = "text"` 是回复正文的增量，`"tool"` 是一步开始了（`step.running`），
+/// `"step"` 是这一步有结果了，`"ops"` 是刚提交生效的一批改动（带 batch id —— 中途停止时前端照样能「撤销这次」）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressEvent {
@@ -105,6 +126,8 @@ pub struct ProgressEvent {
     pub batch_id: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ops: Vec<MemoryOpRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<AssistantStep>,
 }
 
 /// 可引用的机器：全部已保存连接，同名按 `name:N` 消歧（与多机操控同一套规则）。
@@ -524,6 +547,150 @@ impl Ctx<'_> {
     }
 }
 
+fn scope_phrase(args: &Value) -> String {
+    match str_arg(args, "scope") {
+        Some("user") => "全局".into(),
+        Some("group") => match str_arg(args, "group") {
+            Some(g) => format!("分组「{g}」"),
+            None => "分组".into(),
+        },
+        Some("host") => match str_arg(args, "host") {
+            Some(h) => format!("机器「{h}」"),
+            None => "机器".into(),
+        },
+        _ => "全部".into(),
+    }
+}
+
+/// 这一步是对谁做的（给人看，不含记忆正文）。
+fn describe_call(call: &ToolCall, state: &AppState) -> String {
+    let a = &call.arguments;
+    match call.name.as_str() {
+        "memory_list" => {
+            let mut parts = vec![scope_phrase(a)];
+            if let Some(q) = str_arg(a, "query") {
+                parts.push(format!("关键词「{q}」"));
+            }
+            parts.join(" · ")
+        }
+        "memory_apply" => {
+            let ops = a.get("ops").and_then(|v| v.as_array());
+            let count = |kind: &str| {
+                ops.map_or(0, |o| {
+                    o.iter()
+                        .filter(|x| x.get("op").and_then(|v| v.as_str()) == Some(kind))
+                        .count()
+                })
+            };
+            let mut parts = Vec::new();
+            for (kind, verb) in [("add", "新增"), ("update", "更新"), ("delete", "删除")] {
+                let n = count(kind);
+                if n > 0 {
+                    parts.push(format!("{verb} {n} 条"));
+                }
+            }
+            if parts.is_empty() {
+                "提交修改".into()
+            } else {
+                parts.join(" · ")
+            }
+        }
+        "history_list" => match str_arg(a, "host") {
+            Some(h) => format!("机器「{h}」"),
+            None => String::new(),
+        },
+        "history_search" => {
+            let mut parts = Vec::new();
+            if let Some(h) = str_arg(a, "host") {
+                parts.push(format!("机器「{h}」"));
+            }
+            if let Some(q) = str_arg(a, "query") {
+                parts.push(format!("搜「{q}」"));
+            }
+            parts.join(" · ")
+        }
+        "history_read" => {
+            let page = a.get("page").and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+            match str_arg(a, "conversation_id") {
+                Some(cid) => {
+                    let title = state
+                        .conversation_db
+                        .get_conversation(cid)
+                        .ok()
+                        .flatten()
+                        .map(|c| c.title);
+                    match title {
+                        Some(t) => format!("「{t}」第 {page} 页"),
+                        None => format!("会话 {cid} 第 {page} 页"),
+                    }
+                }
+                None => String::new(),
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// 工具输出 → 给人看的一句结果，以及这一步算不算成功。
+fn summarize_outcome(name: &str, output: &str) -> (String, bool) {
+    const FAIL_PREFIXES: [&str; 12] = [
+        "读取失败",
+        "检索失败",
+        "找不到",
+        "必须",
+        "缺少",
+        "第 ",
+        "整批未提交",
+        "ops 是空",
+        "没有工具",
+        "未知",
+        "scope=",
+        "没有可用",
+    ];
+    if FAIL_PREFIXES.iter().any(|p| output.starts_with(p)) {
+        let reason: String = output.chars().take(80).collect();
+        return (reason, false);
+    }
+    let lines_with = |prefix: &str| output.lines().filter(|l| l.starts_with(prefix)).count();
+    let outcome = match name {
+        "memory_list" => {
+            if output.starts_with("（没有符合") {
+                "没有符合条件的记忆".to_string()
+            } else {
+                let shown = lines_with("- id=");
+                match output.lines().find_map(|l| l.strip_prefix("……共 ")) {
+                    Some(rest) => {
+                        let total: String =
+                            rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        format!("共 {total} 条，看了前 {shown} 条")
+                    }
+                    None => format!("列出 {shown} 条"),
+                }
+            }
+        }
+        "memory_apply" => output.to_string(),
+        "history_list" => match lines_with("- conversation_id=") {
+            0 => "没有历史会话".to_string(),
+            n => format!("{n} 个会话"),
+        },
+        "history_search" => match lines_with("- conversation_id=") {
+            0 => "没有命中".to_string(),
+            n => format!("命中 {n} 处"),
+        },
+        "history_read" => {
+            if output.starts_with("没有更多内容") {
+                "没有更多内容了".to_string()
+            } else if output.contains("next_page=") {
+                "读了一页，还有后文".to_string()
+            } else {
+                "读完了".to_string()
+            }
+        }
+        _ => String::new(),
+    };
+    (outcome, true)
+}
+
 fn tool_label(name: &str) -> &'static str {
     match name {
         "memory_list" => "查看记忆",
@@ -603,21 +770,26 @@ pub async fn run(
     };
     let tools = tool_defs();
     let app = state.memory.app().cloned();
-    let emit =
-        |kind: &'static str, text: String, ops: Vec<MemoryOpRecord>, batch_id: Option<String>| {
-            if let Some(app) = &app {
-                let _ = app.emit(
-                    EVENT_PROGRESS,
-                    ProgressEvent {
-                        run_id: run_id.to_string(),
-                        kind,
-                        text,
-                        batch_id,
-                        ops,
-                    },
-                );
-            }
-        };
+    let emit = |kind: &'static str,
+                text: String,
+                ops: Vec<MemoryOpRecord>,
+                batch_id: Option<String>,
+                step: Option<AssistantStep>| {
+        if let Some(app) = &app {
+            let _ = app.emit(
+                EVENT_PROGRESS,
+                ProgressEvent {
+                    run_id: run_id.to_string(),
+                    kind,
+                    text,
+                    batch_id,
+                    ops,
+                    step,
+                },
+            );
+        }
+    };
+    let mut steps: Vec<AssistantStep> = Vec::new();
 
     for _ in 0..MAX_ROUNDS {
         if *cancel_rx.borrow() {
@@ -637,6 +809,7 @@ pub async fn run(
                             text: text.clone(),
                             batch_id: None,
                             ops: Vec::new(),
+                            step: None,
                         },
                     );
                 }
@@ -658,11 +831,30 @@ pub async fn run(
                 text: reply.content,
                 batch_id,
                 ops: ctx.ops,
+                steps,
             });
         }
+        // 这一轮模型在发起工具调用之前说的话，挂在这一轮的第一步上。
+        let mut note = reply.content.trim().to_string();
         messages.push(reply);
         for call in &calls {
-            emit("tool", tool_label(&call.name).to_string(), Vec::new(), None);
+            let mut step = AssistantStep {
+                id: steps.len(),
+                tool: call.name.clone(),
+                label: tool_label(&call.name).to_string(),
+                detail: describe_call(call, state),
+                outcome: String::new(),
+                ok: true,
+                running: true,
+                note: std::mem::take(&mut note),
+            };
+            emit(
+                "tool",
+                step.label.clone(),
+                Vec::new(),
+                None,
+                Some(step.clone()),
+            );
             let applied_before = ctx.ops.len();
             let output = ctx.exec(call);
             if ctx.ops.len() > applied_before {
@@ -671,8 +863,15 @@ pub async fn run(
                     String::new(),
                     ctx.ops[applied_before..].to_vec(),
                     Some(ctx.batch.batch_id.clone()),
+                    None,
                 );
             }
+            let (outcome, ok) = summarize_outcome(&call.name, &output);
+            step.outcome = outcome;
+            step.ok = ok;
+            step.running = false;
+            emit("step", String::new(), Vec::new(), None, Some(step.clone()));
+            steps.push(step);
             messages.push(LlmMessage {
                 role: LlmRole::Tool,
                 content: output,
@@ -692,6 +891,7 @@ pub async fn run(
             .into(),
         batch_id,
         ops: ctx.ops,
+        steps,
     })
 }
 
@@ -771,5 +971,38 @@ mod tests {
             is_new: false,
         };
         assert!(m.scope_text(&item).starts_with("已删除的连接"));
+    }
+
+    #[test]
+    fn outcome_summaries_are_readable_and_flag_failures() {
+        let (o, ok) = summarize_outcome(
+            "memory_list",
+            "- id=a v=1 [x] t：c（今天更新）\n- id=b v=1 [x] t：c（今天更新）",
+        );
+        assert!(ok);
+        assert_eq!(o, "列出 2 条");
+        let (o, _) = summarize_outcome(
+            "memory_list",
+            "- id=a v=1 [x] t：c（今天更新）\n……共 40 条，只列出前 1",
+        );
+        assert_eq!(o, "共 40 条，看了前 1 条");
+        let (o, ok) = summarize_outcome("memory_list", "找不到机器「web」");
+        assert!(!ok);
+        assert!(o.contains("找不到机器"));
+        assert_eq!(
+            summarize_outcome("history_search", "没有命中"),
+            ("没有命中".to_string(), true)
+        );
+        let (o, ok) = summarize_outcome("memory_apply", "第 2 条操作有误，整批未提交：缺 version");
+        assert!(!ok);
+        assert!(o.contains("整批未提交"));
+        assert_eq!(
+            summarize_outcome("history_read", "正文\n\n（未完，next_page=1）").0,
+            "读了一页，还有后文"
+        );
+        assert_eq!(
+            summarize_outcome("memory_apply", "已提交 3 条修改"),
+            ("已提交 3 条修改".to_string(), true)
+        );
     }
 }

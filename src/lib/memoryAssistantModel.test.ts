@@ -35,3 +35,12 @@ describe('resolveAssistantModelChoice', () => {
     expect(unchosenLabel(registry())).toContain('沿用默认模型');
   });
 });
+
+describe('summarizeSteps', () => {
+  it('同一个动作合并成「N 次」，保持首次出现的顺序', async () => {
+    const { summarizeSteps } = await import('./memory');
+    const mk = (label: string) => ({ id: 0, tool: 't', label, detail: '', outcome: '', ok: true, running: false, note: '' });
+    expect(summarizeSteps([mk('查看记忆'), mk('阅读历史会话'), mk('阅读历史会话'), mk('修改记忆')])).toBe('查看记忆、阅读历史会话 2 次、修改记忆');
+    expect(summarizeSteps([])).toBe('');
+  });
+});

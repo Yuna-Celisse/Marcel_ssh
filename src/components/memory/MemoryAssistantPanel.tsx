@@ -2,9 +2,10 @@ import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2, Square, Wand2 } from 'lucide-react';
 import MarkdownBody from '@/components/agent/MarkdownBody';
 import { getErrorMessage } from '@/lib/errors';
-import { OP_VERBS, opItem, scopeLabel, scopeOf, type ScopeRef } from '@/lib/memory';
+import { scopeLabel, type ScopeRef } from '@/lib/memory';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useMemoryAssistantStore, type AssistantEntry } from '@/stores/memoryAssistantStore';
+import { OpList, StepLog } from './AssistantProcess';
 import AssistantModelPicker from './AssistantModelPicker';
 import { assistantSuggestions } from './assistantSuggestions';
 
@@ -180,7 +181,6 @@ const EntryView = memo(function EntryView({ entry, mobile }: { entry: AssistantE
 });
 
 function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: 'assistant' }>; mobile: boolean }) {
-  const connections = useConnectionStore((s) => s.connections);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const live = entry.ops.filter((o) => !o.reverted);
@@ -198,8 +198,22 @@ function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: '
     }
   };
 
+  const running = entry.status === 'running';
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      {/* 过程在前、结论在后：先看它做了什么，再看它怎么说 */}
+      {(entry.steps.length > 0 || running) && (
+        <div className="ml-6">
+          {entry.steps.length > 0 ? (
+            <StepLog steps={entry.steps} running={running} />
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+              正在想…
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-start gap-2">
         <Wand2 className="mt-0.5 h-4 w-4 shrink-0 text-indigo-300" aria-hidden />
         <div className="min-w-0 flex-1 text-sm text-zinc-200">
@@ -207,12 +221,6 @@ function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: '
             <MarkdownBody content={entry.text} sync />
           ) : entry.status === 'running' ? null : (
             <span className="text-zinc-500">{entry.status === 'cancelled' ? '已停止。' : ''}</span>
-          )}
-          {entry.status === 'running' && (
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-              {entry.activity ? `正在${entry.activity}…` : '正在想…'}
-            </div>
           )}
           {entry.status === 'cancelled' && entry.text && <div className="mt-1 text-xs text-zinc-500">已停止。</div>}
           {entry.error && <div className="mt-1 text-xs text-red-400">{entry.error}</div>}
@@ -237,22 +245,7 @@ function ReplyView({ entry, mobile }: { entry: Extract<AssistantEntry, { role: '
               </button>
             )}
           </div>
-          <ul className="mt-1.5 flex flex-col gap-0.5">
-            {entry.ops.map((op) => {
-              const item = opItem(op);
-              if (!item) return null;
-              const gone = entry.reverted || op.reverted;
-              return (
-                <li key={op.id} className="flex min-w-0 items-baseline gap-1.5 text-xs" title={item.content}>
-                  <span className={`shrink-0 ${gone ? 'text-zinc-600' : 'text-zinc-400'}`}>{OP_VERBS[op.op]}</span>
-                  <span className="shrink-0 text-zinc-600">· {scopeLabel(scopeOf(item), connections)}：</span>
-                  <span className={`min-w-0 truncate ${gone ? 'text-zinc-600 line-through' : 'text-zinc-300'}`}>
-                    {item.title}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          <OpList entryId={entry.id} ops={entry.ops} reverted={entry.reverted} mobile={mobile} />
           {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
         </div>
       )}
