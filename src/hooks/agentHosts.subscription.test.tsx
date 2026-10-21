@@ -188,7 +188,8 @@ describe.each([['desktop', AgentPanel], ['mobile', MobileAgentHost]] as const)('
     await mount(Host);
     const input = host.querySelector('textarea')!;
     let reads = 0;
-    Object.defineProperty(input, 'scrollHeight', { get: () => { reads++; return 48; } });
+    // 测高读的是离屏影子 textarea（不折叠真实输入框，免得挤动上方消息区），故 stub 在原型上
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', { configurable: true, get: () => { reads++; return 48; } });
     for (let i = 1; i <= 10; i++) {
       await act(async () => {
         input.value = 'x'.repeat(i);
@@ -200,6 +201,7 @@ describe.each([['desktop', AgentPanel], ['mobile', MobileAgentHost]] as const)('
     await act(async () => { useAgentDraftStore.getState().setText(draftKeyFor(CURRENT, 'session'), 'restored\ntext'); });
     expect(input.value).toBe('restored\ntext');
     expect(reads).toBe(11);
+    delete (HTMLTextAreaElement.prototype as { scrollHeight?: number }).scrollHeight;
   });
 
   it('回调稳定后复制、撤回仍用当前消息，压缩占位及时禁用操作', async () => {
