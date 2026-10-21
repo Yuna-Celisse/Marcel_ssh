@@ -4,11 +4,14 @@
 //! 这里的写入一律是**用户发起**的（`Source::User`，整理助手是 `Source::Assistant`）：
 //! 进行中对话的注入快照会在下一轮刷新，删掉的东西立刻不再被模型看到。
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 use tauri::State;
 
 use crate::error::AppError;
 use crate::memory::assistant::{AssistantReply, AssistantTurn};
+use crate::memory::inject::{carried_tiers, Carried};
 use crate::memory::model::{BatchContext, MemoryOpRecord, ReflectionNote, WriteOp};
 use crate::memory::reflect::emit_changed;
 use crate::memory::store::{ScopeSummary, StoreError};
@@ -123,6 +126,11 @@ pub struct InjectedMemories {
     pub pending: usize,
     /// 管理页里有、但属于别的机器 / 分组，不会带进这段对话的条数。
     pub elsewhere: usize,
+    /// 每条实际让模型看到多少（完整 / 只有标题）。不在表里的 = 预算放不下、没带。
+    pub carried: HashMap<String, Carried>,
+    /// 属于这台机器、却因为提示词放不下（连标题行都超过上限）没带的老条目数。
+    /// 模型仍能用 `memory_recall` 搜到它们。
+    pub left_out: usize,
     pub enabled: bool,
 }
 
@@ -158,10 +166,15 @@ pub async fn memory_conversation_injected(
                 }
             }
             let removed_since = snap.item_ids.len() - items.len();
+            let carried = carried_tiers(&snap.content, &snap.item_ids);
             // 只数冻结之后才记下的：预算放不下、没进快照的老条目不算「新记的」。
             let pending = visible
                 .iter()
                 .filter(|m| !snap.item_ids.contains(&m.id) && m.created_at > snap.created_at)
+                .count();
+            let left_out = visible
+                .iter()
+                .filter(|m| !snap.item_ids.contains(&m.id) && m.created_at <= snap.created_at)
                 .count();
             return Ok(InjectedMemories {
                 items,
@@ -169,16 +182,28 @@ pub async fn memory_conversation_injected(
                 removed_since,
                 pending,
                 elsewhere,
+                carried,
+                left_out,
                 enabled,
             });
         }
     }
+    // 还没开始（或快照作废）：用和注入同一个渲染函数预演一遍，弹层说的就是模型下一轮会收到的。
+    let (block, ids) = crate::memory::inject::render_block(&ctx, &visible, chrono::Utc::now());
+    let carried = carried_tiers(&block, &ids);
+    let left_out = visible.len() - carried.len().min(visible.len());
+    let items = visible
+        .into_iter()
+        .filter(|m| carried.contains_key(&m.id))
+        .collect();
     Ok(InjectedMemories {
-        items: visible,
+        items,
         frozen: false,
         removed_since: 0,
         pending: 0,
         elsewhere,
+        carried,
+        left_out,
         enabled,
     })
 }

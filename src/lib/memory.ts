@@ -102,6 +102,9 @@ export interface MemoryOverview {
   summaries: ScopeSummary[];
 }
 
+/** 一条记忆实际让模型看到多少：正文都在提示词里 / 只有标题（细节靠 memory_recall 查）。 */
+export type Carried = 'full' | 'title';
+
 export interface InjectedMemories {
   items: MemoryItem[];
   /** 对话已开始、注入内容已冻结；`false` = 列的是「开始时会带上的」。 */
@@ -112,6 +115,10 @@ export interface InjectedMemories {
   pending: number;
   /** 管理页里有、但属于别的机器 / 分组，不会带进这段对话的条数。 */
   elsewhere: number;
+  /** 每条实际带入的程度。不在表里 = 没带。 */
+  carried: Record<string, Carried>;
+  /** 属于这台机器、但提示词放不下没带的老条目数（模型仍能用 memory_recall 搜到）。 */
+  leftOut: number;
   enabled: boolean;
 }
 

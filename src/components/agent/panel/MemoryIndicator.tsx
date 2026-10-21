@@ -44,8 +44,8 @@ export function MemoryIndicator({
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-2 max-h-[min(28rem,70vh)] w-72 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-800 p-3 text-xs shadow-2xl animate-fadeIn">
-            <div className="mb-2 border-b border-zinc-700 pb-1.5 font-semibold text-zinc-300">记忆</div>
+          <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[min(28rem,70vh)] w-72 flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-800 p-3 text-xs shadow-2xl animate-fadeIn">
+            <div className="mb-2 shrink-0 border-b border-zinc-700 pb-1.5 font-semibold text-zinc-300">记忆</div>
             <InjectedMemoryList data={data} error={error} focus={focus} onNavigate={() => setOpen(false)} />
           </div>
         </>

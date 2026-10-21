@@ -17,7 +17,10 @@
 //! agent 自己写的、后台复盘写的都不触发重渲染（缓存还热的时候）：前者本来就在它的
 //! 上下文里，后者留给缓存冷下来之后的下一轮。
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use serde_json::json;
 
 use crate::agent::templates::TemplateManager;
@@ -31,6 +34,8 @@ use super::store::{now_rfc3339, Snapshot};
 pub const FULL_ENTRY_BUDGET_CHARS: usize = 3000;
 /// 只列标题的条目上限；再多的只报个数。
 const INDEX_LINES_MAX: usize = 40;
+/// 「只列标题」区块的小标题：渲染与事后判断某条是完整带入还是只带了标题共用这一处。
+const INDEX_HEADER: &str = "### 其余记忆（只列标题，细节用 memory_recall 搜）";
 /// 快照多久没被用过就算缓存冷了。各家提示词缓存的存活时间从几分钟到 1 小时不等，
 /// 取最长的：超过它，任何一家的缓存都已经失效，重渲染不会多花一分钱。
 pub const CACHE_WARM: chrono::Duration = chrono::Duration::hours(1);
@@ -163,7 +168,7 @@ pub fn render_block(
         out.push(String::new());
     }
     if !index.is_empty() {
-        out.push("### 其余记忆（只列标题，细节用 memory_recall 搜）".into());
+        out.push(INDEX_HEADER.into());
         for m in index.iter().take(INDEX_LINES_MAX) {
             ids.push(m.id.clone());
             out.push(format!(
@@ -178,6 +183,34 @@ pub fn render_block(
         }
     }
     (out.join("\n").trim_end().to_string(), ids)
+}
+
+/// 一条记忆这一轮实际让模型看到多少。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Carried {
+    /// 正文都在提示词里。
+    Full,
+    /// 只有标题，要细节得靠 `memory_recall`。
+    Title,
+}
+
+/// 从渲染好的记忆段落里反推每条的带入程度（不在其中的 id 不进表 = 没带）。
+/// 快照只存了文本和 id，这样不必改快照格式，也保证「弹层说的」就是「模型收到的」。
+pub fn carried_tiers(section: &str, ids: &[String]) -> HashMap<String, Carried> {
+    let index_at = section.find(INDEX_HEADER);
+    let mut out = HashMap::new();
+    for id in ids {
+        let Some(at) = section.find(&format!("- [{id}]")) else {
+            continue;
+        };
+        let tier = match index_at {
+            Some(i) if at > i => Carried::Title,
+            _ => Carried::Full,
+        };
+        out.insert(id.clone(), tier);
+    }
+    out
 }
 
 fn scope_short(scope: Scope) -> &'static str {
@@ -423,6 +456,31 @@ mod tests {
         assert_eq!(ids.len(), 10, "放不下的也以标题出现");
         let full_count = block.matches(&long).count();
         assert!((1..10).contains(&full_count));
+    }
+
+    #[test]
+    fn carried_tiers_tell_full_from_title_only() {
+        let long = "x".repeat(500);
+        let items: Vec<MemoryItem> = (0..10)
+            .map(|i| {
+                item(
+                    &format!("m{i}"),
+                    Scope::Host,
+                    Kind::Fact,
+                    &format!("t{i}"),
+                    &long,
+                    "2026-10-19T00:00:00Z",
+                )
+            })
+            .collect();
+        let (block, ids) = render_block(&ctx(), &items, now());
+        let tiers = carried_tiers(&block, &ids);
+        assert_eq!(tiers.len(), 10);
+        let full = tiers.values().filter(|t| **t == Carried::Full).count();
+        assert_eq!(full, block.matches(&long).count());
+        assert!(tiers.values().any(|t| *t == Carried::Title));
+        // 不在段落里的 id 不进表。
+        assert!(carried_tiers(&block, &["nope".to_string()]).is_empty());
     }
 
     #[test]
