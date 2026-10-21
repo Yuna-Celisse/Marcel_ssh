@@ -612,6 +612,9 @@ impl Default for WorkspaceLayoutSettings {
 pub struct MemorySettings {
     /// 总开关。关掉后不注入记忆、不注册记忆工具、不做后台复盘；已有记忆保留，
     /// 管理页照常可看可改。
+    ///
+    /// 默认关：长期记忆还在 Beta，由用户自己在设置里打开。以后要不要默认开启是另一个
+    /// 决定，改这里的默认值即可（旧配置里没有这个字段的按新默认走，写过的照旧）。
     pub enabled: bool,
     /// 后台复盘：一段对话告一段落后，用记忆模型在后台整理值得长期记住的东西。
     /// 默认关：每次复盘都是一次额外的模型调用，主 agent 平时已经会在对话里自己记；
@@ -622,7 +625,7 @@ pub struct MemorySettings {
 impl Default for MemorySettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             auto_reflect: false,
         }
     }
@@ -1475,12 +1478,16 @@ mod tests {
         assert!(parsed.disable_all_injections);
     }
 
-    /// 长期记忆：总开关默认开，后台复盘默认关（额外的模型调用，由用户自己决定要不要）。
+    /// 长期记忆（Beta）：总开关与后台复盘都默认关，由用户自己在设置里打开；
+    /// 已经保存过开关状态的配置照旧。
     #[test]
-    fn memory_defaults_reflection_off_for_old_configs() {
+    fn memory_defaults_off_for_old_configs() {
         let parsed: AppSettings = serde_json::from_str("{\"fontSize\": 14}").expect("old config");
-        assert!(parsed.memory_settings.enabled);
+        assert!(!parsed.memory_settings.enabled);
         assert!(!parsed.memory_settings.auto_reflect);
+        let saved: AppSettings =
+            serde_json::from_str("{\"memorySettings\": {\"enabled\": true}}").expect("saved config");
+        assert!(saved.memory_settings.enabled);
     }
 
     /// autoUpdate 旧配置缺失 → 默认开启（serde default），不改动用户现状。
