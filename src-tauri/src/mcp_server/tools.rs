@@ -16,6 +16,14 @@ use crate::error::AppError;
 /// （见 `agent_task::base_tool_definitions`），不让模型自己再派一层 agent。
 pub const AGENT_TASK_TOOL: &str = "agent_task";
 
+/// 是否提供读写本机文件的工具（`sftp_upload` / `sftp_download`）。
+///
+/// Android 上不提供：`local_path` 指的是手机上的路径，而手机上最典型的两类客户端
+/// （Termux 里的 agent、局域网里的电脑）给出的路径要么在别的沙箱、要么在别的机器上，
+/// 这两个工具几乎必然失败。清单与实际能力保持一致，不给客户端一个必然失败的入口；
+/// 调用时同样按「没有这个工具」处理，列表与分发不会各说各话。
+const LOCAL_FILE_TOOLS: bool = cfg!(not(target_os = "android"));
+
 /// 工具注册表
 pub struct ToolRegistry {
     executor: Arc<ExternalExecutor>,
@@ -76,17 +84,7 @@ impl ToolRegistry {
 
     /// 获取所有工具的 schema 列表
     pub fn list_tools(&self) -> Vec<serde_json::Value> {
-        let mut tools = vec![
-            Self::list_connections_schema(),
-            Self::ssh_execute_schema(),
-            Self::get_working_directory_schema(),
-            Self::create_connection_schema(),
-            Self::test_connection_schema(),
-            Self::sftp_upload_schema(),
-            Self::sftp_download_schema(),
-            Self::sftp_list_schema(),
-            Self::sftp_delete_schema(),
-        ];
+        let mut tools = Self::base_schemas(LOCAL_FILE_TOOLS);
         if self.agent_task.is_some() {
             tools.push(Self::agent_task_schema());
         }
@@ -123,12 +121,30 @@ impl ToolRegistry {
             "get_working_directory" => self.call_get_working_directory(arguments).await,
             "create_connection" => self.call_create_connection(arguments).await,
             "test_connection" => self.call_test_connection(arguments).await,
-            "sftp_upload" => self.call_sftp_upload(arguments).await,
-            "sftp_download" => self.call_sftp_download(arguments).await,
+            "sftp_upload" if LOCAL_FILE_TOOLS => self.call_sftp_upload(arguments).await,
+            "sftp_download" if LOCAL_FILE_TOOLS => self.call_sftp_download(arguments).await,
             "sftp_list" => self.call_sftp_list(arguments).await,
             "sftp_delete" => self.call_sftp_delete(arguments).await,
             _ => Err(McpError::method_not_found(name)),
         }
+    }
+
+    /// 基础工具清单。`local_files` 为假时不含 `sftp_upload` / `sftp_download`。
+    fn base_schemas(local_files: bool) -> Vec<serde_json::Value> {
+        let mut tools = vec![
+            Self::list_connections_schema(),
+            Self::ssh_execute_schema(),
+            Self::get_working_directory_schema(),
+            Self::create_connection_schema(),
+            Self::test_connection_schema(),
+        ];
+        if local_files {
+            tools.push(Self::sftp_upload_schema());
+            tools.push(Self::sftp_download_schema());
+        }
+        tools.push(Self::sftp_list_schema());
+        tools.push(Self::sftp_delete_schema());
+        tools
     }
 
     // ========== Tool Schemas ==========
@@ -752,6 +768,27 @@ mod tests {
         let store = Arc::new(tokio::sync::RwLock::new(ConnectionStore::new()));
         let executor = Arc::new(ExternalExecutor::new(store, exec, Arc::new(ssh)));
         ToolRegistry::new(executor)
+    }
+
+    #[test]
+    fn local_file_tools_can_be_left_out() {
+        let names = |local| -> Vec<String> {
+            ToolRegistry::base_schemas(local)
+                .iter()
+                .map(|t| t["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let with = names(true);
+        let without = names(false);
+        assert_eq!(with.len(), 9);
+        assert_eq!(without.len(), 7);
+        for n in ["sftp_upload", "sftp_download"] {
+            assert!(with.iter().any(|x| x == n));
+            assert!(!without.iter().any(|x| x == n), "{} 不该出现", n);
+        }
+        // 只去掉这两个，其余原样保留
+        assert!(without.iter().any(|x| x == "sftp_list"));
+        assert!(without.iter().any(|x| x == "sftp_delete"));
     }
 
     #[tokio::test]

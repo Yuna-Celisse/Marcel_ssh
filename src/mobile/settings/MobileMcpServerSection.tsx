@@ -283,7 +283,7 @@ export function MobileMcpServerSection() {
         <ul className="space-y-1.5 text-xs leading-relaxed text-zinc-500">
           <li>· 服务开着时会启用前台服务（状态栏常驻通知），关掉服务后自动恢复。</li>
           <li>· 重启 App 后服务是关闭的，需要再打开；系统在极端情况下仍可能回收进程。</li>
-          <li>· 文件上传/下载里的本地路径指的是这台手机，其它应用的私有目录读不到。</li>
+          <li>· 手机上不提供文件上传/下载工具（本地路径指的是手机，Termux 等读不到），传文件请让 Agent 在远端用命令完成。</li>
         </ul>
       </div>
     </div>
