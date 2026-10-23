@@ -196,7 +196,17 @@ pub(super) async fn execute_tool_batches(
             tool_result_json.as_deref(),
             None,
         ) {
-            res.tool_msg.db_id = Some(db_id);
+            res.tool_msg.db_id = Some(db_id.clone());
+            // 广播库内 id：前端按工具卡片的 toolCallId（与库内同一 id 域）
+            // 定位回填，live 工具卡由此对上库内身份。
+            super::emit_message_saved(
+                app,
+                event_name,
+                conversation_id,
+                "tool",
+                &db_id,
+                Some(&res.persisted.id),
+            );
         }
         messages.push(res.tool_msg);
     }

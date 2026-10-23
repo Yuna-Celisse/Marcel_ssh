@@ -37,6 +37,9 @@ use crate::AppState;
 
 /// 回合准备：唤醒轮标记、persister 构建、`db_id_known` 回填、标题更新与
 /// 回合锚点落库（原 `run_agent_loop` 开头段，原样搬出）。
+///
+/// 返回的第三个值是回合锚点行的 DB id（None = 没有可落的 user 行）——调用方
+/// 拿它广播 `MessageSaved`，前端把刚发的那条 user/notice 消息对上库内身份。
 pub(super) fn prepare_turn(
     conv_db: std::sync::Arc<ConversationDb>,
     conversation_id: &str,
@@ -45,7 +48,7 @@ pub(super) fn prepare_turn(
     messages: &mut Vec<LlmMessage>,
     state: &AppState,
     task_id: &str,
-) -> (ConversationPersister, bool) {
+) -> (ConversationPersister, bool, Option<String>) {
     // 唤醒轮：prompt 是系统替后台作业写的结算告知，不是用户打的字。
     let is_notice_turn = !prompt_origin.is_user_input();
     let persister = ConversationPersister::new(conv_db, conversation_id.to_string())
@@ -65,13 +68,14 @@ pub(super) fn prepare_turn(
     // 回合锚点：落库 user 消息并把这一行标成 running（崩溃时它就是「没收尾」
     // 的持久证据）。行 id 记到任务上——收尾在 `manager::finalize_task` 里，
     // 那里只能从任务记录拿锚点。写失败/无 user 行 → None，本回合不记录状态。
-    if let Some(anchor_id) = persister.begin_turn(messages) {
+    let turn_anchor_id = persister.begin_turn(messages);
+    if let Some(anchor_id) = &turn_anchor_id {
         if let Some(task) = state.agent_tasks.write().get_mut(task_id) {
-            task.turn_anchor_id = Some(anchor_id);
+            task.turn_anchor_id = Some(anchor_id.clone());
         }
     }
 
-    (persister, is_notice_turn)
+    (persister, is_notice_turn, turn_anchor_id)
 }
 
 /// ── 上下文压缩（摘要）模型 ──
@@ -495,7 +499,17 @@ pub(super) async fn finish_text_reply(
         None,
         cleaned_msg.reasoning_content.as_deref(),
     ) {
-        cleaned_msg.db_id = Some(db_id);
+        cleaned_msg.db_id = Some(db_id.clone());
+        // 广播库内 id：前端 live 消息（临时 UUID）据此对上库内身份，
+        // 分叉等「拿 live 消息定位」的功能不再依赖会话重载。
+        super::emit_message_saved(
+            app,
+            event_name,
+            &persister.conversation_id,
+            "assistant",
+            &db_id,
+            None,
+        );
     }
     messages.push(cleaned_msg);
     // 截断但已产生文本：保存消息后继续下一轮，让模型补完（不视为自然结束）
@@ -595,14 +609,15 @@ pub(super) async fn finish_text_reply(
 }
 
 /// 将带 tool_calls 的 assistant 消息持久化并写入 history（原 `run_agent_loop`
-/// 的工具轮持久化段，原样搬出）。
+/// 的工具轮持久化段，原样搬出）。返回落库行 id（None = 落库失败），调用方
+/// 拿它广播 `MessageSaved`。
 pub(super) fn persist_assistant_tool_calls(
     persister: &ConversationPersister,
     tool_calls: &[ToolCall],
     mut assistant_msg: LlmMessage,
     messages: &mut Vec<LlmMessage>,
     empty_reply_retries: &mut usize,
-) {
+) -> Option<String> {
     // 3. 将带 tool_calls 的 assistant 消息写入 history。
     //    工具调用轮是「模型在工作」的另一种证据：哑火预算清零。
     *empty_reply_retries = 0;
@@ -624,15 +639,17 @@ pub(super) fn persist_assistant_tool_calls(
     )
     .ok();
     // 保存并回填 DB row id：压缩的 tail_db_id 指针依赖它
-    if let Some(db_id) = persister.save_msg(
+    let db_id = persister.save_msg(
         "assistant",
         &assistant_msg.content,
         tool_calls_json.as_deref(),
         assistant_msg.reasoning_content.as_deref(),
-    ) {
-        assistant_msg.db_id = Some(db_id);
+    );
+    if let Some(id) = &db_id {
+        assistant_msg.db_id = Some(id.clone());
     }
     messages.push(assistant_msg);
+    db_id
 }
 
 /// 超过最大执行轮数的收尾（原 `run_agent_loop` 循环后的收尾段，原样搬出）：

@@ -14,6 +14,7 @@ import {
   handleCompactionProgress,
   handleCompactionDone,
   handleCompactionSkipped,
+  handleMessageSaved,
   getStreamState,
   cleanupStreamState,
   setStreamState,
@@ -355,6 +356,118 @@ describe('agentStreamHandlers', () => {
       const assistant = msgs.find((m) => m.role === 'assistant');
       expect(assistant?.content).toBe('结果');
       expect(msgs.some((m) => m.isLoading)).toBe(false);
+    });
+  });
+
+  describe('handleMessageSaved（落库 id 回填 live 消息）', () => {
+    it('user 行：回填到最后一条还没 dbId 的 user 消息', () => {
+      const handler = mockHandler({
+        [convId]: [
+          { id: 'u1', role: 'user', content: '第一轮', timestamp: '', dbId: 'db-u1' },
+          { id: 'a1', role: 'assistant', content: '好了', timestamp: '', dbId: 'db-a1' },
+          { id: 'u2', role: 'user', content: '第二轮', timestamp: '' },
+        ],
+      });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: convId,
+        role: 'user',
+        dbId: 'db-u2',
+      });
+
+      const msgs = handler._messages[convId];
+      expect(msgs.find((m) => m.id === 'u2')?.dbId).toBe('db-u2');
+      // 只填空位，别的消息不动
+      expect(msgs.find((m) => m.id === 'u1')?.dbId).toBe('db-u1');
+      expect(msgs.find((m) => m.id === 'a1')?.dbId).toBe('db-a1');
+    });
+
+    it('assistant 行：回填到本轮正在写的文本消息（assistantMessageId）', () => {
+      const handler = mockHandler({
+        [convId]: [
+          { id: 'u1', role: 'user', content: '跑', timestamp: '' },
+          { id: 'a1', role: 'assistant', content: '第一段', timestamp: '' },
+        ],
+      });
+      setStreamState(taskId, { ...getStreamState(taskId), assistantMessageId: 'a1' });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: convId,
+        role: 'assistant',
+        dbId: 'db-a1',
+      });
+
+      expect(handler._messages[convId].find((m) => m.id === 'a1')?.dbId).toBe('db-a1');
+    });
+
+    it('纯工具轮（assistantMessageId 指着已回填的上一轮）：不覆盖已有 dbId', () => {
+      const handler = mockHandler({
+        [convId]: [
+          { id: 'a1', role: 'assistant', content: '上一轮', timestamp: '', dbId: 'db-a1' },
+        ],
+      });
+      setStreamState(taskId, { ...getStreamState(taskId), assistantMessageId: 'a1' });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: convId,
+        role: 'assistant',
+        dbId: 'db-a2',
+      });
+
+      expect(handler._messages[convId].find((m) => m.id === 'a1')?.dbId).toBe('db-a1');
+    });
+
+    it('tool 行：按 toolCallId 定位工具卡片回填', () => {
+      const handler = mockHandler({
+        [convId]: [
+          {
+            id: 't1',
+            role: 'tool',
+            content: '',
+            timestamp: '',
+            toolResult: { toolName: 'read_file', summary: '', result: 'ok', success: true, blocked: false, toolCallId: 'call-7' },
+          },
+        ],
+      });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: convId,
+        role: 'tool',
+        dbId: 'db-t1',
+        toolCallId: 'call-7',
+      });
+
+      expect(handler._messages[convId].find((m) => m.id === 't1')?.dbId).toBe('db-t1');
+    });
+
+    it('子 agent 的流（conversationId 不匹配）不写进当前会话', () => {
+      const handler = mockHandler({ [convId]: [{ id: 'u1', role: 'user', content: 'x', timestamp: '' }] });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: 'sub-conv-9',
+        role: 'user',
+        dbId: 'db-other',
+      });
+
+      expect(handler._messages[convId].find((m) => m.id === 'u1')?.dbId).toBeUndefined();
+    });
+
+    it('没有可定位的消息（如空回合）：不动消息列表', () => {
+      const handler = mockHandler({ [convId]: [] });
+
+      handleMessageSaved(handler, taskId, convId, {
+        type: 'messageSaved',
+        conversationId: convId,
+        role: 'assistant',
+        dbId: 'db-x',
+      });
+
+      expect(handler._messages[convId]).toEqual([]);
     });
   });
 

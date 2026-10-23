@@ -362,11 +362,13 @@ export async function agentSetConversationPinned(
 export async function agentForkConversation(
   conversationId: string,
   anchorMessageId?: string | null,
+  anchorTurnStartedAt?: string | null,
   title?: string,
 ): Promise<AgentConversation> {
   return invoke<AgentConversation>("agent_fork_conversation", {
     conversationId,
     anchorMessageId: anchorMessageId ?? null,
+    anchorTurnStartedAt: anchorTurnStartedAt ?? null,
     title: title ?? null,
   });
 }

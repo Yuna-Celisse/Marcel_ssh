@@ -24,6 +24,7 @@ import {
   conversationIsBusy,
 } from "@/stores/conversationStore";
 import { sessionConversationBindingManager } from "@/stores/sessionConversationBindingManager";
+import { resolveForkAnchor } from "@/lib/forkConversation";
 import { groupConversationsWithPinned } from "@/lib/dateGrouping";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -335,9 +336,13 @@ export default function MobileAgentHost({
   const handleForkAt = useCallback(
     async (messageId: string) => {
       if (!activeConversationId) return;
+      // 锚点从 live 消息解析：dbId 优先（messageSaved 已回填），live 回合由
+      // 回合起点时间戳兜底——只传前端临时 id 的话后端在库里解析不到。
+      const messages =
+        useConversationStore.getState().messages[activeConversationId] ?? [];
       await sessionConversationBindingManager.forkAndOpen(
         activeConversationId,
-        messageId,
+        resolveForkAnchor(messages, messageId),
         ids?.sessionId ?? null,
       );
     },

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::agent::conversation::{Conversation, ConversationSearchResult};
+use crate::agent::conversation::{AnchorRef, Conversation, ConversationSearchResult, ForkError};
 use crate::agent::task::AgentTaskPlan;
 use crate::error::AppError;
 use crate::AppState;
@@ -355,8 +355,13 @@ pub async fn agent_set_conversation_pinned(
     Ok(())
 }
 
-/// 分叉会话：把 `conversation_id` 的历史（到 `anchor_message_id` 所在回合末尾，缺省 = 整个
+/// 分叉会话：把 `conversation_id` 的历史（到锚点所在回合末尾，缺省 = 整个
 /// 会话）复制成一条独立的新会话并返回它的元数据。来源完全不受影响。
+///
+/// 锚点有两种定位：`anchor_message_id`（库内行 id；会话重载后前端消息的 id 就是
+/// 它，live 回合则是前端临时 id、库里查不到）与 `anchor_turn_started_at`（锚点
+/// 回合首条 user 消息的发送时刻，两个 id 域通用，与撤回的定位同思路）。id 优先、
+/// 解析不到再拿时间戳兜底——live 回合的分叉靠这一条才能成立。
 ///
 /// 库里的东西（消息、图片、子对话、计划）由 `ConversationDb::fork_conversation` 一次事务搬完；
 /// 这里补上它够不着的会话级状态，让分叉「开口说话」时与来源一致：
@@ -370,6 +375,7 @@ pub async fn agent_fork_conversation(
     state: State<'_, AppState>,
     conversation_id: String,
     anchor_message_id: Option<String>,
+    anchor_turn_started_at: Option<String>,
     title: Option<String>,
 ) -> Result<Conversation, AppError> {
     let source = state
@@ -383,6 +389,19 @@ pub async fn agent_fork_conversation(
     let tail_busy = crate::memory::reflect::conversation_has_running_task(&state, &conversation_id)
         || state.compactions.is_registered(&conversation_id);
 
+    // 时间戳解析失败不报错：id 锚点仍可能命中（重载过的会话），别让一个坏时间戳
+    // 把整个分叉堵死。
+    let anchor_ts = anchor_turn_started_at
+        .as_deref()
+        .and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .map(|t| t.with_timezone(&chrono::Utc))
+                .ok()
+        });
+    if anchor_turn_started_at.is_some() && anchor_ts.is_none() {
+        log::warn!("分叉锚点时间无法解析: {anchor_turn_started_at:?}");
+    }
+
     let title = title
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
@@ -391,10 +410,25 @@ pub async fn agent_fork_conversation(
         .conversation_db
         .fork_conversation(
             &conversation_id,
-            anchor_message_id.as_deref(),
+            anchor_message_id
+                .as_deref()
+                .map(AnchorRef::ById)
+                .as_ref(),
             &title,
             tail_busy,
         )
+        .or_else(|e| {
+            // id 没解析到（live 回合）→ 时间戳兜底；没有时间戳或别的错误原样上抛。
+            match (&e, anchor_ts) {
+                (ForkError::AnchorNotFound, Some(ts)) => state.conversation_db.fork_conversation(
+                    &conversation_id,
+                    Some(&AnchorRef::ByTurnStart(ts)),
+                    &title,
+                    tail_busy,
+                ),
+                _ => Err(e),
+            }
+        })
         .map_err(|e| AppError::Agent(e.to_string()))?;
     let fork_id = outcome.conversation.id.clone();
 

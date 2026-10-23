@@ -39,6 +39,17 @@ pub enum ForkError {
     Db(#[from] rusqlite::Error),
 }
 
+/// 锚点的两种定位方式：
+/// - [`ById`]：库内消息行 id（会话重载后前端消息的 id 就是它）；
+/// - [`ByTurnStart`]：锚点所在回合**首条 user/notice 消息的发送时间**。live
+///   回合的前端消息 id 是前端临时 UUID、库内不存在，但时间戳两个域通用
+///   （与撤回同一条思路）。取「第一条 `created_at >= ts` 的 user/notice 行」
+///   ——该回合的 user 行落库必然晚于前端发送时刻，之前回合的行必然早于它。
+pub enum AnchorRef<'a> {
+    ById(&'a str),
+    ByTurnStart(DateTime<Utc>),
+}
+
 /// 一次分叉的结果。
 pub struct ForkOutcome {
     /// 新会话的元数据（`forked_from_id` 已指向来源）。
@@ -53,14 +64,18 @@ pub struct ForkOutcome {
 ///
 /// 回合边界 = 下一条 `user` / `notice`。**不含 `system`**：压缩卡可能在回合中途
 /// 落库（自动压缩），按它切会把一个回合劈成两半。
-fn fork_end_index(messages: &[StoredMessage], anchor: Option<&str>) -> Result<usize, ForkError> {
-    let Some(anchor) = anchor else {
-        return Ok(messages.len());
+fn fork_end_index(messages: &[StoredMessage], anchor: Option<&AnchorRef>) -> Result<usize, ForkError> {
+    let at = match anchor {
+        None => return Ok(messages.len()),
+        Some(AnchorRef::ById(id)) => messages
+            .iter()
+            .position(|m| m.id == *id)
+            .ok_or(ForkError::AnchorNotFound)?,
+        Some(AnchorRef::ByTurnStart(ts)) => messages
+            .iter()
+            .position(|m| matches!(m.role.as_str(), "user" | "notice") && m.created_at >= *ts)
+            .ok_or(ForkError::AnchorNotFound)?,
     };
-    let at = messages
-        .iter()
-        .position(|m| m.id == anchor)
-        .ok_or(ForkError::AnchorNotFound)?;
     Ok(messages[at + 1..]
         .iter()
         .position(|m| matches!(m.role.as_str(), "user" | "notice"))
@@ -166,15 +181,17 @@ fn copy_rows(
 }
 
 impl ConversationDb {
-    /// 把 `source_id` 的历史（到 `anchor_message_id` 所在回合末尾，缺省 = 全部）复制成一条
-    /// 新会话。`tail_busy`：来源当前有任务在跑 —— 复制范围到达会话末尾时拒绝，免得拷到
+    /// 把 `source_id` 的历史（到锚点所在回合末尾，缺省 = 全部）复制成一条
+    /// 新会话。`anchor` 的两种定位方式见 [`AnchorRef`]；id 解析不到时由
+    /// 调用方决定是否换时间戳重试（这里不串联，两条路的错误口径相同）。
+    /// `tail_busy`：来源当前有任务在跑 —— 复制范围到达会话末尾时拒绝，免得拷到
     /// 写了一半的回合；范围在更早的位置则不受影响。
     ///
     /// 整个过程在一个事务里；图片文件是事务外的副作用，失败时会清掉新建的图片目录。
     pub fn fork_conversation(
         &self,
         source_id: &str,
-        anchor_message_id: Option<&str>,
+        anchor: Option<&AnchorRef<'_>>,
         title: &str,
         tail_busy: bool,
     ) -> Result<ForkOutcome, ForkError> {
@@ -195,7 +212,7 @@ impl ConversationDb {
         }
 
         let messages = Self::query_stored_messages(&conn, source_id, None)?;
-        let end = fork_end_index(&messages, anchor_message_id)?;
+        let end = fork_end_index(&messages, anchor)?;
         if end == 0 {
             return Err(ForkError::Empty);
         }
@@ -415,13 +432,13 @@ mod tests {
         let (_, rows) = seed_two_turns(&db);
         assert_eq!(fork_end_index(&rows, None).unwrap(), 6);
         // 锚点在第一个回合中间（tool）→ 取到该回合末尾（第二个 user 之前）
-        assert_eq!(fork_end_index(&rows, Some(&rows[2].id)).unwrap(), 4);
+        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[2].id))).unwrap(), 4);
         // 锚点就是回合首条 user → 同样取整个回合
-        assert_eq!(fork_end_index(&rows, Some(&rows[0].id)).unwrap(), 4);
+        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[0].id))).unwrap(), 4);
         // 最后一个回合 → 到末尾
-        assert_eq!(fork_end_index(&rows, Some(&rows[4].id)).unwrap(), 6);
+        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[4].id))).unwrap(), 6);
         assert!(matches!(
-            fork_end_index(&rows, Some("ghost")),
+            fork_end_index(&rows, Some(&AnchorRef::ById("ghost"))),
             Err(ForkError::AnchorNotFound)
         ));
 
@@ -431,7 +448,7 @@ mod tests {
         card.id = "card".into();
         card.role = "system".into();
         with_card.insert(3, card);
-        assert_eq!(fork_end_index(&with_card, Some(&rows[0].id)).unwrap(), 5);
+        assert_eq!(fork_end_index(&with_card, Some(&AnchorRef::ById(&rows[0].id))).unwrap(), 5);
     }
 
     #[test]
@@ -440,7 +457,7 @@ mod tests {
         let (src, rows) = seed_two_turns(&db);
 
         let out = db
-            .fork_conversation(&src, Some(&rows[3].id), "原会话 · 分支", true)
+            .fork_conversation(&src, Some(&AnchorRef::ById(&rows[3].id)), "原会话 · 分支", true)
             .expect("fork");
         assert_eq!(
             out.conversation.forked_from_id.as_deref(),
@@ -478,15 +495,63 @@ mod tests {
             Err(ForkError::TailBusy)
         ));
         assert!(matches!(
-            db.fork_conversation(&src, Some(&rows[4].id), "t", true),
+            db.fork_conversation(&src, Some(&AnchorRef::ById(&rows[4].id)), "t", true),
             Err(ForkError::TailBusy)
         ));
         // 更早的回合不受影响（尾巴在跑，但复制范围到不了它）
         assert!(db
-            .fork_conversation(&src, Some(&rows[0].id), "t", true)
+            .fork_conversation(&src, Some(&AnchorRef::ById(&rows[0].id)), "t", true)
             .is_ok());
         // 没在跑就都能分
         assert!(db.fork_conversation(&src, None, "t", false).is_ok());
+    }
+
+    /// 时间戳锚点：live 回合的前端消息 id 在库里不存在，拿「回合首条 user 消息
+    /// 的发送时刻」定位。第一条 `created_at >= ts` 的 user/notice 行就是那个
+    /// 回合的锚点行——它落库必然晚于发送时刻，之前回合的行必然早于它。
+    #[test]
+    fn by_turn_start_resolves_the_turn_and_snaps_to_its_end() {
+        let db = create_test_db();
+        let (src, rows) = seed_two_turns(&db);
+
+        // 锚点在第一个回合：ts = 该回合首条 user 行的 created_at（前端发送时刻
+        // 早于等于它，取等值同样命中该行）
+        let t1 = rows[0].created_at;
+        let out = db
+            .fork_conversation(&src, Some(&AnchorRef::ByTurnStart(t1)), "t", false)
+            .expect("fork turn 1");
+        assert_eq!(db.load_messages(&out.conversation.id).unwrap().len(), 4);
+
+        // 锚点在第二个回合：ts 落在第一回合 assistant 行之后（用户还没发第二条
+        // 之前的任意时刻都能把解析带到第二回合的 user 行）
+        let t2 = rows[4].created_at;
+        let out = db
+            .fork_conversation(&src, Some(&AnchorRef::ByTurnStart(t2)), "t", false)
+            .expect("fork turn 2");
+        assert_eq!(db.load_messages(&out.conversation.id).unwrap().len(), 6);
+
+        // 复制范围与 id 锚点同口径：都吸附到回合末尾
+        let by_id = db
+            .fork_conversation(&src, Some(&AnchorRef::ById(&rows[2].id)), "t", false)
+            .unwrap();
+        assert_eq!(
+            db.load_messages(&by_id.conversation.id).unwrap().len(),
+            db.load_messages(
+                &db.fork_conversation(&src, Some(&AnchorRef::ByTurnStart(t1)), "t", false)
+                    .unwrap()
+                    .conversation
+                    .id
+            )
+            .unwrap()
+            .len()
+        );
+
+        // ts 晚于所有行：解析不到 → AnchorNotFound（不是静默分出整个会话）
+        let beyond = t2 + chrono::Duration::hours(1);
+        assert!(matches!(
+            db.fork_conversation(&src, Some(&AnchorRef::ByTurnStart(beyond)), "t", false),
+            Err(ForkError::AnchorNotFound)
+        ));
     }
 
     #[test]
@@ -666,7 +731,7 @@ mod tests {
             }
         }
         let out = db
-            .fork_conversation(&src, Some(&rows[0].id), "t", false)
+            .fork_conversation(&src, Some(&AnchorRef::ById(&rows[0].id)), "t", false)
             .unwrap();
         let snaps = db
             .load_plan_snapshot_before(&out.conversation.id, "9999")

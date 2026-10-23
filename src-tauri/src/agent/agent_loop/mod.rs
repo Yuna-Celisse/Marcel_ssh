@@ -9,7 +9,7 @@
 use tauri::AppHandle;
 
 use crate::agent::conversation::ConversationDb;
-use crate::agent::conversation_persister::PromptOrigin;
+use crate::agent::conversation_persister::{PromptOrigin, ROLE_NOTICE};
 use crate::agent::plan_handler::emit_final_plan_normalized;
 use crate::agent::task::AgentMode;
 use crate::agent::thinking_filter::strip_thinking_tags;
@@ -86,6 +86,29 @@ fn is_task_cancelled(state: &AppState, task_id: &str) -> bool {
         .read()
         .get(task_id)
         .is_some_and(|t| t.status.is_cancelled())
+}
+
+/// 消息落库成功后广播 DB row id（前端据此回填 live 消息的 `dbId`，见
+/// [`StreamEvent::MessageSaved`]）。三个落库点共用：回合 user/notice 锚点、
+/// assistant 正文（含带工具调用的轮次）、工具结果行。
+pub(super) fn emit_message_saved(
+    app: &AppHandle,
+    event_name: &str,
+    conversation_id: &str,
+    role: &str,
+    db_id: &str,
+    tool_call_id: Option<&str>,
+) {
+    emit_event(
+        app,
+        event_name,
+        StreamEvent::MessageSaved {
+            conversation_id: conversation_id.to_string(),
+            role: role.to_string(),
+            db_id: db_id.to_string(),
+            tool_call_id: tool_call_id.map(str::to_string),
+        },
+    );
 }
 
 /// 把一批已结算的后台作业渲染成一条给模型的 user 通知。
@@ -310,7 +333,7 @@ pub(crate) async fn run_agent_loop(
 
     // 回合准备（原开头段原样搬出）：唤醒轮标记、persister 构建、db_id_known
     // 回填、标题更新与回合锚点落库。
-    let (persister, is_notice_turn) = prepare_turn(
+    let (persister, is_notice_turn, turn_anchor_id) = prepare_turn(
         conv_db,
         &conversation_id,
         prompt_origin,
@@ -319,6 +342,19 @@ pub(crate) async fn run_agent_loop(
         &state,
         &task_id,
     );
+    // 回合锚点已落库：把库内 id 广播出去，前端把刚发的那条 user/notice 消息
+    // （live 临时 id）对上库内身份。此刻前端早已 append 该消息并挂好监听
+    // （startTask 的顺序保证），事件不会落空。
+    if let Some(anchor_id) = &turn_anchor_id {
+        emit_message_saved(
+            &app,
+            &event_name,
+            &conversation_id,
+            if is_notice_turn { ROLE_NOTICE } else { "user" },
+            anchor_id,
+            None,
+        );
+    }
 
     let max_rounds = agent_settings.max_tool_rounds.max(10);
     // 上下文超限恢复预算：每成功一轮重置（对齐 DSH maxOverflowRetries 语义）
@@ -431,13 +467,17 @@ pub(crate) async fn run_agent_loop(
         }
 
         // 3. 将带 tool_calls 的 assistant 消息写入 history。（原样搬出）
-        persist_assistant_tool_calls(
+        //    落库 id 一并广播：这轮若带正文，前端那条 live 文本消息由此对上
+        //    库内身份（无正文的纯工具轮前端没有对应消息，事件会被无害忽略）。
+        if let Some(db_id) = persist_assistant_tool_calls(
             &persister,
             &tool_calls,
             assistant_msg,
             &mut messages,
             &mut empty_reply_retries,
-        );
+        ) {
+            emit_message_saved(&app, &event_name, &conversation_id, "assistant", &db_id, None);
+        }
 
         // 4. Execute tool calls via the dispatcher.
         //    Concurrent-safe tools (like `SubagentTool`) are batched and run in parallel using

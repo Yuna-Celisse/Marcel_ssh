@@ -27,7 +27,7 @@ mod plans;
 mod recall;
 mod usage;
 
-pub use fork::{ForkError, ForkOutcome};
+pub use fork::{AnchorRef, ForkError, ForkOutcome};
 pub use history::{
     CardBrief, HistoryError, HistoryHit, HistoryOverview, HistoryRead, HistoryWindow, MsgBrief,
     WindowStart,

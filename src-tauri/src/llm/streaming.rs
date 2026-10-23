@@ -33,6 +33,20 @@ pub enum StreamEvent {
     Cancelled,
     /// Stream terminated with an error.
     Error { message: String },
+    /// 一条消息已落库 —— 把 DB row id 广播给前端，回填 live 消息的 `dbId`。
+    ///
+    /// live 消息的前端 id 是临时 UUID、与库内 id 不同域；不回填的话，「拿 live
+    /// 消息定位」的功能（如分叉锚点）在会话重载前永远解析不到。`role` 为落库
+    /// 行角色（user / notice / assistant / tool）；`tool_call_id` 仅 tool 行携带
+    /// （前端按工具卡片的 toolCallId 定位）。`conversation_id` 供前端过滤：
+    /// 子 agent 的流不该写进父会话的 live store。
+    MessageSaved {
+        conversation_id: String,
+        role: String,
+        db_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_call_id: Option<String>,
+    },
     /// LLM call is being retried after a transient error.
     Retrying {
         attempt: u32,
@@ -140,6 +154,37 @@ mod tests {
         assert!(
             v.get("cachedReadTokens").is_none(),
             "没报过的可选字段不该出现在线上"
+        );
+    }
+
+    /// 落库广播的线上形状：前端按 `conversationId` 过滤（子 agent 的流不进
+    /// 父会话）、按 `dbId` 回填、tool 行再按 `toolCallId` 定位卡片。字段改名
+    /// 或可选字段漏了 `skip_serializing_if`（变 `null`）这里会红。
+    #[test]
+    fn message_saved_wire_shape() {
+        let v = serde_json::to_value(StreamEvent::MessageSaved {
+            conversation_id: "conv_1".into(),
+            role: "tool".into(),
+            db_id: "row_9".into(),
+            tool_call_id: Some("call_7".into()),
+        })
+        .unwrap();
+        assert_eq!(v["type"], "messageSaved");
+        assert_eq!(v["conversationId"], "conv_1");
+        assert_eq!(v["role"], "tool");
+        assert_eq!(v["dbId"], "row_9");
+        assert_eq!(v["toolCallId"], "call_7");
+
+        let v = serde_json::to_value(StreamEvent::MessageSaved {
+            conversation_id: "conv_1".into(),
+            role: "assistant".into(),
+            db_id: "row_3".into(),
+            tool_call_id: None,
+        })
+        .unwrap();
+        assert!(
+            v.get("toolCallId").is_none(),
+            "非 tool 行不携带 toolCallId"
         );
     }
 }

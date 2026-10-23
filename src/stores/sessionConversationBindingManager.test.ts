@@ -464,9 +464,18 @@ describe('SessionConversationBindingManager', () => {
     it('登记分叉、把当前标签切到分叉；来源留在列表里原封不动', async () => {
       vi.mocked(tauri.agentForkConversation).mockResolvedValue(conv('fork-1', { forkedFromId: 'origin' }));
 
-      const forked = await sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      const forked = await sessionConversationBindingManager.forkAndOpen(
+        'origin',
+        { messageId: 'm9', turnStartedAt: '2026-01-01T00:00:05Z' },
+        'sess-a',
+      );
 
-      expect(tauri.agentForkConversation).toHaveBeenCalledWith('origin', 'm9');
+      // 锚点整份透传：库内 id + 回合起点时间戳（live 回合的兜底定位）
+      expect(tauri.agentForkConversation).toHaveBeenCalledWith(
+        'origin',
+        'm9',
+        '2026-01-01T00:00:05Z',
+      );
       expect(forked.id).toBe('fork-1');
       const state = useConversationStore.getState();
       expect(state.conversations['fork-1']?.forkedFromId).toBe('origin');
@@ -479,8 +488,8 @@ describe('SessionConversationBindingManager', () => {
       const gate = deferred<AgentConversation>();
       vi.mocked(tauri.agentForkConversation).mockReturnValue(gate.promise);
 
-      const first = sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
-      const second = sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      const first = sessionConversationBindingManager.forkAndOpen('origin', { messageId: 'm9' }, 'sess-a');
+      const second = sessionConversationBindingManager.forkAndOpen('origin', { messageId: 'm9' }, 'sess-a');
       gate.resolve(conv('fork-1', { forkedFromId: 'origin' }));
       const [a, b] = await Promise.all([first, second]);
 
@@ -489,7 +498,7 @@ describe('SessionConversationBindingManager', () => {
 
       // 在飞的记录会清掉：之后再分叉一次是新的请求
       vi.mocked(tauri.agentForkConversation).mockResolvedValue(conv('fork-2', { forkedFromId: 'origin' }));
-      await sessionConversationBindingManager.forkAndOpen('origin', 'm9', 'sess-a');
+      await sessionConversationBindingManager.forkAndOpen('origin', { messageId: 'm9' }, 'sess-a');
       expect(tauri.agentForkConversation).toHaveBeenCalledTimes(2);
     });
 

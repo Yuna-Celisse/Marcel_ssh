@@ -5,6 +5,7 @@ import { isTaskBusy } from '@/lib/agentStatus';
 import { isLocalSessionId } from '@/lib/toolCatalog';
 import type { AgentConversation, Session } from '@/lib/types';
 import { agentCreateConversation } from '@/lib/tauri';
+import type { ForkAnchorRef } from '@/lib/forkConversation';
 
 /**
  * SessionConversationBindingManager
@@ -165,8 +166,10 @@ class SessionConversationBindingManager {
   }
 
   /**
-   * 分叉当前会话并切到分叉：`anchorMessageId` 所在回合（缺省 = 整个会话）之前的历史被复制成
-   * 一条独立会话，原会话原封不动留在列表里，随时可以回去继续。
+   * 分叉当前会话并切到分叉：锚点所在回合（缺省 = 整个会话）之前的历史被复制成
+   * 一条独立会话，原会话原封不动留在列表里，随时可以回去继续。锚点由
+   * `resolveForkAnchor`（`lib/forkConversation.ts`）解析：库内 id 优先，live
+   * 回合的前端临时 id 在库里不存在、由回合起点时间戳兜底。
    *
    * 切换走 `selectOrJumpToConversation`，与点历史列表同一条路径（占用检测、绑定、
    * 代际令牌都不用在这里重做）。同一个分叉点的重复触发（双击、两个入口同时点）共用
@@ -174,16 +177,16 @@ class SessionConversationBindingManager {
    */
   public forkAndOpen(
     conversationId: string,
-    anchorMessageId: string | null,
+    anchor: ForkAnchorRef | null,
     currentSessionId: string | null,
   ): Promise<AgentConversation> {
-    const key = `${conversationId}\u0000${anchorMessageId ?? ''}`;
+    const key = `${conversationId}\u0000${anchor?.messageId ?? ''}\u0000${anchor?.turnStartedAt ?? ''}`;
     const pending = this.forksInFlight.get(key);
     if (pending) return pending;
     const run = (async () => {
       const forked = await useConversationStore
         .getState()
-        .forkConversation(conversationId, anchorMessageId);
+        .forkConversation(conversationId, anchor);
       await this.selectOrJumpToConversation(forked.id, currentSessionId);
       return forked;
     })().finally(() => {

@@ -28,6 +28,8 @@ import {
   handleCompactionProgress,
   handleCompactionDone,
   handleCompactionSkipped,
+  handleMessageSaved,
+  type MessageSavedEvent,
   type StreamHandler,
   cleanupStreamState,
 } from './agentStreamHandlers';
@@ -395,6 +397,11 @@ export async function attachStreamListener(taskId: string, conversationId: strin
 
       if (hasEventType(ev, 'compactionSkipped')) {
         handleCompactionSkipped(handler, taskId, conversationId, ev as unknown as { type: 'compactionSkipped'; reason: string; attempted: boolean });
+        return;
+      }
+
+      if (hasEventType(ev, 'messageSaved')) {
+        handleMessageSaved(handler, taskId, conversationId, ev as unknown as MessageSavedEvent);
         return;
       }
 

@@ -10,6 +10,7 @@ import type { AgentCompactResult } from '@/lib/tauri';
 import { getErrorMessage } from '@/lib/errors';
 import { validateUserInput } from '@/lib/userInput';
 import { createHistorySnapshot, type HistorySnapshot } from '@/lib/historySnapshot';
+import type { ForkAnchorRef } from '@/lib/forkConversation';
 import {
   storedMessageToAgentMessage,
   clearIntermediateReasoning,
@@ -68,13 +69,15 @@ export interface ConversationState {
   ) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
   /**
-   * 分叉：后端把 `anchorMessageId` 所在回合（缺省 = 整个会话）之前的历史复制成独立的新会话，
+   * 分叉：后端把锚点所在回合（缺省 = 整个会话）之前的历史复制成独立的新会话，
    * 这里只负责把它登记进 `conversations`（不切换、不动当前 active）。
-   * 切过去是调用方的事（`lib/forkConversation.ts` 走会话绑定 manager，和点历史列表一样）。
+   * 锚点用 `ForkAnchorRef`（`lib/forkConversation.ts` 解析）——库内 id 优先、
+   * live 回合靠回合起点时间戳兜底。切过去是调用方的事（会话绑定 manager，
+   * 和点历史列表一样）。
    */
   forkConversation: (
     conversationId: string,
-    anchorMessageId?: string | null,
+    anchor?: ForkAnchorRef | null,
   ) => Promise<AgentConversation>;
   rollbackToMessage: (
     conversationId: string,
@@ -539,8 +542,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
   },
 
-  forkConversation: async (conversationId: string, anchorMessageId?: string | null) => {
-    const forked = await tauri.agentForkConversation(conversationId, anchorMessageId);
+  forkConversation: async (conversationId: string, anchor?: ForkAnchorRef | null) => {
+    const forked = await tauri.agentForkConversation(
+      conversationId,
+      anchor?.messageId ?? null,
+      anchor?.turnStartedAt ?? null,
+    );
     set((state) => ({
       conversations: reorderByUpdatedAt({ ...state.conversations, [forked.id]: forked }),
     }));

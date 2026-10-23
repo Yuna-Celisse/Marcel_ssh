@@ -1032,6 +1032,75 @@ export function handleCompactionSkipped(
 }
 
 // ---------------------------------------------------------------------------
+// MessageSaved：live 消息对上库内身份
+// ---------------------------------------------------------------------------
+
+/** 后端 `messageSaved` 事件的载荷（见 Rust `StreamEvent::MessageSaved`）。 */
+export interface MessageSavedEvent {
+  type: 'messageSaved';
+  conversationId: string;
+  role: string;
+  dbId: string;
+  toolCallId?: string;
+}
+
+/**
+ * 一条消息已落库：把 DB row id 回填到 live 消息的 `dbId` 上。
+ *
+ * live 消息的 id 是前端临时 UUID、与库内 id 不同域；不回填的话，「拿 live
+ * 消息定位」的功能（分叉锚点、压缩插卡）在会话重载前永远解析不到。
+ *
+ * 定位规则（按 role）：
+ * - `user` / `notice`：回合首条消息，事件在任务启动那一刻发出——找 store 里
+ *   **最后一条**同角色且还没 `dbId` 的消息（哑火补问 / 计划提醒这类后端内部
+ *   注入不广播，不会误命中）；
+ * - `assistant`：回填本轮正在写的文本消息（`assistantMessageId`）。纯工具轮
+ *   （无正文）前端没有对应文本消息，`assistantMessageId` 还指着上一轮——那条
+ *   已有自己的 `dbId`，按「已回填不动」跳过；
+ * - `tool`：按 `toolCallId` 定位工具卡片（toolCallId 与后端同一 id 域）。
+ *
+ * 任何情况都**只填空位、不覆盖**已有 `dbId`：事件晚到 / 乱序时宁可漏填
+ * （分叉还有时间戳兜底），不能把 A 消息改成指向 B 行。
+ */
+export function handleMessageSaved(
+  handler: StreamHandler,
+  taskId: string,
+  conversationId: string,
+  ev: MessageSavedEvent,
+) {
+  // 子 agent 的流不该写进父会话的 live store（订阅这条流用的会话 id 是父的）
+  if (ev.conversationId !== conversationId) return;
+
+  handler.updateMessages(conversationId, (convMsgs) => {
+    const idx = (() => {
+      if (ev.role === 'user' || ev.role === 'notice') {
+        for (let i = convMsgs.length - 1; i >= 0; i -= 1) {
+          if (convMsgs[i].role === ev.role && !convMsgs[i].dbId) return i;
+        }
+        return -1;
+      }
+      if (ev.role === 'assistant') {
+        const targetId = getStreamState(taskId).assistantMessageId;
+        if (!targetId) return -1;
+        return convMsgs.findIndex((m) => m.id === targetId);
+      }
+      if (ev.role === 'tool') {
+        if (!ev.toolCallId) return -1;
+        return convMsgs.findIndex(
+          (m) => m.toolResult?.toolCallId === ev.toolCallId,
+        );
+      }
+      return -1;
+    })();
+    if (idx === -1) return convMsgs;
+    if (convMsgs[idx].dbId) return convMsgs;
+    const newMsgs = [...convMsgs];
+    newMsgs[idx] = { ...newMsgs[idx], dbId: ev.dbId };
+    return newMsgs;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Model approval progress handlers
 // ---------------------------------------------------------------------------
 
