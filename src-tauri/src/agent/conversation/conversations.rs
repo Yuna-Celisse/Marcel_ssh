@@ -383,6 +383,15 @@ impl ConversationDb {
         Ok(ids)
     }
 
+    /// 归档/恢复会覆盖的会话 id 集合（主对话 + 子agent对话）。
+    /// 命令层在写库前用它做「正在运行」守卫，保证判定范围与级联范围一致。
+    pub fn conversation_subtree_ids(
+        &self,
+        conversation_id: &str,
+    ) -> RusqliteResult<Vec<String>> {
+        self.collect_descendants(conversation_id)
+    }
+
     /// 级联恢复：主对话 + 全部子agent对话。
     pub fn unarchive_conversation_cascade(
         &self,

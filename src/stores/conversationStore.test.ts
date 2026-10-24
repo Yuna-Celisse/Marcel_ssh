@@ -1782,6 +1782,38 @@ describe('conversationStore', () => {
       expect(useConversationStore.getState().conversations['conv-1']).toBeDefined();
     });
 
+    it('后端拒绝归档时不切走、列表不变（先归档后切走）', async () => {
+      // 后端守卫拒绝（MCP 抢先跑起任务等）：失败必须原地不动，
+      // 否则用户已被切走、会话却还在列表里。
+      agentArchiveConversation.mockRejectedValue(
+        new Error('该会话正在运行，请先停止任务再归档'),
+      );
+      useConversationStore.setState({
+        conversations: {
+          'conv-1': health(),
+          'conv-2': health({ id: 'conv-2' }),
+        },
+        messages: { 'conv-1': [makeMessage()], 'conv-2': [] },
+        activeConversationId: 'conv-1',
+        activeConversationBySession: {},
+        activeConversationByConnection: { 'conn-1': 'conv-1' },
+        archivedConversations: { 'conn-1': [] },
+      });
+
+      await expect(
+        useConversationStore.getState().archiveConversation('conv-1'),
+      ).rejects.toThrow('正在运行');
+
+      const state = useConversationStore.getState();
+      expect(state.activeConversationId).toBe('conv-1');
+      expect(Object.keys(state.conversations).sort()).toEqual([
+        'conv-1',
+        'conv-2',
+      ]);
+      expect(state.messages['conv-1']).toBeDefined();
+      expect(state.archivedConversations['conn-1']).toEqual([]);
+    });
+
     it('恢复：回到列表并清掉归档缓存，不自动切过去', async () => {
       agentUnarchiveConversation.mockResolvedValue(undefined);
       agentGetConversation.mockResolvedValue(health());

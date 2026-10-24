@@ -12,6 +12,33 @@ use crate::AppState;
 /// terminal remains inert.
 const DEBUG_SERVER_ID: &str = "debug:msfakeserver";
 
+/// 归档保留天数上限（十年）。与前端设置项上限一致 —— 手改 settings.json 传入
+/// `u64::MAX` 时，`Utc::now() - Duration::days(..)` 会 panic，这里先夹住。
+const MAX_ARCHIVE_RETENTION_DAYS: u64 = 3650;
+
+/// 保留天数 → 实际用于计算截止时间的天数（夹到上限，避免极端值溢出 panic）。
+fn retention_window_days(retention_days: u64) -> i64 {
+    retention_days.min(MAX_ARCHIVE_RETENTION_DAYS) as i64
+}
+
+/// 归档前的「正在运行」判定，与前端 `conversationIsBusy` 同口径：
+/// 子树（主对话 + 子agent对话）里任一对话有运行中的任务，或正在手动压缩。
+///
+/// 放在命令层而不是前端，是因为 MCP / 插件等调用方可以绕过 UI 直接调命令 ——
+/// 前端拦截只保护「用户点按钮」这一条路径。
+fn conversation_subtree_is_busy(
+    tasks: &std::collections::HashMap<String, crate::agent::task::AgentTask>,
+    compactions: &crate::cancel::CancellationRegistry,
+    ids: &[String],
+) -> bool {
+    ids.iter().any(|id| {
+        compactions.is_registered(id)
+            || tasks
+                .values()
+                .any(|task| &task.conversation_id == id && task.status.is_running())
+    })
+}
+
 async fn connection_id_for_session(
     state: &AppState,
     session_id: &str,
@@ -660,6 +687,19 @@ pub async fn agent_archive_conversation(
     state: State<'_, AppState>,
     conversation_id: String,
 ) -> Result<(), AppError> {
+    // 级联范围与前端一致：主对话 + 子agent对话，任一在跑都拒绝。
+    let subtree = state
+        .conversation_db
+        .conversation_subtree_ids(&conversation_id)
+        .map_err(|e| AppError::Agent(format!("Failed to archive conversation: {}", e)))?;
+    let tasks = state.agent_tasks.read();
+    if conversation_subtree_is_busy(&tasks, &state.compactions, &subtree) {
+        return Err(AppError::Agent(
+            "该会话正在运行，请先停止任务再归档".to_string(),
+        ));
+    }
+    drop(tasks);
+
     let archived = state
         .conversation_db
         .archive_conversation_cascade(&conversation_id)
@@ -702,7 +742,7 @@ pub async fn agent_purge_expired_archived(
     if retention_days == 0 {
         return Ok(0);
     }
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_window_days(retention_days));
     let purged = state
         .conversation_db
         .purge_archived_before(&cutoff.to_rfc3339())
@@ -1107,4 +1147,77 @@ pub async fn agent_load_plans_by_conversation(
         }
     }
     Ok(plans)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::task::{AgentMode, AgentStatus, AgentTask};
+    use chrono::Utc;
+    use std::collections::HashMap;
+
+    fn task(conversation_id: &str, status: AgentStatus) -> AgentTask {
+        AgentTask {
+            id: format!("task-{}", conversation_id),
+            session_id: "s1".to_string(),
+            conversation_id: conversation_id.to_string(),
+            prompt: "p".to_string(),
+            mode: AgentMode::Agent,
+            status,
+            has_plan: false,
+            created_at: Utc::now(),
+            parent_task_id: None,
+            model_id: None,
+            turn_anchor_id: None,
+            parent_history_upto: None,
+        }
+    }
+
+    fn ids() -> Vec<String> {
+        vec!["conv-1".to_string(), "conv-sub".to_string()]
+    }
+
+    #[test]
+    fn running_task_on_sub_conversation_blocks_archive() {
+        let tasks: HashMap<String, AgentTask> =
+            [("t1".to_string(), task("conv-sub", AgentStatus::Executing))]
+                .into_iter()
+                .collect();
+        assert!(conversation_subtree_is_busy(
+            &tasks,
+            &crate::cancel::CancellationRegistry::new(),
+            &ids()
+        ));
+    }
+
+    #[test]
+    fn terminal_tasks_on_unrelated_conversations_do_not_block() {
+        let tasks: HashMap<String, AgentTask> = [
+            ("t1".to_string(), task("conv-1", AgentStatus::Completed)),
+            ("t2".to_string(), task("conv-other", AgentStatus::Executing)),
+        ]
+        .into_iter()
+        .collect();
+        assert!(!conversation_subtree_is_busy(
+            &tasks,
+            &crate::cancel::CancellationRegistry::new(),
+            &ids()
+        ));
+    }
+
+    #[test]
+    fn manual_compaction_counts_as_busy() {
+        let tasks: HashMap<String, AgentTask> = HashMap::new();
+        let compactions = crate::cancel::CancellationRegistry::new();
+        let _guard = compactions.try_register("conv-sub").expect("register");
+        assert!(conversation_subtree_is_busy(&tasks, &compactions, &ids()));
+    }
+
+    #[test]
+    fn retention_days_are_clamped_to_the_decade_cap() {
+        assert_eq!(retention_window_days(0), 0);
+        assert_eq!(retention_window_days(30), 30);
+        assert_eq!(retention_window_days(MAX_ARCHIVE_RETENTION_DAYS), 3650);
+        // 手改 settings.json 传入极端值：夹住而不是让 chrono panic
+        assert_eq!(retention_window_days(u64::MAX), 3650);
+    }
 }

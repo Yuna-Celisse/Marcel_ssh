@@ -62,7 +62,7 @@ export function ConversationArchiveSection() {
                 e.currentTarget.blur();
               }
             }}
-            className="w-20 px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+            className="w-20 rounded-lg border border-edge bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
             aria-label="归档保留天数"
           />
           <span className="text-sm text-zinc-400">天</span>

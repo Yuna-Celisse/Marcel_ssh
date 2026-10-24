@@ -584,8 +584,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
    * 归档会话（可恢复）。与删除的核心差别：不清 plan / 草稿 / 模型记忆，
    * 只把它从默认列表收进归档。
    *
-   * 当前打开的会话被归档时**先切走再归档**（复用 switchConversation，
+   * 当前打开的会话被归档时**先归档、成功后再切走**（复用 switchConversation，
    * 而不是删除那套恢复循环）：归档是可逆的，没必要为它重建整段绑定恢复。
+   * 顺序很重要 —— 先切走再归档的话，后端拒绝（任务被 MCP 抢先跑起来等）时
+   * 用户已经被切走，会话却还在列表里，留下一个没人解释的中间态。
    */
   archiveConversation: async (conversationId: string) => {
     const before = get();
@@ -603,32 +605,44 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       throw new Error('该会话正在运行，请先停止任务再归档');
     }
 
-    const activeId = before.activeConversationId;
-    if (activeId && ids.includes(activeId)) {
-      const sessionId =
-        Object.entries(before.activeConversationBySession).find(
-          ([, cid]) => cid === activeId,
-        )?.[0] ?? null;
-      const remaining: Record<string, AgentConversation> = {};
-      for (const [id, conv] of Object.entries(before.conversations)) {
-        if (!ids.includes(id)) remaining[id] = conv;
-      }
-      const replacement = pickPreferredConversationId(
-        remaining,
-        target.connectionId,
-        before.activeConversationByConnection[target.connectionId],
-      );
-      if (replacement) {
-        await get().switchConversation(replacement, sessionId ?? undefined);
-      } else if (sessionId) {
-        // 没有可切的旧会话：新开一条，输入区不至于落空
-        await get().newConversation(sessionId, target.connectionId);
-      }
-    }
-
+    // 先落库：失败就直接抛出，界面（当前会话 / 列表）一点不动。
     await tauri.agentArchiveConversation(conversationId);
 
     const archivedAt = new Date().toISOString();
+    const activeId = before.activeConversationId;
+    const activeWasArchived = !!activeId && ids.includes(activeId);
+    const sessionId = activeWasArchived
+      ? Object.entries(before.activeConversationBySession).find(
+          ([, cid]) => cid === activeId,
+        )?.[0] ?? null
+      : null;
+    const remaining: Record<string, AgentConversation> = {};
+    for (const [id, conv] of Object.entries(before.conversations)) {
+      if (!ids.includes(id)) remaining[id] = conv;
+    }
+    const replacement = activeWasArchived
+      ? pickPreferredConversationId(
+          remaining,
+          target.connectionId,
+          before.activeConversationByConnection[target.connectionId],
+        )
+      : null;
+
+    // 归档已成功，切走失败不能再回滚（库里已经归档了）；记下错误，等状态
+    // 收干净之后再抛给调用方，避免「归档成功但界面报失败」。
+    let switchError: unknown = null;
+    if (activeWasArchived) {
+      try {
+        if (replacement) {
+          await get().switchConversation(replacement, sessionId ?? undefined);
+        } else if (sessionId) {
+          // 没有可切的旧会话：新开一条，输入区不至于落空
+          await get().newConversation(sessionId, target.connectionId);
+        }
+      } catch (err) {
+        switchError = err;
+      }
+    }
     set((state) => {
       const conversations = { ...state.conversations };
       const messages = { ...state.messages };
@@ -649,11 +663,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       // 会话；这里兜底清空，下次发送走 ensureConversation 自愈。
       let activeConversationId = state.activeConversationId;
       if (activeConversationId && ids.includes(activeConversationId)) {
-        activeConversationId = pickPreferredConversationId(
-          conversations,
-          target.connectionId,
-          undefined,
-        );
+        // 切走失败时不要硬选一条没加载过消息的会话：清空 active，
+        // 下次发送走 ensureConversation 自愈。
+        activeConversationId = switchError
+          ? null
+          : pickPreferredConversationId(
+              conversations,
+              target.connectionId,
+              undefined,
+            );
         if (activeConversationId) {
           byConnection[target.connectionId] = activeConversationId;
         }
@@ -681,6 +699,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       };
     });
     useTaskStore.getState().clearConversationUnreadCompleted(conversationId);
+    if (switchError) throw switchError;
   },
 
   /** 恢复归档会话：拉回元数据并重新并入默认列表（不自动切过去）。 */
