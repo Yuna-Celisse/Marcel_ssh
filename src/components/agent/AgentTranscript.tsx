@@ -43,6 +43,7 @@ export default memo(function AgentTranscript({
   const contentRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<AgentMessageListHandle | null>(null);
   const nearBottomRef = useRef(true);
+  const lastScroll = useRef({ top: 0, height: 0 });
   const [nearBottom, setNearBottom] = useState(true);
   const previousConversation = useRef(conversationId);
   const lastMessage = messages[messages.length - 1];
@@ -105,7 +106,13 @@ export default memo(function AgentTranscript({
         onScroll={() => {
           const node = containerRef.current;
           if (!node || !visible) return;
-          const near = isNearBottom(node.scrollTop, node.clientHeight, node.scrollHeight);
+          let near = isNearBottom(node.scrollTop, node.clientHeight, node.scrollHeight);
+          // 用户亲手上滑（内容没缩短）时立刻脱离贴底：否则离底 80px 内的小幅上滑
+          // 仍算"在底部"，流式增高会把视口拽回去，表现为反复抽搐，必须拉出阈值才停。
+          const movedUp = node.scrollTop < lastScroll.current.top
+            && node.scrollHeight >= lastScroll.current.height;
+          lastScroll.current = { top: node.scrollTop, height: node.scrollHeight };
+          if (userScrolling.current && movedUp) near = false;
           if (userScrolling.current) nearBottomRef.current = near;
           setNearBottom(near);
         }}
