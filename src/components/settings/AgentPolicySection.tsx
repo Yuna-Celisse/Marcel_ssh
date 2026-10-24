@@ -256,6 +256,24 @@ export function AgentPolicySection() {
           </p>
         </SettingItem>
         <SettingItem
+          id="cmd-auto-force-approval"
+          label="Auto 模式强制审批"
+          description="Auto 模式下，强制审批档是否仍要人工确认"
+          sectionId="settings-command-policy"
+          keywords={['auto', 'force', 'approval', '强制', '审批', '命令执行策略', 'Agent']}
+        >
+          <Toggle
+            checked={agent.autoModeForceApproval ?? false}
+            onChange={(checked) => updateAgent({ autoModeForceApproval: checked })}
+            label="系统级命令、受保护路径等在 Auto 模式下也弹窗确认"
+          />
+          <p className="text-xs text-zinc-500 mt-2">
+            默认关闭：Auto 完全自主，连强制审批也不问。开启后只有强制审批档（系统级命令、
+            受保护路径、插件强制声明）会打断，普通命令仍然静默；未开启「Plan 模式也需要审批」
+            时 Plan 不受影响。
+          </p>
+        </SettingItem>
+        <SettingItem
           id="cmd-edit-file"
           label="编辑文件审批"
           description="edit_file 工具执行前需要用户确认"

@@ -21,7 +21,8 @@ pub enum Disposition {
     Approval,
     /// 强制审批：**覆盖命令名单**，只要命中就必须由人点一次 —— 名单说放行也不算数
     /// （这是它与 `Approval` 的唯一差别：`Approval` 会被名单降成放行，它不会）。
-    /// Auto 模式下与 `Approval` 一样静默执行：Auto 的语义是全自主、没有任何人工介入。
+    /// Auto 模式下默认与 `Approval` 一样静默执行；打开 `auto_mode_force_approval`
+    /// 后，只有这一档会回到人工确认。
     #[serde(alias = "HighRisk", alias = "Destructive")]
     ForceApproval,
     /// 直接拒绝。不执行，把原因回给模型。

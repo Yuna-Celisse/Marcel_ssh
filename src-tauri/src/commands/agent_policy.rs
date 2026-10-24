@@ -2,8 +2,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::agent::risk::{Disposition, SecurityPolicy};
-use crate::agent::tool_dispatcher::decide_command;
 use crate::agent::task::AgentMode;
+use crate::agent::tool_dispatcher::{decide_command, needs_human_confirmation};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -46,10 +46,21 @@ pub async fn agent_check_command(
         &settings.agent_mode_settings,
         Some(&policy),
     );
+    // 档位本身与模式无关，但「这个模式下到底会不会弹窗」还取决于模式与
+    // `auto_mode_force_approval`（Auto 的强制审批例外口）。设置页的结论必须与
+    // dispatcher 静态判定一致，否则测出来和跑起来又是两回事。
+    let requires_confirmation = needs_human_confirmation(
+        &mode,
+        Some(&decision),
+        decision.disposition,
+        false,
+        &settings.agent_mode_settings,
+        false,
+    );
 
     Ok(CommandCheckResult {
         allowed: decision.disposition != Disposition::Deny,
-        requires_confirmation: decision.requires_confirmation,
+        requires_confirmation,
         disposition: decision.disposition,
         reason: decision.reason,
     })

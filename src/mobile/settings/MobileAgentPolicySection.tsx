@@ -176,6 +176,16 @@ export function MobileAgentPolicySection() {
         }
       />
       <MobileSettingRow
+        label="Auto 模式强制审批"
+        description="默认关闭；开启后系统级命令、受保护路径等强制审批档仍弹窗"
+        trailing={
+          <Toggle
+            checked={agent.autoModeForceApproval ?? false}
+            onChange={(checked) => updateAgent({ autoModeForceApproval: checked })}
+          />
+        }
+      />
+      <MobileSettingRow
         label="编辑文件审批"
         description="edit_file 执行前需要确认"
         trailing={

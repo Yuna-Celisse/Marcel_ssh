@@ -54,6 +54,7 @@ describe('settingsStore', () => {
     expect(am.planModeRequiresApproval).toBe(false);
     expect(am.enableModelCommandApproval).toBe(false);
     expect(am.modelApprovalPrompt).toBe('');
+    expect(am.autoModeForceApproval).toBe(false);
     expect(am.confirmEditFile).toBe(true);
   });
 

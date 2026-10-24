@@ -220,7 +220,14 @@ pub struct AgentModeSettings {
     /// tokens beyond 80% of this window trigger compaction of old history).
     #[serde(default)]
     pub context_window: u64,
-    /// When true, edit_file requires human confirmation before execution.
+    /// When true, `Disposition::ForceApproval` in Auto mode still opens the
+    /// human-approval dialog (system-level commands, protected paths, plugin
+    /// declarations…). Default false: Auto is fully autonomous, including
+    /// force-approval cases.
+    #[serde(default)]
+    pub auto_mode_force_approval: bool,
+    /// When true, file modification tools (`edit_file` / `write_file` and their
+    /// `local_*` counterparts) require human confirmation before execution.
     #[serde(default = "default_true")]
     pub confirm_edit_file: bool,
 }
@@ -253,6 +260,7 @@ impl Default for AgentModeSettings {
             system_prompt: String::new(),
             max_tool_rounds: default_max_tool_rounds(),
             context_window: 0,
+            auto_mode_force_approval: false,
             confirm_edit_file: default_true(),
         }
     }
@@ -1065,6 +1073,10 @@ mod tests {
             !s.jev_reason_followup,
             "缺 jevReasonFollowup 时必须关着——开着会让每条人审命令都多打一次请求，\
              这种花费不能由一次升级替用户决定"
+        );
+        assert!(
+            !s.auto_mode_force_approval,
+            "旧配置没有这个键时必须保持 Auto 全自主（不弹强制审批）"
         );
         // 旧字段原样保留，不被新字段挤掉。
         assert!(s.enable_model_command_approval);

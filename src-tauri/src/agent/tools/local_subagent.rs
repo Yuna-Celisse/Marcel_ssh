@@ -16,8 +16,8 @@
 //! # 审批语义（本工具是**派发闸门**，为什么不能只靠 dispatcher 的通用判定）
 //!
 //! - 工具自身 `disposition() = Approval`：父任务经 dispatcher 走「请求审批」档
-//!   （Agent 且开着逐条确认时弹一次；Auto 一次都不问 —— `needs_human_confirmation`
-//!   的 Auto 分支恒 `false`，即「Agent 弹、Auto 跳过」）。
+//!   （Agent 且开着逐条确认时弹一次；Auto 默认不问 —— 本工具是 `Approval` 档，
+//!   `auto_mode_force_approval` 只放行 `ForceApproval`，所以 Auto 下仍然静默）。
 //! - **默认设置下的 Plan 父任务是例外**：`effective_approval_mode`
 //!   （`tool_dispatcher.rs` 的 `effective_approval_mode`）把 Plan 折成 Auto，
 //!   dispatcher 一次都不会问；而只读的本机子 agent 也能读用户电脑上的文件，所以

@@ -24,6 +24,8 @@ const DEFAULT_AGENT_MODE_SETTINGS: AgentModeSettings = {
   systemPrompt: '',
   maxToolRounds: 500,
   contextWindow: 0,
+  // 默认关：Auto 的定义是全自主；打开后只有 ForceApproval 档会弹窗。
+  autoModeForceApproval: false,
   confirmEditFile: true,
 };
 

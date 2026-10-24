@@ -80,7 +80,7 @@ function typeReason(text: string) {
   });
 }
 
-/** 与桌面端同一条：Auto 全自主，强制审批档旁不能暗示 Auto 也会询问。 */
+/** 与桌面端同一条：默认全自主，强制审批档旁不能暗示 Auto 一定会询问。 */
 describe('MobileApprovalSheet 的强制审批提示', () => {
   it('强制审批档只显示档位标签，不声称 Auto 模式也会询问', () => {
     render();

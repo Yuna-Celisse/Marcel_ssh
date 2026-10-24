@@ -259,14 +259,17 @@ impl ToolDispatcher {
         }
     }
 
+    /// 任务自己的模式（未折算 Plan → Auto）。用来区分「真的是 Auto」与
+    /// 「Plan 因未开审批而折成 Auto」—— 后者不该继承 Auto 的专用开关。
+    fn raw_approval_mode(&self) -> &AgentMode {
+        self.approval_mode.as_ref().unwrap_or(&self.mode)
+    }
+
     /// 审批判定实际使用的模式：`approval_mode` 覆盖优先（Auto 父任务派发的子
     /// agent），否则跟随本任务 `mode`；Plan 再按设置折成 Auto（见
     /// [`effective_approval_mode`]）。
     fn resolved_approval_mode(&self) -> AgentMode {
-        effective_approval_mode(
-            self.approval_mode.as_ref().unwrap_or(&self.mode),
-            &self.agent_settings,
-        )
+        effective_approval_mode(self.raw_approval_mode(), &self.agent_settings)
     }
 
     /// 会话模型引擎（旧行为，逐字节保持不变）。
@@ -416,6 +419,12 @@ impl ToolDispatcher {
             Err(blocked) => return blocked,
         };
         let effective_disposition = plan.effective_disposition;
+        // Auto 的「强制审批仍要问人」开关：只对**真正的 Auto** 生效，不能顺着
+        // `effective_approval_mode` 把「默认静默的 Plan」也算进来。也只有
+        // `ForceApproval` 这一档会被它放行到人工。
+        let auto_force_approval = matches!(self.raw_approval_mode(), AgentMode::Auto)
+            && self.agent_settings.auto_mode_force_approval
+            && effective_disposition == Disposition::ForceApproval;
 
         let requires_default_approval = tool.requires_approval_by_default();
 
@@ -438,7 +447,9 @@ impl ToolDispatcher {
         //    命令类工具的结论来自 `decide_command`（它把风险评估和名单一起算完，
         //    `deny` 已经在上面短路掉了）；其余工具按自己声明的档位走。
         let assessed_needs_confirm = needs_human_confirmation(
-            &plan.resolved_approval_mode,
+            // 传**未折算**的模式：函数内部会自己折 Plan → Auto，但 Auto 的
+            // 专用开关只该对真正的 Auto 生效。
+            self.raw_approval_mode(),
             plan.command_decision.as_ref(),
             effective_disposition,
             requires_default_approval,
@@ -461,6 +472,7 @@ impl ToolDispatcher {
                 &plan.resolved_approval_mode,
                 effective_disposition,
                 assessed_needs_confirm,
+                auto_force_approval,
             )
             .await
         {
@@ -483,6 +495,7 @@ impl ToolDispatcher {
                 plan.command_decision.as_ref(),
                 model_reasons,
                 final_needs_confirm,
+                auto_force_approval,
             )
             .await
         {
@@ -684,6 +697,7 @@ impl ToolDispatcher {
         resolved_approval_mode: &AgentMode,
         effective_disposition: Disposition,
         assessed_needs_confirm: bool,
+        auto_force_approval: bool,
     ) -> Result<(bool, Option<Vec<String>>), DispatchResult> {
         // 2. Model-based approval — runs for tools that declare a command
         //    argument (i.e. `bash`) when an approver is configured, regardless
@@ -750,7 +764,8 @@ impl ToolDispatcher {
                                 // 否则工具卡上会一直挂着「模型建议人工审批」，而根本
                                 // 没有问过任何人，用户会以为自己漏掉了什么。模型的原判据
                                 // 留在日志里备查。
-                                if can_ask_human(resolved_approval_mode, true) {
+                                if can_ask_human(resolved_approval_mode, true, auto_force_approval)
+                                {
                                     // Agent 模式弹窗（Plan 默认也走 Auto 那一支，除非开了
                                     // 「Plan 模式也需要审批」——判定同样遵循
                                     // `resolved_approval_mode`）。
@@ -848,6 +863,7 @@ impl ToolDispatcher {
         command_decision: Option<&CommandDecision>,
         model_reasons: Option<Vec<String>>,
         final_needs_confirm: bool,
+        auto_force_approval: bool,
     ) -> Result<(), DispatchResult> {
         // 3. Human approval —— 整个 dispatch 里**唯一**打开审批对话框的地方。
         //
@@ -855,7 +871,11 @@ impl ToolDispatcher {
         //    命令审批模型判 route_to_human），两条提到"要人"之前都先过 `can_ask_human`；
         //    这里再过一次，是为了把 Auto 的保证钉在唯一的出口上 —— 将来新增第三条
         //    来路时忘了判模式，Auto 也不会因此悄悄弹窗。
-        if can_ask_human(resolved_approval_mode, final_needs_confirm) {
+        if can_ask_human(
+            resolved_approval_mode,
+            final_needs_confirm,
+            auto_force_approval,
+        ) {
             let mut approval_metadata: Option<serde_json::Value> = None;
 
             // 需要预演的工具（`edit_file` / 本机 `local_edit_file`）先做一次预读 +
@@ -1036,7 +1056,8 @@ pub(crate) fn resolve_disposition(
 /// 折的范围是**整个审批层**，不止 bash：Plan 工具集里唯一声明 `Approval` 的非命令类
 /// 工具（`job_kill`）同样随之静默，与它在 Auto 下一致。`ForceApproval` 在 `decide_command`
 /// 里仍照算（档位不受模式影响），只是到了 `needs_human_confirmation` 才因为 Auto 而不问；
-/// `Deny` 两处都不受影响。
+/// `Deny` 两处都不受影响。Auto 的 `auto_mode_force_approval` 例外口只对**真正的
+/// Auto** 生效，Plan 折成的 Auto 不继承（`needs_human_confirmation` 据此看原始模式）。
 pub(crate) fn effective_approval_mode(mode: &AgentMode, settings: &AgentModeSettings) -> AgentMode {
     match mode {
         AgentMode::Plan if !settings.plan_mode_requires_approval => AgentMode::Auto,
@@ -1147,9 +1168,11 @@ pub(crate) fn rejection_message(reason: Option<&str>) -> String {
 /// + 命令文本只算放行」这种组合在 `d.requires_confirmation` 上是 `false`，只看它
 /// 就等于把声明整条丢掉。
 ///
-/// **Auto 恒为 `false`**：Auto 的语义是全自主、不掺任何人工确认（用户明确选了它），
-/// 所以档位、插件/MCP 自己声明的强制审批、`requires_default_approval` 都不再征求
-/// 意见。不在这里的是 `Deny`：`dispatch` 在调用本函数之前已把「最终档位 = 直接拒绝」
+/// **Auto 默认不问，但可被 `auto_mode_force_approval` 打开一道窄门**：打开后只有
+/// `ForceApproval` 档（系统级命令、受保护路径、插件/MCP 声明）会征求人工确认；
+/// `Approval` / `Allow` 仍不弹。Plan 因未开审批而折成的 Auto **不继承**这道门
+/// （判据看调用方传入的原始模式，见函数内的 `was_auto`）。
+/// 不在这里的是 `Deny`：`dispatch` 在调用本函数之前已把「最终档位 = 直接拒绝」
 /// 的调用短路掉了（那种档位既不执行、也不弹窗），它根本到不了这里。
 pub(crate) fn needs_human_confirmation(
     approval_mode: &AgentMode,
@@ -1159,6 +1182,9 @@ pub(crate) fn needs_human_confirmation(
     settings: &AgentModeSettings,
     approval_switch_on: bool,
 ) -> bool {
+    // 折叠前先记下它是不是**真正的** Auto：Plan 默认也会折成 Auto，但那是
+    // 「Plan 没开审批」的实现细节，不该连带继承 Auto 的专用开关。
+    let was_auto = matches!(approval_mode, AgentMode::Auto);
     // 与 `decide_command` 同一处折法（幂等）：两处若只折一处，就会出现「档位算静默、
     // 这里却弹窗」的错位。
     let approval_mode = &effective_approval_mode(approval_mode, settings);
@@ -1179,14 +1205,19 @@ pub(crate) fn needs_human_confirmation(
                     || approval_switch_on
             }
         },
-        // Auto 一次都不问 —— 强制审批档也不例外。危险命令的兜底不靠弹窗：灾难性写法
-        // 仍由 `Deny` 在 `dispatch` 里更早地拒掉（那条路没有"能批准"的按钮），
-        // 命令审批模型也照常跑（它只能拦、不能问人）。
-        AgentMode::Auto => false,
+        // Auto 默认一次都不问；只有用户显式打开「强制审批仍要人工」且这一发确实是
+        // ForceApproval 时才问。危险命令的兜底不靠弹窗：灾难性写法仍由 `Deny` 在
+        // `dispatch` 里更早地拒掉（那条路没有"能批准"的按钮），命令审批模型也照常
+        // 跑（它只能拦、不能问人）。
+        AgentMode::Auto => {
+            was_auto
+                && settings.auto_mode_force_approval
+                && effective_disposition == Disposition::ForceApproval
+        }
     }
 }
 
-/// 这件事能不能交给用户 —— **Auto 下无处可交**，这是它唯一的权威判定。
+/// 这件事能不能交给用户。
 ///
 /// `dispatch` 里有两个地方需要回答这个问题，且必须给同一个答案：
 ///   1. 打不打开审批对话框（档位判定与命令审批模型提出"要人确认"之后）；
@@ -1194,10 +1225,12 @@ pub(crate) fn needs_human_confirmation(
 ///      （转不过去就只能按放行呈现给前端，否则工具卡上会挂着一次根本没发生的
 ///      人工审批）。
 ///
-/// 抽成一个纯函数是为了守住 Auto 的不变量：无论未来新增多少条"要人确认"的路径，
-/// 只要还经过这里，Auto 就不会突然开始弹窗或者假装问过谁。
-fn can_ask_human(approval_mode: &AgentMode, wants_human: bool) -> bool {
-    wants_human && *approval_mode != AgentMode::Auto
+/// Auto 默认无处可交；`auto_force_approval` 是唯一的例外口 —— 它由调用方按
+/// 「真正的 Auto + 设置开关 + 这一发是 ForceApproval」算好，Plan 折成的 Auto
+/// 不在其中。抽成纯函数是为了守住 Auto 的不变量：无论未来新增多少条"要人确认"
+/// 的路径，只要还经过这里，Auto 就不会突然开始弹窗或者假装问过谁。
+fn can_ask_human(approval_mode: &AgentMode, wants_human: bool, auto_force_approval: bool) -> bool {
+    wants_human && (*approval_mode != AgentMode::Auto || auto_force_approval)
 }
 
 /// 审批弹窗上给用户看的理由列表：模型审批的理由 + 静态评估命中的理由。
@@ -1280,6 +1313,7 @@ mod tests {
             max_tool_rounds: 500,
             context_window: 0,
             confirm_edit_file: false,
+            auto_mode_force_approval: false,
         }
     }
 
@@ -1328,8 +1362,8 @@ mod tests {
         }
     }
 
-    /// 强制审批档在 Auto 下**同样不弹窗**（Auto = 全自主，没有任何人工介入），
-    /// 但在 Agent 下必须弹 —— 这两种行为都要钉住。
+    /// 强制审批档在 Auto 下**默认不弹窗**（`auto_mode_force_approval` 关闭时，
+    /// Auto = 全自主），但在 Agent 下必须弹 —— 这两种行为都要钉住。
     ///
     /// 走的是 `needs_human_confirmation`（`dispatch` 调的同一个函数），不是
     /// `decide_command` —— 后者在 Auto 下也一样返回"要确认"，只测它就等于没测
@@ -1467,8 +1501,9 @@ mod tests {
         assert_eq!(merge_approval_reasons(None, None), None);
     }
 
-    /// Auto 对**任何**档位都不问：`Approval`、`ForceApproval`、以及外置工具自己提的
-    /// `requires_default_approval` 一视同仁。Agent 下同样的输入必须问。
+    /// Auto 默认对**任何**档位都不问：`Approval`、`ForceApproval`、以及外置工具
+    /// 自己提的 `requires_default_approval` 一视同仁（`auto_mode_force_approval`
+    /// 关闭时的行为）。Agent 下同样的输入必须问。
     #[test]
     fn auto_never_prompts_for_any_disposition() {
         let s = default_settings();
@@ -1507,28 +1542,73 @@ mod tests {
         ));
     }
 
-    /// 「交给用户」的唯一判定：Auto 无论谁提出要人都交不出去（既不开窗、也不把
-    /// 模型判的 `route_to_human` 当成转人审），其余模式只看那个布尔。
+    /// 「交给用户」的唯一判定：Auto 默认无论谁提出要人都交不出去；只有显式打开
+    /// 「强制审批仍要人工」且这一发确实是 ForceApproval 时才例外。其余模式只看那个
+    /// 布尔。
     ///
     /// 这是 Auto 不变量的收口 —— 上面两条"要人确认"的路径任一漏写，这里仍然拦住。
     #[test]
-    fn auto_never_hands_anything_to_a_human() {
+    fn auto_never_hands_anything_to_a_human_unless_force_approval_opt_in() {
         for wants_human in [false, true] {
             assert!(
-                !can_ask_human(&AgentMode::Auto, wants_human),
-                "Auto 下 wants_human={wants_human} 也不该交给用户"
+                !can_ask_human(&AgentMode::Auto, wants_human, false),
+                "Auto 下未开启强制审批例外，wants_human={wants_human} 也不该交给用户"
             );
         }
+        // 例外口只认发起方算好的 auto_force_approval（真的 Auto + 设置开 + ForceApproval）。
+        assert!(can_ask_human(&AgentMode::Auto, true, true));
         for mode in [AgentMode::Plan, AgentMode::Agent] {
             assert!(
-                !can_ask_human(&mode, false),
+                !can_ask_human(&mode, false, false),
                 "{mode:?} 下没人要求人参与就不该交给用户"
             );
             assert!(
-                can_ask_human(&mode, true),
+                can_ask_human(&mode, true, false),
                 "{mode:?} 下有人要求人参与就得交给用户"
             );
         }
+    }
+
+    /// Auto 的窄门：只有显式打开开关且档位是 ForceApproval 才回到人工确认；
+    /// Approval / Allow 仍然静默，Plan 折成的 Auto 也不继承这个开关。
+    #[test]
+    fn auto_force_approval_opt_in_only_covers_force_approval() {
+        let mut s = default_settings();
+        s.auto_mode_force_approval = false;
+        assert!(!needs_human_confirmation(
+            &AgentMode::Auto,
+            None,
+            Disposition::ForceApproval,
+            false,
+            &s,
+            false
+        ));
+
+        s.auto_mode_force_approval = true;
+        assert!(needs_human_confirmation(
+            &AgentMode::Auto,
+            None,
+            Disposition::ForceApproval,
+            false,
+            &s,
+            false
+        ));
+        for disposition in [Disposition::Allow, Disposition::Approval] {
+            assert!(
+                !needs_human_confirmation(&AgentMode::Auto, None, disposition, false, &s, false),
+                "Auto 的例外口只开给 ForceApproval，{disposition:?} 仍应静默"
+            );
+        }
+
+        // Plan 默认折成 Auto，但它不是「真正的 Auto」——开关不该把它叫醒。
+        assert!(!needs_human_confirmation(
+            &AgentMode::Plan,
+            None,
+            Disposition::ForceApproval,
+            false,
+            &s,
+            false
+        ));
     }
 
     /// **回归：插件声明的强制审批曾被弹窗判定整条丢弃。**
@@ -1933,6 +2013,7 @@ mod tests {
             max_tool_rounds: 80,
             context_window: 0,
             confirm_edit_file: false,
+            auto_mode_force_approval: false,
         };
         assert!(!command_list_requires_confirm("ls -la", &s));
 
@@ -1960,6 +2041,7 @@ mod tests {
             max_tool_rounds: 80,
             context_window: 0,
             confirm_edit_file: false,
+            auto_mode_force_approval: false,
         };
         assert!(command_list_requires_confirm("rm -rf /tmp", &s));
     }
@@ -1997,6 +2079,7 @@ mod tests {
             max_tool_rounds: 80,
             context_window: 0,
             confirm_edit_file: false,
+            auto_mode_force_approval: false,
         };
         assert!(command_list_requires_confirm("echo hello", &s));
         assert!(command_list_requires_confirm("git status", &s));

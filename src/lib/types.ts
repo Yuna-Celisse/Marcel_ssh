@@ -689,6 +689,9 @@ export interface AgentModeSettings {
   maxToolRounds: number;
   /** Model context window in tokens. 0 = unset (overflow-triggered compaction only). */
   contextWindow: number;
+  /** Auto 模式下强制审批档（系统级命令、受保护路径、插件声明等）是否仍要人工确认。 */
+  autoModeForceApproval: boolean;
+  /** 文件修改审批：`edit_file` / `write_file` 及本机同名工具执行前需要用户确认。 */
   confirmEditFile: boolean;
 }
 
