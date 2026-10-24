@@ -649,6 +649,105 @@ pub(crate) async fn preview_edit_for_approval(
     ))
 }
 
+/// 写工具（`write_file` / `local_write_file`）的展示 metadata 唯一出口。
+///
+/// 写入不像编辑有「命中哪一段」：它是整份内容替换（新建时 `before` 为空）。
+/// 小文件直接复用 [`build_edit_display_metadata`]（`old_content = before` 即一处
+/// 整文件命中），大文件则只给一份**按字节截断**的首部对照 —— 否则新内容可能顶到
+/// 1 MB 上限，把审批事件撑成大包，对话框也滚不完。
+pub(crate) fn build_write_display_metadata(
+    path: &str,
+    before: &str,
+    after: &str,
+) -> serde_json::Value {
+    if before.len() + after.len() <= EDIT_DISPLAY_MAX_BYTES {
+        return build_edit_display_metadata(path, before, after, before, after, 1);
+    }
+
+    let before_display = head_within_bytes(before, EDIT_DISPLAY_MAX_BYTES);
+    let after_display = head_within_bytes(after, EDIT_DISPLAY_MAX_BYTES);
+    json!({
+        "path": path,
+        "occurrences": 1,
+        "old_bytes": before.len(),
+        "new_bytes": after.len(),
+        "line_position": 1,
+        "line_count": after.lines().count(),
+        "match_line_positions": [1],
+        "hunks": [{
+            "startLine": 1,
+            "before": before_display,
+            "after": after_display,
+        }],
+        "file_content": after_display,
+        "truncated": true,
+    })
+}
+
+/// 按**字符边界**截取文本首部；尽量停在完整行上，避免 diff 显示半行。
+fn head_within_bytes(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let head = &text[..end];
+    match head.rfind('\n') {
+        Some(i) if i > 0 => head[..=i].to_string(),
+        _ => head.to_string(),
+    }
+}
+
+/// 写工具审批前的预演：只读旧内容，不改盘。
+///
+/// 与编辑预演的失败口径不同：**旧内容读不到不算这次写失败**（新建、无读权限、
+/// 非 UTF-8、超过读取上限都可能仍然可写），只是没有 `before`。参数不合格
+/// （缺 path/content、超过写入上限）仍然返回错误，让 dispatcher 直接失败，
+/// 不弹一个注定失败的审批。
+pub(crate) async fn preview_write_for_approval(
+    ssh: &crate::ssh::connection::SshManager,
+    session_id: &str,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, EditPreviewError> {
+    let path = params
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if path.is_empty() {
+        return Err(EditPreviewError {
+            summary: "write_file".into(),
+            message: "Missing 'path' parameter".into(),
+        });
+    }
+    let content = params
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| EditPreviewError {
+            summary: format!("write {}", path),
+            message: "Missing 'content' parameter".into(),
+        })?;
+    if content.len() > MAX_FILE_WRITE_BYTES {
+        return Err(EditPreviewError {
+            summary: format!("write {}", path),
+            message: format!(
+                "content too large: {} bytes (limit {} bytes). Split the write.",
+                content.len(),
+                MAX_FILE_WRITE_BYTES
+            ),
+        });
+    }
+
+    let before = match SftpBackend::new(ssh, session_id).read(&path).await {
+        Ok(bytes) => String::from_utf8(bytes).unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    Ok(build_write_display_metadata(&path, &before, content))
+}
+
 pub struct ReadFileTool;
 
 impl ReadFileTool {
@@ -788,6 +887,16 @@ impl AgentTool for WriteFileTool {
 
     fn disposition(&self) -> Disposition {
         Disposition::Approval
+    }
+
+    /// 审批前预演：审批面板据此渲染「旧内容 → 新内容」的整文件对照，
+    /// 与 `edit_file` 的 diff 同形（见 [`build_write_display_metadata`]）。
+    async fn preview_write(
+        &self,
+        ctx: &ToolContext,
+        params: &serde_json::Value,
+    ) -> Option<Result<serde_json::Value, EditPreviewError>> {
+        Some(preview_write_for_approval(&ctx.ssh, &ctx.session_id, params).await)
     }
 
     async fn execute(
@@ -1335,6 +1444,32 @@ mod tests {
         assert!(hunks[0]["before"].as_str().unwrap().contains("TARGET"));
         assert!(hunks[0]["after"].as_str().unwrap().contains("DONE"));
         assert!(meta.get("before").is_none());
+    }
+
+    #[test]
+    fn build_write_metadata_new_file_has_after_only() {
+        let meta = build_write_display_metadata("/new.txt", "", "hello\nworld\n");
+        assert_eq!(meta["before"], "");
+        assert_eq!(meta["after"], "hello\nworld\n");
+        assert_eq!(meta["old_bytes"], 0);
+        assert_eq!(meta["occurrences"], 1);
+        assert!(meta.get("truncated").is_none());
+    }
+
+    #[test]
+    fn build_write_metadata_truncates_large_payload() {
+        let after = "0123456789abcdef\n".repeat(2000); // ~34k > 16k
+        assert!(after.len() > EDIT_DISPLAY_MAX_BYTES);
+        let meta = build_write_display_metadata("/big.txt", "", &after);
+
+        assert_eq!(meta["truncated"], true);
+        let hunks = meta["hunks"].as_array().expect("hunks");
+        assert_eq!(hunks.len(), 1);
+        let shown = hunks[0]["after"].as_str().unwrap();
+        assert!(shown.len() <= EDIT_DISPLAY_MAX_BYTES);
+        assert!(after.starts_with(shown), "只应截掉尾部，不能改写内容");
+        // 旧内容为空时也必须给出一处 hunk，否则前端拿不到任何可渲染内容。
+        assert_eq!(meta["new_bytes"], after.len());
     }
 
     // ── try_replace tests ──

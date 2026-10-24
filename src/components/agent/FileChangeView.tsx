@@ -9,7 +9,7 @@ interface Props {
    * 加名字时，`ToolCallCard` 的传参处会编译不过，逼着人回来扩这里、并想清楚
    * 新工具该走哪一支（见 `toolCatalog.ts` 中 `FILE_CHANGE_TOOL_NAMES` 的说明）。
    */
-  toolName: 'write_file' | 'edit_file' | 'local_edit_file';
+  toolName: 'write_file' | 'edit_file' | 'local_write_file' | 'local_edit_file';
   arguments: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
@@ -20,15 +20,23 @@ type FileChangeBranch = 'content' | 'diff';
 /**
  * 工具名 → 分支。
  *
- * `never` 兜底是刻意的：props 的 union 一扩（比如将来把 `local_write_file` 也接
- * 进来）而这里没登记，`tsc` 立刻报错 —— 否则新名字会掉进 diff 分支，拿需要
- * `old_content` / `new_content` 的分支去渲染只给 `content` 的参数，得到一个空
- * diff，比显示原始输出更误导。
+ * 写工具**平时**走内容分支（工具执行结果只有 path/bytes 元数据），但审批前预演
+ * 会带来 `before` / `after` / `hunks` —— 那时必须切到 diff 分支，才能让「覆盖这个
+ * 文件」与「编辑这个文件」看到同一种前后对照。判据是 metadata 里有没有预演数据，
+ * 不是工具名本身。
+ *
+ * `never` 兜底是刻意的：props 的 union 一扩而这里没登记，`tsc` 立刻报错 —— 否则
+ * 新名字会掉进 diff 分支，拿需要 `old_content` / `new_content` 的分支去渲染只给
+ * `content` 的参数，得到一个空 diff，比显示原始输出更误导。
  */
-function branchOf(toolName: Props['toolName']): FileChangeBranch {
+function branchOf(
+  toolName: Props['toolName'],
+  metadata?: Record<string, unknown>,
+): FileChangeBranch {
   switch (toolName) {
     case 'write_file':
-      return 'content';
+    case 'local_write_file':
+      return hasPreviewMetadata(metadata) ? 'diff' : 'content';
     // 本机编辑与远端编辑参数键、metadata 形状完全一致（后端同一份
     // `build_edit_display_metadata`），共用 diff 这一支。
     case 'edit_file':
@@ -39,6 +47,13 @@ function branchOf(toolName: Props['toolName']): FileChangeBranch {
       return exhaustive;
     }
   }
+}
+
+/** 写工具是否带着审批预演的数据（只有审批弹窗那一次会带）。 */
+function hasPreviewMetadata(metadata?: Record<string, unknown>): boolean {
+  if (!metadata) return false;
+  if (metadata.before != null || metadata.after != null) return true;
+  return Array.isArray(metadata.hunks) && metadata.hunks.length > 0;
 }
 
 type DiffRow = {
@@ -145,6 +160,14 @@ function changedRegionStarts(rows: DiffRow[]): number[] {
     }
   }
   return starts;
+}
+
+function TruncatedNote() {
+  return (
+    <div className="px-3 py-1 text-[10px] text-amber-400 font-mono border-b border-zinc-700/50 bg-amber-950/20">
+      内容较大，仅显示开头部分
+    </div>
+  );
 }
 
 function DiffRowView({
@@ -259,7 +282,7 @@ function MatchNavBar({
 }
 
 function FileChangeView({ toolName, arguments: args, metadata }: Props) {
-  if (branchOf(toolName) === 'content') {
+  if (branchOf(toolName, metadata) === 'content') {
     const content = String(args.content ?? '');
     if (!content) return null;
 
@@ -289,9 +312,10 @@ function FileChangeView({ toolName, arguments: args, metadata }: Props) {
 }
 
 function FileDiffView({ arguments: args, metadata }: Pick<Props, 'arguments' | 'metadata'>) {
-  // ── diff 分支：edit_file / local_edit_file ──
-  // metadata（before/after/hunks/match_line_positions/occurrences…）与参数键
-  // （old_content/new_content/replace_all）两侧同形，所以这一段完全共用。
+  // ── diff 分支：edit_file / local_edit_file，以及带审批预演 metadata 的写工具 ──
+  // metadata（before/after/hunks/match_line_positions/occurrences…）在编辑与写入
+  // 两族同形（后端 `build_edit_display_metadata` / `build_write_display_metadata`），
+  // 所以这一段完全共用。
   const oldContent = String(args.old_content ?? '');
   const newContent = String(args.new_content ?? '');
   const replaceAll = args.replace_all === true;
@@ -304,6 +328,7 @@ function FileDiffView({ arguments: args, metadata }: Pick<Props, 'arguments' | '
   const hunks = useMemo(() => parseHunks(metadata), [metadata]);
   const fileContent = metadata?.file_content ? String(metadata.file_content) : '';
   const linePosition = metadata?.line_position ? Number(metadata.line_position) : 0;
+  const truncated = metadata?.truncated === true;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeMatch, setActiveMatch] = useMessageViewState('diff-active-match', 0);
@@ -399,6 +424,7 @@ function FileDiffView({ arguments: args, metadata }: Pick<Props, 'arguments' | '
 
     return (
       <div className="border-t border-zinc-700/50">
+        {truncated && <TruncatedNote />}
         {bannerText && (
           <div className="px-3 py-1 text-[10px] text-amber-400 font-mono border-b border-zinc-700/50 bg-amber-950/20">
             {bannerText}
@@ -434,6 +460,7 @@ function FileDiffView({ arguments: args, metadata }: Pick<Props, 'arguments' | '
   if (hunks && hunks.length > 0) {
     return (
       <div className="border-t border-zinc-700/50">
+        {truncated && <TruncatedNote />}
         {bannerText && (
           <div className="px-3 py-1 text-[10px] text-amber-400 font-mono border-b border-zinc-700/50 bg-amber-950/20">
             {bannerText}

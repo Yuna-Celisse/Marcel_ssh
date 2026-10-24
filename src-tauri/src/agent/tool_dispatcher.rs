@@ -878,8 +878,9 @@ impl ToolDispatcher {
         ) {
             let mut approval_metadata: Option<serde_json::Value> = None;
 
-            // 需要预演的工具（`edit_file` / 本机 `local_edit_file`）先做一次预读 +
-            // 校验再问用户：会让 execute() 失败的调用不该打开审批对话框。
+            // 需要预演的工具（远端 `edit_file` / `write_file` 与本机 `local_*`）
+            // 先做一次预读 + 校验再问用户：会让 execute() 失败的调用不该打开审批
+            // 对话框。
             //
             // 预演是**机器相关**的：先问工具（本机编辑工具读的是用户自己电脑上那个
             // 文件），工具不回答（动态工具）才回落到远端实现（读 SFTP 上的同名路径）。
@@ -1693,6 +1694,46 @@ mod tests {
                 "{mode:?} 下只读工具不该弹窗"
             );
         }
+    }
+
+    /// 文件修改审批开关独立于「每条都手动确认」：关掉逐条确认后，
+    /// `edit_file` 与 `write_file` 仍由同一个开关决定弹不弹窗；Auto 依旧一次不问。
+    #[test]
+    fn file_modification_switch_gates_edit_and_write_alike() {
+        let mut s = default_settings();
+        s.confirm_each_command = false;
+        s.confirm_edit_file = false;
+
+        // 开关关着：写入类工具（Disposition::Approval）在 Agent 下静默。
+        assert!(!needs_human_confirmation(
+            &AgentMode::Agent,
+            None,
+            Disposition::Approval,
+            false,
+            &s,
+            false
+        ));
+
+        s.confirm_edit_file = true;
+        // 开关打开：编辑与写入共用同一判定（两者声明的是同一个 ApprovalSwitch）。
+        assert!(needs_human_confirmation(
+            &AgentMode::Agent,
+            None,
+            Disposition::Approval,
+            false,
+            &s,
+            true
+        ));
+
+        // Auto 不看任何开关。
+        assert!(!needs_human_confirmation(
+            &AgentMode::Auto,
+            None,
+            Disposition::Approval,
+            false,
+            &s,
+            true
+        ));
     }
 
     /// 受保护路径 → 强制审批，而且**用户自定义的那份也算**（档位不看模式；

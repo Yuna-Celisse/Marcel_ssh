@@ -23,8 +23,8 @@
 //!   `local_edit_file` / `local_write_file` 的「写前必须已读」检查才有数据。不声明
 //!   的话模型读一万遍也记不上账，每次本机编辑都会先被拦下。
 //! - `local_write_file` / `local_edit_file` 分别声明 `overwrites_path` / `edits_path`：
-//!   写前必须已读、受 `confirm_edit_file` 约束、编辑要预演 —— 这些判定与机器无关，
-//!   照常生效。
+//!   写前必须已读、同受文件修改审批开关（`confirm_edit_file`）约束、审批前都要
+//!   预演 —— 这些判定与机器无关，照常生效。
 //! - `local_list_directory` 保持 `NONE`：列目录不构成「读过这个文件」。
 //!
 //! dispatcher 里**机器相关**的几问，本机侧由工具自己回答（`AgentTool` 的
@@ -33,10 +33,11 @@
 //! - 存在性（`PathWrite::Overwrite` 的写前检查）→ [`local_target_exists`]
 //!   （本机 stat，与远端 `remote_file_exists` 同口径），dispatcher 拿到答案就不调
 //!   `remote_file_exists`；
-//! - 审批前预演 → [`preview_local_edit`]，本机整读 + 与远端同一套纯逻辑
-//!   （[`file_ops::resolve_edit_text`] / [`file_ops::apply_edit`] /
-//!   [`build_edit_display_metadata`]），产出与远端 `edit_file` **逐字同形**的 diff
-//!   metadata（前端 `FileChangeView` 认的是同一组字段）。
+//! - 审批前预演 → [`preview_local_edit`] / [`preview_local_write`]，本机整读 + 与
+//!   远端同一套纯逻辑（[`file_ops::resolve_edit_text`] / [`file_ops::apply_edit`] /
+//!   [`build_edit_display_metadata`] / [`build_write_display_metadata`]），产出与
+//!   远端同名工具 **逐字同形**的 diff metadata（前端 `FileChangeView` 认的是同一组
+//!   字段）。
 //!
 //! 仍然按远端（POSIX）表算的只有一项：**受保护路径提权**
 //! （`policy.is_protected_path`）。它只升不降 —— 对本机 Unix 系统目录给出保守的
@@ -58,8 +59,8 @@ use serde_json::json;
 use crate::agent::risk::Disposition;
 use crate::agent::tools::file_ops::{
     apply_edit, build_directory_view, build_edit_display_metadata, build_read_view,
-    directory_entries_metadata, entry_view, parse_directory_sort_by, parse_edit_params,
-    resolve_edit_text, DirectoryEntryView, EditPreviewError, DEFAULT_LIST_LIMIT,
+    build_write_display_metadata, directory_entries_metadata, entry_view, parse_directory_sort_by,
+    parse_edit_params, resolve_edit_text, DirectoryEntryView, EditPreviewError, DEFAULT_LIST_LIMIT,
     DEFAULT_READ_MAX_LINES, EDIT_NOT_FOUND, MAX_FILE_WRITE_BYTES, MAX_LIST_LIMIT,
     MAX_READ_MAX_LINES,
 };
@@ -133,17 +134,14 @@ async fn preview_local_edit(
     ))
 }
 
-/// [`AgentTool::preview_write`] 的本体（`local_write_file` 版）。
+/// [`AgentTool::preview_write`] 的本体（`local_write_file` 版）：审批前的预演。
 ///
-/// `write_file` 的审批面板现行显示原始 JSON（声明表没给它
-/// `preview_before_approval`），所以这条回答目前不会被 dispatcher 用到；保留它是
-/// 为了**任何情况下都不回落远端预览** —— `None` 会让 dispatcher 去读服务器上的
-/// 同名路径，把服务器的文件内容当成这台电脑的 `before`，比没有预览更糟。
+/// 与远端 `preview_write_for_approval` 逐句同构，只把数据源从 SFTP 换成
+/// [`local_fs`]；产出与远端 `write_file` 同形（同一个
+/// [`build_write_display_metadata`]），失败文案与 `execute` 一致。
 ///
-/// 形状与编辑预览同源（同一个 [`build_edit_display_metadata`]，前端 `FileChangeView`
-/// 字段一致）：`before` = 目标当前内容，`after` = 本次要写入的内容，`occurrences` = 1。
-/// 与 `execute` 不同，读旧内容失败**不算**这次写失败（新建、无读权限、非 UTF-8、
-/// 超过读取上限都可能仍然可写）：读不到就不给 `before`。
+/// 与 [`preview_local_edit`] 不同，读旧内容失败**不算**这次写失败（新建、无读权限、
+/// 非 UTF-8、超过读取上限都可能仍然可写）：读不到就不给 `before`。
 async fn preview_local_write(
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, EditPreviewError> {
@@ -183,9 +181,7 @@ async fn preview_local_write(
         Ok((bytes, _)) => String::from_utf8(bytes).unwrap_or_default(),
         Err(_) => String::new(),
     };
-    Ok(build_edit_display_metadata(
-        &path, &before, content, &before, content, 1,
-    ))
+    Ok(build_write_display_metadata(&path, &before, content))
 }
 
 // ────────────────────────── local_read_file ──────────────────────────
@@ -353,8 +349,9 @@ impl AgentTool for LocalWriteFileTool {
         Some(local_target_exists(path).await)
     }
 
-    /// 审批前预演（本机版，见 [`preview_local_write`]）。当前声明表没给本工具开
-    /// `preview_before_approval`，但答案必须在 —— `None` 会回落成远端预览。
+    /// 审批前预演（本机版，见 [`preview_local_write`]）：审批面板据此渲染
+    /// 与远端 `write_file` 同形的「旧 → 新」对照。必须回答 —— `None` 会回落成
+    /// 远端预览，把服务器上同名文件当成这台电脑的 `before`。
     async fn preview_write(
         &self,
         _ctx: &ToolContext,

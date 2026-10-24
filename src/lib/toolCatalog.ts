@@ -85,17 +85,13 @@ export interface ToolPresentation {
   /**
    * 审批面板的参数区呈现方式。缺省 = 原始 JSON。
    *
-   * `'diff'`：`edit_file` 与 `local_edit_file`（审批面板加宽 + 渲
-   * `FileChangeView`）。两者在后端是**同一份实现**：参数键同为 `path` /
-   * `old_content` / `new_content` / `replace_all`，展示 metadata 也同形
-   * （`build_edit_display_metadata`，远端与本机共用）。diff 的**数据**来自审批
-   * 事件里的 `metadata` 而不是 arguments —— 参数里只有被替换的那两段，
-   * 看不出改动落在全文的哪个位置；metadata 来自审批前的一次预演读盘
-   * （后端 `ToolSemantics::preview_before_approval`）。
-   *
-   * `write_file` 同样能被审批命中（高风险时），但它的审批面板照旧显示原始 JSON ——
-   * 这是 `6d785a6`「edit_file 默认需审批并预检，审批弹窗展示完整上下文 diff」
-   * 留下的既有行为，**没有改**。
+   * `'diff'`：文件修改族（`edit_file` / `write_file` 与它们的 `local_*` 对应
+   * 工具；审批面板加宽 + 渲 `FileChangeView`）。两族在后端共用同一份预演逻辑：
+   * 编辑给「命中段替换」，写入给「整文件旧 → 新」，展示 metadata 同形
+   * （`build_edit_display_metadata` / `build_write_display_metadata`）。diff 的
+   * **数据**来自审批事件里的 `metadata` 而不是 arguments —— 参数里只有新内容，
+   * 看不出旧文件长什么样；metadata 来自审批前的一次预演读盘（后端
+   * `ToolSemantics::preview_before_approval`）。
    *
    * 审批面板交给 `FileChangeView` 的工具名必须由当前调用解析出来
    * （`fileChangeToolName(toolCall.name)`，两个弹窗都是），**不能写死**：该组件
@@ -298,6 +294,9 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
     name: 'write_file',
     iconPaths: ICON_PENCIL,
     payload: 'file-change',
+    // 与 edit_file 同一个审批呈现：后端两族共用「预演 → metadata → diff」，
+    // 卡片平时仍按内容视图展示（metadata 里没有 before/after 时走 content 分支）。
+    approvalView: 'diff',
     preview: pathPreview,
   },
   {
@@ -466,16 +465,11 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
   //    长相），另加两条真正不同的声明：`localExecution`（审批面板的本机横幅）与
   //    `subagent`（本机子 agent 同样要能「查看调研过程」）。
   //
-  //    **本机编辑（`local_edit_file`）与远端 `edit_file` 走同一个 diff 视图**：
-  //    两者在后端共用同一份实现 —— 参数键（`old_content` / `new_content` /
-  //    `replace_all`）与展示 metadata（`build_edit_display_metadata`）都同形，
-  //    所以 `payload` 与 `approvalView` 照远端那一行标，`FileChangeView` 也认这个
-  //    名字（审批前那次预演读的是用户自己电脑上的真实文件）。
-  //
-  //    `local_write_file` **仍然不标** `payload: 'file-change'`：远端 `write_file`
-  //    的审批面板本来就显示原始 JSON（见 `approvalView` 的说明），本机侧没有审批
-  //    前预演，也没有理由比远端多一个视图。等后端给出预览、并确认要改这个行为时
-  //    再标。
+  //    **本机编辑 / 写入与远端对应工具走同一个 diff 视图**：两族在后端共用同一
+  //    份展示实现（编辑 `build_edit_display_metadata`、写入
+  //    `build_write_display_metadata`），审批前都有预演，所以 `payload` 与
+  //    `approvalView` 照远端对应行标，`FileChangeView` 也认这两个名字（审批前那次
+  //    预演读的是用户自己电脑上的真实文件）。
   {
     name: 'local_bash',
     iconPaths: ICON_TERMINAL,
@@ -505,6 +499,8 @@ export const TOOL_CATALOG: readonly ToolPresentation[] = [
   {
     name: 'local_write_file',
     iconPaths: ICON_PENCIL,
+    payload: 'file-change',
+    approvalView: 'diff',
     localExecution: true,
     preview: pathPreview,
   },
@@ -649,7 +645,12 @@ export function isLocalSessionId(sessionId: string | null | undefined): boolean 
  * `toolCatalog.test.ts` 那一侧只保证「声明了 `payload: 'file-change'` 的行恰好
  * 等于这份清单」（挡住反向遗漏），不是它守住了类型。
  */
-export const FILE_CHANGE_TOOL_NAMES = ['write_file', 'edit_file', 'local_edit_file'] as const;
+export const FILE_CHANGE_TOOL_NAMES = [
+  'write_file',
+  'edit_file',
+  'local_write_file',
+  'local_edit_file',
+] as const;
 
 export type FileChangeToolName = (typeof FILE_CHANGE_TOOL_NAMES)[number];
 

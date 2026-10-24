@@ -104,7 +104,7 @@ export default function ApprovalDialog({
 
   if (!open) return null;
 
-  // 参数正文改成 diff 视图（`edit_file` / `local_edit_file` = `approvalView: 'diff'`）。
+  // 参数正文改成 diff 视图（文件修改族 = `approvalView: 'diff'`，编辑与写入都算）。
   // 交给 `FileChangeView` 的工具名必须**从当前调用解析**（catalog 的
   // `fileChangeToolName`，同时校验该行确实声明了 `payload: 'file-change'`）：
   // 以前这里写死 `toolName="edit_file"`，本机编辑会拿自己的 metadata 渲染成

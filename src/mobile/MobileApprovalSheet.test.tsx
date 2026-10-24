@@ -199,6 +199,32 @@ describe('审批面板的 diff 视图（移动端）', () => {
     // 确认走的是 FileChangeView 的全文件对照 diff（data-match 是它的改动锚点）
     expect(document.body.querySelector('[data-match]')).not.toBeNull();
   });
+
+  it('write_file 审批也走 diff（与编辑统一）', () => {
+    render(true, {
+      id: 'call-write',
+      name: 'write_file',
+      arguments: { path: 'D:\\work\\app\\.env', content: 'PORT=8080\nDEBUG=false\n' },
+      disposition: 'Approval',
+      metadata: {
+        path: 'D:\\work\\app\\.env',
+        occurrences: 1,
+        old_bytes: 20,
+        new_bytes: 22,
+        line_position: 1,
+        line_count: 2,
+        match_line_positions: [1],
+        before: 'PORT=80\nDEBUG=false\n',
+        after: 'PORT=8080\nDEBUG=false\n',
+        file_content: 'PORT=8080\nDEBUG=false\n',
+      },
+    });
+
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('PORT=8080');
+    expect(text).not.toContain('"content"');
+    expect(document.body.querySelector('[data-match]')).not.toBeNull();
+  });
 });
 
 /**

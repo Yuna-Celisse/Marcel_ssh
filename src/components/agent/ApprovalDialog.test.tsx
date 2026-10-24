@@ -458,6 +458,49 @@ describe('审批面板的 diff 视图', () => {
     expect(text).toContain('PORT=8080');
     expect(text).not.toContain('old_content');
   });
+
+  it('write_file 审批也走 diff（与编辑统一，不再显示参数 JSON）', () => {
+    const writeCall: ToolCallInfo = {
+      id: 'call-write',
+      name: 'write_file',
+      arguments: { path: '/srv/app/.env', content: 'PORT=8080\nDEBUG=false\n' },
+      disposition: 'Approval',
+      metadata: {
+        path: '/srv/app/.env',
+        occurrences: 1,
+        old_bytes: 20,
+        new_bytes: 22,
+        line_position: 1,
+        line_count: 2,
+        match_line_positions: [1],
+        before: 'PORT=80\nDEBUG=false\n',
+        after: 'PORT=8080\nDEBUG=false\n',
+        file_content: 'PORT=8080\nDEBUG=false\n',
+      },
+    };
+
+    render(true, true, writeCall);
+
+    const text = container.textContent ?? '';
+    expect(text).toContain('PORT=8080');
+    // 参数 JSON 分支才会出现键名 —— 出现它说明又退回 JSON 了
+    expect(text).not.toContain('"content"');
+    expect(container.querySelector('[data-match]')).not.toBeNull();
+  });
+
+  it('write_file 没有预演 metadata 时退回内容视图（工具卡执行后）', () => {
+    render(true, true, {
+      id: 'call-write-done',
+      name: 'write_file',
+      arguments: { path: '/srv/app/.env', content: 'PORT=8080\n' },
+      disposition: 'Allow',
+      metadata: { path: '/srv/app/.env', bytes_sent: 10 },
+    });
+
+    const text = container.textContent ?? '';
+    expect(text).toContain('PORT=8080');
+    expect(container.querySelector('[data-match]')).toBeNull();
+  });
 });
 
 /**

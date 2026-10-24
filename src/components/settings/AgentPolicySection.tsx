@@ -275,15 +275,15 @@ export function AgentPolicySection() {
         </SettingItem>
         <SettingItem
           id="cmd-edit-file"
-          label="编辑文件审批"
-          description="edit_file 工具执行前需要用户确认"
+          label="文件修改审批"
+          description="编辑或写入文件前需要用户确认"
           sectionId="settings-command-policy"
-          keywords={['edit', 'file', '编辑', '审批', '文件操作', 'Agent']}
+          keywords={['edit', 'write', 'file', '编辑', '写入', '审批', '文件操作', 'Agent']}
         >
           <Toggle
             checked={agent.confirmEditFile ?? true}
             onChange={(checked) => updateAgent({ confirmEditFile: checked })}
-            label="Agent 编辑文件时需要用户确认"
+            label="Agent 编辑或写入文件时需要用户确认"
           />
         </SettingItem>
         <SettingItem

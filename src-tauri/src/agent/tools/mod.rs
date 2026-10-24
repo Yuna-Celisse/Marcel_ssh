@@ -841,14 +841,19 @@ pub enum PathWrite {
 /// 声明了它的那些工具。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalSwitch {
-    /// `confirm_edit_file`：编辑文件前必须人工确认。
-    EditFile,
+    /// `confirm_edit_file`：修改文件（编辑或写入）前必须人工确认。
+    ///
+    /// 名字沿用设置字段（`confirm_edit_file` / 前端 `confirmEditFile`）以免破坏
+    /// 已落盘的配置，但它**覆盖整个文件修改族**：`edit_file` / `local_edit_file`
+    /// 与 `write_file` / `local_write_file`。曾经只有编辑类声明它，写入类靠
+    /// 「每条都手动确认」兜底，导致两族行为无法单独配置 —— 现在统一到这一个开关。
+    ModifyFile,
 }
 
 impl ApprovalSwitch {
     pub fn is_on(self, settings: &crate::config::settings::AgentModeSettings) -> bool {
         match self {
-            Self::EditFile => settings.confirm_edit_file,
+            Self::ModifyFile => settings.confirm_edit_file,
         }
     }
 }
@@ -873,7 +878,7 @@ pub struct ToolSemantics {
     pub path_write: PathWrite,
     /// 受哪个细粒度审批开关约束。
     pub approval_switch: Option<ApprovalSwitch>,
-    /// 弹审批前先预演一次（目前只有编辑预览）：预演就会失败的调用不弹窗。
+    /// 弹审批前先预演一次（文件修改族：编辑与写入）：预演就会失败的调用不弹窗。
     pub preview_before_approval: bool,
 }
 
@@ -903,24 +908,29 @@ impl ToolSemantics {
         }
     }
 
-    /// 编辑类工具（`edit_file`）：改写既有文件，受 `confirm_edit_file` 约束，
+    /// 编辑类工具（`edit_file`）：改写既有文件，受文件修改审批开关约束，
     /// 弹窗前先预演。
     pub const fn edits_path(key: &'static str) -> Self {
         Self {
             path_arg: Some(key),
             path_write: PathWrite::Edit,
-            approval_switch: Some(ApprovalSwitch::EditFile),
+            approval_switch: Some(ApprovalSwitch::ModifyFile),
             preview_before_approval: true,
             command_arg: None,
         }
     }
 
     /// 写入类工具（`write_file`）：可新建可覆盖，覆盖前要求已读过。
+    ///
+    /// 与编辑类共用同一个审批开关与预演：用户只需要回答一次「Agent 能不能改我的
+    /// 文件」，而不是记住「编辑有独立开关、写入却受每条命令确认管」。
     pub const fn overwrites_path(key: &'static str) -> Self {
         Self {
             path_arg: Some(key),
             path_write: PathWrite::Overwrite,
-            ..Self::NONE
+            approval_switch: Some(ApprovalSwitch::ModifyFile),
+            preview_before_approval: true,
+            command_arg: None,
         }
     }
 }
@@ -1999,6 +2009,18 @@ mod tests {
         // 写前检查的强度不同：改既有文件必须已读；覆盖才查存在性。
         assert_eq!(sem("edit_file").path_write, PathWrite::Edit);
         assert_eq!(sem("write_file").path_write, PathWrite::Overwrite);
+        // 但审批开关统一：编辑与写入都归 `confirm_edit_file` 管，并且都要预演。
+        for name in ["edit_file", "write_file"] {
+            assert_eq!(
+                sem(name).approval_switch,
+                Some(ApprovalSwitch::ModifyFile),
+                "{name} 必须与另一族共用文件修改审批开关"
+            );
+            assert!(
+                sem(name).preview_before_approval,
+                "{name} 的审批面板要展示 diff（preview_write 产出）"
+            );
+        }
 
         // 本机族（桌面专属）接进同一套：本机读工具也必须声明 `path_arg`，否则
         // 「读过了」记不上账，本机编辑永远过不了写前检查；写 / 编辑与远端同名工具
@@ -2012,26 +2034,24 @@ mod tests {
             assert_eq!(sem("local_write_file").path_write, PathWrite::Overwrite);
             assert_eq!(sem("local_edit_file").path_arg, Some("path"));
             assert_eq!(sem("local_edit_file").path_write, PathWrite::Edit);
-            assert_eq!(
-                sem("local_edit_file").approval_switch,
-                Some(ApprovalSwitch::EditFile),
-                "本机编辑与远端编辑同受 confirm_edit_file 约束"
-            );
-            assert!(
-                sem("local_edit_file").preview_before_approval,
-                "本机编辑的审批面板要展示与远端同形的 diff（preview_write 产出）"
-            );
+            for name in ["local_edit_file", "local_write_file"] {
+                assert_eq!(
+                    sem(name).approval_switch,
+                    Some(ApprovalSwitch::ModifyFile),
+                    "{name} 与远端同族一样受文件修改审批开关约束"
+                );
+                assert!(
+                    sem(name).preview_before_approval,
+                    "{name} 的审批面板要展示本机预览（preview_write 产出）"
+                );
+            }
             assert!(
                 sem("local_list_directory").path_arg.is_none(),
                 "列目录不构成「读过这个文件」，不参与写前检查"
             );
         }
 
-        // 编辑类工具受 confirm_edit_file 约束，且弹审批前先预演。
-        assert_eq!(
-            sem("edit_file").approval_switch,
-            Some(ApprovalSwitch::EditFile)
-        );
+        // 所有文件修改类工具都走同一份「审批开关 + 预演」声明。
         let previewing: Vec<&str> = builtin_tool_specs()
             .iter()
             .filter(|s| s.semantics.preview_before_approval)
@@ -2040,11 +2060,16 @@ mod tests {
         assert_eq!(
             previewing,
             if cfg!(desktop) {
-                vec!["edit_file", "local_edit_file"]
+                vec![
+                    "write_file",
+                    "edit_file",
+                    "local_write_file",
+                    "local_edit_file",
+                ]
             } else {
-                vec!["edit_file"]
+                vec!["write_file", "edit_file"]
             },
-            "dispatcher 只实现了编辑预览；多出别的预演工具说明这里没跟上"
+            "预演清单必须恰好是文件修改族；多出别的工具说明这里没跟上"
         );
 
         // 其余工具不应误声明语义：随手写上 path_arg 会让它无端参与写前检查。

@@ -186,8 +186,8 @@ export function MobileAgentPolicySection() {
         }
       />
       <MobileSettingRow
-        label="编辑文件审批"
-        description="edit_file 执行前需要确认"
+        label="文件修改审批"
+        description="编辑或写入文件前需要确认"
         trailing={
           <Toggle
             checked={agent.confirmEditFile ?? true}

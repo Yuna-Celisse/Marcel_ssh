@@ -381,17 +381,16 @@ describe('本机工具族（local_*）', () => {
     expect(toolSpec('edit_file')?.approvalView).toBe('diff');
   });
 
-  it('local_write_file 仍是普通 JSON 呈现（后端没有本机写的审批预览）', () => {
-    // 远端 write_file 的审批面板本来就显示原始 JSON（见 catalog 里 approvalView
-    // 的说明）；本机写侧没有审批前预演，没有理由比远端多一个视图。等后端给出
-    // 预览、并确认要改这个行为时，才把这里改成 file-change（同时扩
-    // FileChangeView 的分支，那里有穷尽检查）。
-    expect(toolSpec('local_write_file')?.payload).toBeUndefined();
-    expect(fileChangeToolName('local_write_file')).toBeNull();
-    expect(toolSpec('local_write_file')?.approvalView).toBeUndefined();
-    // 反面对照：远端 write_file 仍是 file-change 内容视图，但审批不加宽、不出 diff
+  it('本机写入与远端写入同一套呈现与审批视图', () => {
+    // 后端写工具与编辑工具统一：同一个文件修改审批开关、同样的预演 metadata
+    // （`build_write_display_metadata`）。卡片平时仍按内容视图展示（工具输出
+    // metadata 里没有 before/after），审批弹窗带着预演数据时切到 diff 分支。
+    expect(toolSpec('local_write_file')?.payload).toBe('file-change');
+    expect(toolSpec('local_write_file')?.approvalView).toBe('diff');
+    expect(fileChangeToolName('local_write_file')).toBe('local_write_file');
+    // 反面对照：远端 write_file 的声明同步
     expect(toolSpec('write_file')?.payload).toBe('file-change');
-    expect(toolSpec('write_file')?.approvalView).toBeUndefined();
+    expect(toolSpec('write_file')?.approvalView).toBe('diff');
   });
 
   it('local_subagent 是子 agent（卡片入口/模式标注照旧）+ prompt 审批视图', () => {
