@@ -213,26 +213,38 @@ html[data-marcel-theme='light'] .prose.marcel-prose :not(pre) > code {
 }
 
 /* ── 主题切换过渡 ──
-   应用主题写变量前由 applyUiTheme 临时挂上 marcel-theme-transition、停稳 600ms 后摘除：
-   只过渡颜色类属性，深浅切换不产生亮度跳变；类不在时零开销，日常交互动画不受影响。
-   减少动态效果时压到 1ms（保留换色、去掉动画过程）。 */
-html.marcel-theme-transition,
-html.marcel-theme-transition *,
-html.marcel-theme-transition *::before,
-html.marcel-theme-transition *::after {
-  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, box-shadow;
-  transition-duration: 320ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-delay: 0s;
+   applyUiTheme 用 View Transitions 做「从点击处扩散」的圆形揭开：旧页面快照垫底不动，
+   新页面被羽化边缘的圆形遮罩推开（半径由 WAAPI 驱动 --marcel-reveal-r，起点是
+   applyUiTheme 写在 <html> 上的 --marcel-reveal-x/y）。羽化带宽 80px，与 uiTheme.ts
+   的 REVEAL_FEATHER_PX 一致。不逐元素过渡（继承色会错拍、摘类时被掐断）。
+   pointer-events:none 让揭开期间页面照常可点。「减少动态效果」时 applyUiTheme 根本不发起过渡。 */
+@property --marcel-reveal-r {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html.marcel-theme-transition,
-  html.marcel-theme-transition *,
-  html.marcel-theme-transition *::before,
-  html.marcel-theme-transition *::after {
-    transition-duration: 1ms;
-  }
+::view-transition {
+  pointer-events: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(root) {
+  -webkit-mask-image: radial-gradient(
+    circle at var(--marcel-reveal-x, 50%) var(--marcel-reveal-y, 50%),
+    #000 calc(var(--marcel-reveal-r) - 80px),
+    transparent var(--marcel-reveal-r)
+  );
+  mask-image: radial-gradient(
+    circle at var(--marcel-reveal-x, 50%) var(--marcel-reveal-y, 50%),
+    #000 calc(var(--marcel-reveal-r) - 80px),
+    transparent var(--marcel-reveal-r)
+  );
 }
 
 /* Spring keyframes for toggle/button animations */

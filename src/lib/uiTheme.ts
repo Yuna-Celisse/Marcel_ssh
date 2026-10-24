@@ -784,45 +784,126 @@ export function resolveThemeVars(
 const THEME_CACHE_KEY = "marcel.uiTheme.cache";
 
 /* ── 主题切换过渡 ──
-   写变量前临时挂上过渡类（globals.css 里只过渡颜色类属性），写完延时摘除。
-   期间连续切换（预览连发）会不断续期，停稳后才摘。 */
-const THEME_TRANSITION_CLASS = "marcel-theme-transition";
-const THEME_TRANSITION_MS = 600;
-let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+   从点击处向外扩散的圆形揭开（View Transitions）：旧页面快照垫底不动，新页面被一个
+   羽化边缘的圆形遮罩从触发点（鼠标/手指落点）推开。动效锚定在用户刚点的那个预设上，
+   一眼看得出「是我点的这下换的」；遮罩半径是注册过的 CSS 属性（globals.css），
+   羽化边缘靠 mask 渐变实现，WAAPI 直接驱动半径。
+   不能改回「给所有元素挂 transition: color」——文字色是继承来的，父元素每渐变一帧
+   子元素就重新起一次过渡，文字会比其它颜色慢半拍，还会在摘过渡类时被掐断、闪一下。
+   不支持（旧 WebView / 测试环境）或「减少动态效果」时直接换色。 */
+type ViewTransitionDocument = {
+  startViewTransition?: (update: () => void) => ViewTransition;
+};
 
-/** DOM 应用：写变量、切 color-scheme、同步 data-marcel-theme（终端配色联动读它）。
- *  `animate` 控制是否挂过渡类：启动首帧与早期缓存应用传 false（不欢迎开机动画），
- *  运行中的主题切换传 true（深浅切换不产生亮度跳变）。 */
-export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  if (animate) {
-    root.classList.add(THEME_TRANSITION_CLASS);
-    // 强制一次样式计算：过渡属性要先于变量变更进入 computed style 才会动起来
-    void root.offsetWidth;
-    if (transitionTimer) clearTimeout(transitionTimer);
-    transitionTimer = setTimeout(() => {
-      root.classList.remove(THEME_TRANSITION_CLASS);
-      transitionTimer = null;
-    }, THEME_TRANSITION_MS);
-  } else {
-    root.classList.remove(THEME_TRANSITION_CLASS);
-    if (transitionTimer) {
-      clearTimeout(transitionTimer);
-      transitionTimer = null;
-    }
+const REVEAL_MS = 750;
+const REVEAL_EASING = "cubic-bezier(0.5, 0, 0.15, 1)";
+/** 遮罩羽化带宽度，需与 globals.css 里 mask 渐变的 80px 一致。 */
+const REVEAL_FEATHER_PX = 80;
+/** 点击到主题应用之间的最长间隔：超过说明不是这次点击触发的（键盘、系统切换、启动同步）。 */
+const REVEAL_ORIGIN_MAX_AGE_MS = 1500;
+
+let lastPointer: { x: number; y: number; at: number } | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "pointerdown",
+    (e) => {
+      lastPointer = { x: e.clientX, y: e.clientY, at: performance.now() };
+    },
+    { capture: true, passive: true },
+  );
+}
+
+/** 扩散起点：刚点的位置；没有近期点击（键盘触发等）就从视口中心。 */
+function revealOrigin(): { x: number; y: number } {
+  if (
+    lastPointer &&
+    performance.now() - lastPointer.at < REVEAL_ORIGIN_MAX_AGE_MS
+  ) {
+    return { x: lastPointer.x, y: lastPointer.y };
   }
+  return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+}
+
+/** 发起一次圆形揭开：先把起点写进变量，快照就绪后驱动遮罩半径从 0 扩到盖满视口。 */
+function startRevealTransition(
+  doc: ViewTransitionDocument,
+  update: () => void,
+): void {
+  const root = document.documentElement;
+  const { x, y } = revealOrigin();
+  root.style.setProperty("--marcel-reveal-x", `${x}px`);
+  root.style.setProperty("--marcel-reveal-y", `${y}px`);
+  const transition = doc.startViewTransition!(update);
+  const maxR =
+    Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y),
+    ) + REVEAL_FEATHER_PX;
+  transition.ready
+    ?.then(() => {
+      root.animate(
+        { "--marcel-reveal-r": ["0px", `${maxR}px`] },
+        {
+          duration: REVEAL_MS,
+          easing: REVEAL_EASING,
+          fill: "both",
+          pseudoElement: "::view-transition-new(root)",
+        },
+      );
+    })
+    .catch(() => {
+      // 过渡被后一次切换跳过：页面已经直接落到最终状态，无需处理。
+    });
+}
+
+/** 最近一次要落到 DOM 的主题：过渡回调是异步的，回调里写它而不是调用时的参数，
+ *  否则连发时旧回调会把新主题盖回去。 */
+let latestTheme: UiThemeSettings | null = null;
+/** 上一次应用的「预设 + 明暗」：落到另一个在册预设时才值得揭开。 */
+let lastAppliedKey: string | null = null;
+
+function writeThemeToDom(theme: UiThemeSettings): void {
+  const root = document.documentElement;
   for (const [name, value] of Object.entries(resolveThemeVars(theme))) {
     root.style.setProperty(name, value);
   }
   const scheme = resolveUiThemeScheme(theme);
   root.style.colorScheme = scheme;
   root.dataset.marcelTheme = scheme;
+}
+
+/** DOM 应用：写变量、切 color-scheme、同步 data-marcel-theme（终端配色联动读它）。
+ *  `animate` 控制是否允许整页淡入：启动首帧与早期缓存应用传 false（不欢迎开机动画）。
+ *  即使 animate=true，也只在预设或明暗变了时才淡入——自定义里拖颜色要的是即时反馈，
+ *  不是每改一下都淡一次（淡入期间的后续写入会实时出现在「新页面」层里）。 */
+export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
+  if (typeof document === "undefined") return;
+  latestTheme = theme;
   try {
     localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(theme));
   } catch {
     // 存储不可用（隐私 WebView）时跳过缓存，设置加载后会再应用一次。
   }
+  const key = `${theme.presetId}|${resolveUiThemeScheme(theme)}`;
+  // 只有「落到某个在册预设」才值得揭开。落到「自定义」（编辑器里一改色 presetId 就变成
+  // custom）一律直接生效：揭开期间圆外是冻结的旧快照，拖颜色会大半屏不跟手。
+  const changed =
+    lastAppliedKey !== null &&
+    lastAppliedKey !== key &&
+    getUiThemePreset(theme.presetId) !== undefined;
+  lastAppliedKey = key;
+
+  const doc = document as unknown as ViewTransitionDocument;
+  const reduceMotion =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (animate && changed && !reduceMotion && doc.startViewTransition) {
+    startRevealTransition(doc, () => {
+      if (latestTheme) writeThemeToDom(latestTheme);
+    });
+    return;
+  }
+  writeThemeToDom(theme);
 }
 
 /**
