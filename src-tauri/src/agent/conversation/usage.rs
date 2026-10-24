@@ -206,6 +206,24 @@ impl ConversationDb {
         sum_with_sub_conversations(&conn, conversation_id).map(Some)
     }
 
+    /// 轻量读会话**自己**的用量块（只 SELECT `usage_json` 一列，不汇总子对话）。
+    /// 供 agent loop 的压力压缩锚点兜底：任务启动/重启后的第一轮还没有内存
+    /// 锚点，用落库 `last_context` 里 provider 报过的最近一次请求真实值。
+    pub fn conversation_usage(&self, conversation_id: &str) -> RusqliteResult<ConversationUsage> {
+        let conn = self.conn.lock().unwrap();
+        // 闭包已按「列可空」返回 `Option<String>`，`.optional()?` 的外层 None =
+        // 会话行不存在（刚被删）：对兜底锚点而言与「无用量」同义，回落整块为空。
+        let raw = conn
+            .query_row(
+                "SELECT usage_json FROM conversations WHERE id = ?1",
+                [conversation_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .unwrap_or_default();
+        Ok(ConversationUsage::from_json_column(raw))
+    }
+
     /// 记一笔**会话之外**的模型调用（后台记忆复盘）的用量：只累加，不碰
     /// `last_context`——占用环讲的是这段对话的上下文，复盘那次请求不是。
     ///

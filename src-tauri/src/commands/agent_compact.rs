@@ -149,7 +149,8 @@ pub async fn agent_compact_conversation(
         &mut messages,
         &llm_manager,
         &tools,
-        0, // context_window 仅 pressure 触发使用，Manual 跳过阈值
+        0,    // context_window 仅 pressure 触发使用，Manual 跳过阈值
+        None, // pressure 锚点仅 pressure 触发使用
         crate::agent::context::CompactionTrigger::Manual,
         &mut cancel_rx,
         &on_event,

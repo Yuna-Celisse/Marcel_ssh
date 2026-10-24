@@ -359,6 +359,17 @@ pub(crate) async fn run_agent_loop(
     let max_rounds = agent_settings.max_tool_rounds.max(10);
     // 上下文超限恢复预算：每成功一轮重置（对齐 DSH maxOverflowRetries 语义）
     let mut overflow_retries = 0usize;
+    // 压力压缩的真实锚点：上一轮请求 provider 报的 prompt_tokens（精确值）。
+    // chars/4 估算对中文/图片系统性低估，单靠它判压力会在面板已显示 100% 时
+    // 压缩沉默；锚点每轮请求后刷新、压缩后失效（见 phases.rs 的 request_round_reply）。
+    // 启动兜底：任务重启后的第一轮还没有内存锚点，用落库最近一次请求的真实值。
+    let mut pressure_anchor: Option<u64> = persister
+        .conv_db
+        .conversation_usage(&conversation_id)
+        .ok()
+        .and_then(|usage| usage.last_context)
+        .filter(|last| !last.estimated)
+        .map(|last| last.used_tokens);
     // 连续哑火（无可见正文、无工具调用）计数：模型产出可见正文或工具调用即清零，
     // 上限见 `EMPTY_REPLY_MAX_RETRIES`。
     let mut empty_reply_retries = 0usize;
@@ -412,6 +423,7 @@ pub(crate) async fn run_agent_loop(
             &llm_manager,
             &mut cancel_rx,
             &mut overflow_retries,
+            &mut pressure_anchor,
             is_subtask,
             &agent_settings,
         )
@@ -476,7 +488,14 @@ pub(crate) async fn run_agent_loop(
             &mut messages,
             &mut empty_reply_retries,
         ) {
-            emit_message_saved(&app, &event_name, &conversation_id, "assistant", &db_id, None);
+            emit_message_saved(
+                &app,
+                &event_name,
+                &conversation_id,
+                "assistant",
+                &db_id,
+                None,
+            );
         }
 
         // 4. Execute tool calls via the dispatcher.

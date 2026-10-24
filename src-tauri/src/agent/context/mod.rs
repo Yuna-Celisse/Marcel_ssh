@@ -358,11 +358,30 @@ fn shrink_region_for_retry(
 /// `CompactionEvent::Skipped` 事件并置 `outcome = None`。**任何失败路径
 /// messages 都未被修改**（唯一修改点是 splice，其前所有校验通过后才执行，
 /// 之后无失败路径）。
+/// pressure 度量合成：真实锚点与本地估算取大者。
+///
+/// 锚点 = 上一轮请求 provider 报的 `prompt_tokens`（精确值，含 tools schema）。
+/// 本地估算对中文（0.25 token/字 vs 真实 ≥0.7）与随消息发送的图片系统性低估，
+/// 单独用它判压力，中文长会话会在面板已显示 100% 时压缩永远沉默（2026-10
+/// droidspaces 会话 262K/256K 未触发的事故）。估算仍保留两重作用：渠道没报
+/// 用量时没有锚点；锚点不含本轮新贴的大块内容，英文场景估算能补上。
+fn pressure_measurement(estimated: usize, anchor: Option<u64>) -> usize {
+    estimated.max(anchor.unwrap_or(0) as usize)
+}
+
+/// 修剪后的锚点折减：锚点是**修剪前**那次请求的计数，pruner 摘掉的量按本地
+/// 估算扣回去再比阈值（省量多为英文工具结果文本，估算器量删除相对准；扣减
+/// 不足只会让压缩提前，方向安全）。
+fn anchor_after_prune(anchor: Option<u64>, saved: usize) -> usize {
+    anchor.unwrap_or(0).saturating_sub(saved as u64) as usize
+}
+
 pub async fn compact_if_needed(
     msgs: &mut Vec<LlmMessage>,
     manager: &LlmManager,
     tools: &[ToolDefinition],
     context_window: u64,
+    pressure_anchor: Option<u64>,
     trigger: CompactionTrigger,
     cancel_rx: &mut watch::Receiver<bool>,
     on_event: &(dyn Fn(CompactionEvent) + Sync),
@@ -533,7 +552,8 @@ pub async fn compact_if_needed(
             }
         }
         CompactionTrigger::Pressure => {
-            let mut measurement = measure(msgs);
+            let estimated_before = measure(msgs);
+            let mut measurement = pressure_measurement(estimated_before, pressure_anchor);
             let Some((threshold, retain_tokens)) = pressure_eligible(context_window, measurement)
             else {
                 return CompactionRun {
@@ -541,9 +561,15 @@ pub async fn compact_if_needed(
                     events,
                 };
             };
-            // 第一阶段：model-free 修剪
+            // 第一阶段：model-free 修剪。修剪确实会缩小下一轮请求，锚点按
+            // 估算省量折减后再复测（见 `anchor_after_prune`）。
             pruner::prune_messages(msgs, &prune_cfg);
-            measurement = measure(msgs);
+            let estimated_after = measure(msgs);
+            let anchored = anchor_after_prune(
+                pressure_anchor,
+                estimated_before.saturating_sub(estimated_after),
+            );
+            measurement = estimated_after.max(anchored);
             if measurement < threshold {
                 return CompactionRun {
                     outcome: None,
@@ -900,6 +926,35 @@ mod tests {
         // window=100_000 → threshold=80_000, retain=16_000
         assert_eq!(pressure_eligible(100_000, 80_000 - 1), None);
         assert_eq!(pressure_eligible(100_000, 80_000), Some((80_000, 16_000)));
+    }
+
+    #[test]
+    fn pressure_measurement_prefers_real_anchor() {
+        // 估算对中文/图片系统性低估：真实锚点 262K 必须盖过估算 155K——
+        // 这是 droidspaces 会话「面板 100%、压缩沉默」事故的判定修复点。
+        assert_eq!(pressure_measurement(155_000, Some(262_000)), 262_000);
+        // 估算胜出的场景：渠道没报用量（无锚点）退回纯估算；中途贴入锚点
+        // 不含的大块新内容（英文场景估算准）。
+        assert_eq!(pressure_measurement(155_000, None), 155_000);
+        assert_eq!(pressure_measurement(300_000, Some(262_000)), 300_000);
+    }
+
+    #[test]
+    fn pressure_eligible_sees_through_estimate_shortfall() {
+        // 端到端判定口径：估算 155K 在阈值之下，但真实锚点 262K 超过
+        // 256K 窗口 × 0.8 = 204.8K —— 必须给出触发资格。
+        let measurement = pressure_measurement(155_000, Some(262_000));
+        assert!(pressure_eligible(256_000, measurement).is_some());
+        // 无锚点（渠道没报用量）时维持旧行为：估算 155K 不触发。
+        assert!(pressure_eligible(256_000, pressure_measurement(155_000, None)).is_none());
+    }
+
+    #[test]
+    fn anchor_after_prune_deducts_estimate_saved() {
+        // pruner 摘掉 100K（估算口径），锚点从 262K 折到 162K；折减不越过 0。
+        assert_eq!(anchor_after_prune(Some(262_000), 100_000), 162_000);
+        assert_eq!(anchor_after_prune(Some(50_000), 100_000), 0);
+        assert_eq!(anchor_after_prune(None, 100_000), 0);
     }
 
     #[test]

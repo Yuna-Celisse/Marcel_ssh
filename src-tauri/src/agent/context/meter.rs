@@ -1,7 +1,9 @@
-//! 固定密度启发式 token 估算（对齐 DSH `token-meter/estimate.ts`）：
-//! 统一密度 `chars/4` + 每文本块 4 token 结构开销 + 每消息 4 token 角色开销。
-//! `content`/`reasoning_content`/tool 参数一视同仁。
-//! 只用于压缩触发判断与定价，不参与任何持久化/事件。
+//! 启发式 token 估算：非 CJK 文本按统一密度 `chars/4`（对齐 DSH
+//! `token-meter/estimate.ts`），中日韩按 ~0.7 token/字（对齐前端
+//! `tokenUsage.ts` 的 `estimateTextTokens`——同一仓库两套估算器必须同口径），
+//! 随消息发送的图片按张计一笔。另加每文本块 4 token 结构开销 + 每消息
+//! 4 token 角色开销，`content`/`reasoning_content`/tool 参数一视同仁。
+//! 只用于压缩触发判断、压力兜底与展示估算，不参与任何持久化/事件。
 
 use crate::llm::provider::{LlmMessage, LlmRole, ToolDefinition};
 
@@ -11,19 +13,45 @@ pub const CHARS_PER_TOKEN: usize = 4;
 pub const BLOCK_OVERHEAD: usize = 4;
 /// 每条消息的角色字段开销。
 pub const ROLE_OVERHEAD: usize = 4;
+/// 中日韩字符密度分子/分母：每字约 0.7 token（中文在主流 tokenizer 里
+/// 0.6~1 token/字，`chars/4` 只给 0.25，会把中文会话的用量低估三倍上下）。
+const CJK_TOKENS_NUMERATOR: usize = 7;
+const CJK_TOKENS_DENOMINATOR: usize = 10;
+/// 单张随消息发送图片的估算（Claude 口径 `(宽×高)/750` 的常见档位）。provider
+/// 实际按分辨率计；vision 关闭时真实请求只发 `[image]` 占位符，这一笔会偏高
+/// ——偏高只会让压力触发提前，方向安全。
+pub const IMAGE_TOKEN_ESTIMATE: usize = 1600;
 
 #[inline]
 fn ceil_div(n: usize, d: usize) -> usize {
     (n + d - 1) / d
 }
 
-/// 文本 token 估算（统一密度，不区分语言）。
+/// 中日韩字符（范围与前端 `estimateTextTokens` 逐字对齐：汉字/假名/韩文/全角形式）。
 #[inline]
-fn text_tokens(s: &str) -> usize {
-    ceil_div(s.chars().count(), CHARS_PER_TOKEN)
+fn is_cjk(ch: char) -> bool {
+    let c = ch as u32;
+    (0x2e80..=0x9fff).contains(&c)
+        || (0xac00..=0xd7af).contains(&c)
+        || (0xff00..=0xffef).contains(&c)
 }
 
-/// 估算一条消息的 token 数（content + reasoning_content + tool_calls + 角色开销）。
+/// 文本 token 估算：CJK 按字计（0.7/字），其余按 chars/4。
+#[inline]
+fn text_tokens(s: &str) -> usize {
+    let mut cjk = 0usize;
+    let mut other = 0usize;
+    for ch in s.chars() {
+        if is_cjk(ch) {
+            cjk += 1;
+        } else {
+            other += 1;
+        }
+    }
+    cjk * CJK_TOKENS_NUMERATOR / CJK_TOKENS_DENOMINATOR + ceil_div(other, CHARS_PER_TOKEN)
+}
+
+/// 估算一条消息的 token 数（content + reasoning_content + tool_calls + 图片 + 角色开销）。
 pub fn estimate_message(msg: &LlmMessage) -> usize {
     let mut tokens = 0usize;
 
@@ -41,6 +69,11 @@ pub fn estimate_message(msg: &LlmMessage) -> usize {
             tokens += text_tokens(&tc.arguments.to_string());
             tokens += BLOCK_OVERHEAD;
         }
+    }
+    // 历史投影每次都会把图片路径填回消息（llm_history），vision 开启时它们
+    // 随消息作为多模态内容发出并被 provider 计入 prompt——估算不能对它们盲区。
+    if let Some(paths) = msg.image_paths.as_ref() {
+        tokens += paths.len() * IMAGE_TOKEN_ESTIMATE;
     }
 
     tokens + ROLE_OVERHEAD
@@ -125,10 +158,33 @@ mod tests {
     }
 
     #[test]
-    fn multibyte_chars_count_as_single_units() {
-        // 中文按字符数计（非字节）："中文" = ceil(2/4) = 1 token
-        let m = LlmMessage::user("中文");
+    fn multibyte_non_cjk_counts_as_single_units() {
+        // 非 CJK 的多字节字符按字符数计（非字节）："é" 1 字符 = ceil(1/4) = 1 token
+        let m = LlmMessage::user("é");
         assert_eq!(estimate_message(&m), 1 + BLOCK_OVERHEAD + ROLE_OVERHEAD);
+    }
+
+    #[test]
+    fn cjk_chars_priced_at_seven_tenths() {
+        // 中文 0.7 token/字（对齐前端 estimateTextTokens）：100 字 = 70 token，
+        // 而不是 chars/4 的 25——低估三倍会让压力压缩在中文会话里永不触发。
+        let text = "汉".repeat(100);
+        let m = LlmMessage::user(&text);
+        assert_eq!(estimate_message(&m), 70 + BLOCK_OVERHEAD + ROLE_OVERHEAD);
+    }
+
+    #[test]
+    fn images_are_priced_per_attachment() {
+        // 历史投影把图片路径填回消息、vision 开启时随请求发出：估算不能盲区。
+        let mut m = LlmMessage::user("看这张图");
+        m.image_paths = Some(vec!["images/a.png".into(), "images/b.png".into()]);
+        let with_images = estimate_message(&m);
+        let mut bare = LlmMessage::user("看这张图");
+        bare.image_paths = None;
+        assert_eq!(
+            with_images,
+            estimate_message(&bare) + 2 * IMAGE_TOKEN_ESTIMATE
+        );
     }
 
     #[test]

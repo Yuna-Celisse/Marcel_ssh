@@ -1159,6 +1159,266 @@ fn scripted_production_loop_manual_compaction_roundtrip() {
     dir.close().expect("remove the isolated scenario directory");
 }
 
+// ═════════════════ 场景 1.5：压力压缩的真实锚点触发 ═════════════════
+//
+// chars/4 估算对中文（0.25 token/字 vs 真实 ≥0.7）与随消息发送的图片系统性
+// 低估——单靠估算判压力，中文长会话会在面板已显示 100% 时压缩永远沉默
+// （2026-10 droidspaces 262K/256K 未触发的事故）。本场景把修复钉成端到端：
+// 窗口 20K（阈值 16K），本地估算全程低于阈值，只有轮 1 usage 帧报的真实
+// prompt_tokens（18K）能把压力推过线。若锚点链路断（usage 没记账、触发点
+// 没看锚点），轮 2 会照常发 feedback 请求，scripted 顺序对不上直接爆红。
+
+const PRESSURE_WINDOW: u64 = 20_000;
+const PRESSURE_ANCHOR_PROMPT_TOKENS: u64 = 18_000;
+const PRESSURE_FINAL_TEXT: &str = "压力压缩后回合正常收尾。";
+/// 两个工具回合各 ~1.6K token 的输出：保留尾部（retain = 20K×0.16 = 3.2K）
+/// 靠它们在吃掉长 user 之前吃饱，区间 [user] 才非空；全量估算同时必须压在
+/// 阈值（16K）之下，锚点触发才成立。
+const PRESSURE_OUTPUT: &str = "deployment log line with structured fields. ";
+
+fn pressure_output() -> String {
+    PRESSURE_OUTPUT.repeat(320)
+}
+
+fn tool_frames_with_usage(call_id: &str, command: &str, prompt_tokens: u64) -> Vec<Value> {
+    let mut frames = tool_frames(call_id, command);
+    let last = frames
+        .last_mut()
+        .expect("tool frames end with a final chunk");
+    last["usage"] = json!({
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": 50,
+        "total_tokens": prompt_tokens + 50,
+    });
+    frames
+}
+
+#[test]
+fn scripted_production_loop_pressure_compaction_via_real_anchor() {
+    let Scenario { dir, app, runtime } = build_scenario();
+    runtime.block_on(async {
+        // 比 compact_long_prompt 短一档：压力场景的保留尾部（retain = 窗口×0.16）
+        // 必须在吃掉这条 user 之前就吃饱，早期回合才能成为可压区间；同时全量
+        // 估算（system + tools + 历史 ≈ 15K）必须低于阈值（20K×0.8 = 16K）——
+        // 只有锚点能把压力推过线，判据才成立。
+        let long_prompt = format!(
+            "【{FILLER_MARKER}】{}\n读完后执行检查并汇报。",
+            COMPACT_FILLER.repeat(100)
+        );
+        let model = ScriptedModel::start(vec![
+            ModelStep {
+                label: "pressure round initial request",
+                check: Box::new(|request| {
+                    let messages = request_messages(request)?;
+                    require(
+                        messages.last().is_some_and(|m| {
+                            m["role"] == "user"
+                                && m["content"]
+                                    .as_str()
+                                    .is_some_and(|c| c.contains(FILLER_MARKER))
+                        }),
+                        "the long user prompt must reach the first request",
+                    )
+                }),
+                frames: tool_frames_with_usage(
+                    "anchor-call",
+                    COMMAND,
+                    PRESSURE_ANCHOR_PROMPT_TOKENS,
+                ),
+                error_status: None,
+                abort_stream: false,
+            },
+            ModelStep {
+                label: "pressure round feedback (second tool round)",
+                check: Box::new(|request| {
+                    let messages = request_messages(request)?;
+                    require(
+                        messages
+                            .iter()
+                            .map(|m| m["role"].as_str().unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            == vec!["system", "user", "assistant", "tool"],
+                        "first round history shape drifted",
+                    )?;
+                    require(
+                        messages[3]["tool_call_id"] == "anchor-call"
+                            && messages[3]["content"]
+                                .as_str()
+                                .is_some_and(|c| c.starts_with(PRESSURE_OUTPUT)),
+                        "tool output did not reach the next model request",
+                    )
+                }),
+                // 第二个工具回合：给保留尾部留出内容，早期长文档回合才能成为
+                // 可压区间（单回合历史会被 retain 整段留下、区间选择为空）。
+                frames: tool_frames("anchor-call-2", COMMAND),
+                error_status: None,
+                abort_stream: false,
+            },
+            ModelStep {
+                label: "summarizer request (anchor crossed the threshold)",
+                check: Box::new(|request| {
+                    let messages = request["messages"].as_array().ok_or("missing messages")?;
+                    let dump = messages
+                        .iter()
+                        .map(|m| {
+                            format!(
+                                "{}:{:?}",
+                                m["role"].as_str().unwrap_or_default(),
+                                m["content"]
+                                    .as_str()
+                                    .map(|c| c.chars().take(50).collect::<String>())
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    require(
+                        messages.iter().all(|m| m["role"] != "system"),
+                        &format!("摘要请求不得携带会话 system 提示，messages={dump:?}"),
+                    )?;
+                    require(
+                        messages.last().is_some_and(|m| {
+                            m["role"] == "user"
+                                && m["content"].as_str().is_some_and(|c| c.starts_with("STOP"))
+                        }),
+                        "摘要指令必须作为最后一条 user 消息",
+                    )?;
+                    require(
+                        messages.iter().any(|m| {
+                            m["content"]
+                                .as_str()
+                                .is_some_and(|c| c.contains(FILLER_MARKER))
+                        }),
+                        "被压区间必须包含待归档原文",
+                    )
+                }),
+                frames: summary_frames(),
+                error_status: None,
+                abort_stream: false,
+            },
+            ModelStep {
+                label: "post-compaction request",
+                check: Box::new(|request| {
+                    let messages = request_messages(request)?;
+                    require(
+                        messages.iter().any(|m| {
+                            m["content"].as_str().is_some_and(|c| {
+                                c.contains("<compacted-summary>") && c.contains(SUMMARY_MARKER)
+                            })
+                        }),
+                        "压缩卡必须随压缩后的请求下发",
+                    )?;
+                    require(
+                        !messages.iter().any(|m| {
+                            m["content"]
+                                .as_str()
+                                .is_some_and(|c| c.contains(FILLER_MARKER))
+                        }),
+                        "归档原文不得泄漏进压缩后的请求",
+                    )
+                }),
+                frames: text_frames(PRESSURE_FINAL_TEXT),
+                error_status: None,
+                abort_stream: false,
+            },
+        ])
+        .await;
+        let exec = Arc::new(ScriptedExec::default().with_output(COMMAND, &pressure_output()));
+        let state = isolated_state(dir.path(), &model.base_url, exec.clone());
+        app.manage(state.clone());
+        // 压力窗口只在任务启动时读一次：spawn 前把测试窗口写进设置。
+        state
+            .settings
+            .write()
+            .await
+            .agent_mode_settings
+            .context_window = PRESSURE_WINDOW;
+        let parent = state
+            .conversation_db
+            .create_conversation("scripted-connection", "parent")
+            .unwrap();
+        state.agent_tasks.write().insert(
+            "scripted-parent".into(),
+            parent_task_fixture("scripted-parent", &parent.id),
+        );
+        let (events, event_listener) = capture_events(&app);
+        let manager = AgentManager::new(state.clone());
+        let conversation = state
+            .conversation_db
+            .create_sub_conversation("scripted-connection", "pressure", &parent.id)
+            .unwrap();
+
+        let handle = manager
+            .spawn(
+                app.handle(),
+                local_spec(
+                    "scripted-pressure",
+                    &conversation.id,
+                    &long_prompt,
+                    AgentMode::Auto,
+                ),
+            )
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(DEADLINE, handle.join())
+            .await
+            .expect("roundtrip completed within deadline");
+        model.assert_no_errors();
+        assert_eq!(result.as_deref(), Some(PRESSURE_FINAL_TEXT));
+
+        // 锚点落库：轮 1 usage 帧的 prompt_tokens 计入累计——重启后任务启动
+        // 的兜底锚点就从这里读（conversation_usage → last_context 过滤 estimated）。
+        let usage = state
+            .conversation_db
+            .conversation_usage(&conversation.id)
+            .unwrap();
+        assert_eq!(usage.prompt_tokens, PRESSURE_ANCHOR_PROMPT_TOKENS);
+
+        // 压缩发生了且以 pressure 名义：卡落库、活跃段不再有归档原文。
+        let rows = state
+            .conversation_db
+            .load_messages(&conversation.id)
+            .unwrap();
+        let cards: Vec<_> = rows.iter().filter(|m| m.role == "system").collect();
+        assert_eq!(cards.len(), 1, "压力压缩必须产出恰好一张压缩卡");
+        assert!(cards[0].content.contains(SUMMARY_MARKER));
+        let active = state
+            .conversation_db
+            .load_active_messages(&conversation.id)
+            .unwrap();
+        assert!(
+            !active
+                .messages
+                .iter()
+                .any(|m| m.content.contains(FILLER_MARKER)),
+            "归档原文必须退出活跃段"
+        );
+
+        // 压缩事件实时转发，trigger 名标注 pressure（前端进行中卡片据此区分文案）。
+        {
+            let events = events.lock();
+            let stream = "agent://stream/scripted-pressure";
+            assert!(
+                events.iter().any(|event| {
+                    event["event"] == stream
+                        && event["data"]["type"] == "compactionStart"
+                        && event["data"]["trigger"] == "pressure"
+                }),
+                "compactionStart(trigger=pressure) 必须实时转发"
+            );
+            assert!(events_contain(&events, stream, "compactionDone"));
+        }
+        model.assert_consumed();
+        app.unlisten(event_listener);
+    });
+    drop(runtime);
+    #[allow(deprecated)]
+    let managed_state = app
+        .unmanage::<AppState>()
+        .expect("unmanage isolated AppState");
+    drop(managed_state);
+    drop(app);
+    dir.close().expect("remove the isolated scenario directory");
+}
+
 // ═══════════════════════════ 场景 2：流式失败与重试 ═══════════════════════════
 //
 // 三条互不相同的失败路径，验收全部落在「历史拼装不脏」上：
@@ -2722,8 +2982,10 @@ fn hanging_mcp_server_does_not_delay_task_start() {
                 .is_ok();
             (got, asked.elapsed())
         };
-        let (spawned, (lock_got, lock_wait)) =
-            tokio::join!(manager.spawn(app.handle(), main_spec("hang-first", &conv1.id)), probe);
+        let (spawned, (lock_got, lock_wait)) = tokio::join!(
+            manager.spawn(app.handle(), main_spec("hang-first", &conv1.id)),
+            probe
+        );
         let handle = spawned.expect("spawn");
         let spawn_returned = t0.elapsed();
         let result = tokio::time::timeout(Duration::from_secs(60), handle.join())
@@ -2738,7 +3000,10 @@ fn hanging_mcp_server_does_not_delay_task_start() {
             lock_wait, lock_got
         );
         println!("  任务结果              : {:?}", result);
-        println!("  MCP 服务器收到的连接数: {}", connections.load(std::sync::atomic::Ordering::SeqCst));
+        println!(
+            "  MCP 服务器收到的连接数: {}",
+            connections.load(std::sync::atomic::Ordering::SeqCst)
+        );
 
         // 等真实的 30 秒 MCP 请求超时过去，失败原因写进缓存。
         tokio::time::sleep(Duration::from_secs(32).saturating_sub(t0.elapsed())).await;

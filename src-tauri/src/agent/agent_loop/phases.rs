@@ -56,19 +56,20 @@ pub(super) fn prepare_turn(
         .with_user_input(user_input);
 
     // history 由后端从有序快照投影：携带 dbId 的消息对前端 store 可见
-    // （db_id_known=true，自动 pressure 压缩据此收缩到前端能找到的区间末条）；
-    // 运行中 save 回填的消息保持 false（前端不知 id）。
-    for m in &mut *messages {
-        if m.db_id.is_some() {
-            m.db_id_known = true;
-        }
-    }
-
+    // （db_id_known=true，自动 pressure 压缩据此收缩到前端能找到的区间末条）。
+    // 本回合锚点（begin_turn 刚落库的 user 行）紧随其后广播 messageSaved，
+    // 前端同样拿得到 id——所以回填循环放在 begin_turn **之后**，锚点一并置
+    // known；否则单回合长任务的整个可压区间都无已知锚点，pressure 压缩必跳过。
     persister.update_title_from_first_user_msg(messages);
     // 回合锚点：落库 user 消息并把这一行标成 running（崩溃时它就是「没收尾」
     // 的持久证据）。行 id 记到任务上——收尾在 `manager::finalize_task` 里，
     // 那里只能从任务记录拿锚点。写失败/无 user 行 → None，本回合不记录状态。
     let turn_anchor_id = persister.begin_turn(messages);
+    for m in &mut *messages {
+        if m.db_id.is_some() {
+            m.db_id_known = true;
+        }
+    }
     if let Some(anchor_id) = &turn_anchor_id {
         if let Some(task) = state.agent_tasks.write().get_mut(task_id) {
             task.turn_anchor_id = Some(anchor_id.clone());
@@ -142,6 +143,7 @@ pub(super) async fn request_round_reply(
     llm_manager: &std::sync::Arc<LlmManager>,
     mut cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     overflow_retries: &mut usize,
+    pressure_anchor: &mut Option<u64>,
     is_subtask: bool,
     agent_settings: &AgentModeSettings,
 ) -> RoundOutcome {
@@ -189,6 +191,7 @@ pub(super) async fn request_round_reply(
         compact_manager,
         &tools,
         agent_settings.context_window,
+        *pressure_anchor,
         crate::agent::context::CompactionTrigger::Pressure,
         cancel_rx,
         &on_event,
@@ -199,6 +202,10 @@ pub(super) async fn request_round_reply(
         if persisted {
             // 长期记忆：注入快照随压缩刷新；被压掉的那段已有结论，复盘它。
             crate::memory::reflect::on_compacted(state, conversation_id);
+            // 旧锚点是压缩**前**那次请求的计数，已不代表缩水后的消息集；本轮
+            // 请求变小，结束时记账处会写入新的真实锚点。不清掉会让下一轮拿
+            // 旧锚点再触发一遍压缩。
+            *pressure_anchor = None;
         }
         log::info!(
             "Agent {} compacted: {} messages, ~{} tokens (persisted={})",
@@ -299,6 +306,11 @@ pub(super) async fn request_round_reply(
             Ok(None) => {}
             Err(e) => log::warn!("记录 token 用量失败（会话 {}）: {}", conversation_id, e),
         }
+        // provider 报了用量就把它变成下一轮的压力锚点（精确 prompt 计数，见
+        // `pressure_measurement`）；没报则保持现状（None 或更早一轮的值，估算兜底）。
+        if let Some(u) = round.as_ref() {
+            *pressure_anchor = Some(u.prompt_tokens as u64);
+        }
     }
 
     match result {
@@ -327,6 +339,7 @@ pub(super) async fn request_round_reply(
                     compact_manager,
                     &tools,
                     agent_settings.context_window,
+                    *pressure_anchor,
                     crate::agent::context::CompactionTrigger::ContextOverflow,
                     cancel_rx,
                     &on_event,
@@ -336,6 +349,8 @@ pub(super) async fn request_round_reply(
                     let persisted = persister.persist_compaction(outcome);
                     if persisted {
                         crate::memory::reflect::on_compacted(state, conversation_id);
+                        // 同 pressure：压缩后旧锚点失真，重跑的下一轮先回到纯估算。
+                        *pressure_anchor = None;
                     }
                     *overflow_retries += 1;
                     log::info!(
@@ -500,6 +515,8 @@ pub(super) async fn finish_text_reply(
         cleaned_msg.reasoning_content.as_deref(),
     ) {
         cleaned_msg.db_id = Some(db_id.clone());
+        // 落库 id 已广播（下方 emit）→ 对前端可见，pressure 压缩可用作锚点。
+        cleaned_msg.db_id_known = true;
         // 广播库内 id：前端 live 消息（临时 UUID）据此对上库内身份，
         // 分叉等「拿 live 消息定位」的功能不再依赖会话重载。
         super::emit_message_saved(
@@ -647,6 +664,8 @@ pub(super) fn persist_assistant_tool_calls(
     );
     if let Some(id) = &db_id {
         assistant_msg.db_id = Some(id.clone());
+        // 调用方（agent loop）落库后立刻广播 messageSaved → 前端可见。
+        assistant_msg.db_id_known = true;
     }
     messages.push(assistant_msg);
     db_id

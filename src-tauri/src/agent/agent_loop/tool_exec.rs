@@ -197,6 +197,9 @@ pub(super) async fn execute_tool_batches(
             None,
         ) {
             res.tool_msg.db_id = Some(db_id.clone());
+            // 落库 id 已广播（下方 emit），前端 store 拿得到 → pressure 压缩
+            // 可用它作区间锚点（shrink_to_known_tail 的 known_only 判定）。
+            res.tool_msg.db_id_known = true;
             // 广播库内 id：前端按工具卡片的 toolCallId（与库内同一 id 域）
             // 定位回填，live 工具卡由此对上库内身份。
             super::emit_message_saved(

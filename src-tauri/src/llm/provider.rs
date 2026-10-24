@@ -58,7 +58,10 @@ pub struct LlmMessage {
     pub db_id: Option<String>,
     /// `db_id` 是否对前端 store 可见（前端消息有 `dbId`）：
     /// - history 入口（快照投影保留 dbId 的消息）→ `true`；
-    /// - 运行中 `save_msg`/`save_last_user_msg` 回填 → `false`（前端不知 id）。
+    /// - 运行中落库的消息：落库处**广播** `messageSaved` 的（回合锚点、
+    ///   assistant 正文/工具轮、tool 结果）→ `true`——前端 live 消息由此对上
+    ///   库内身份，单回合长任务的可压区间才有已知锚点；未广播的系统合成
+    ///   注入（哑火补问、作业通知、计划提醒）→ `false`（前端 store 无此消息）。
     ///
     /// 自动 pressure 压缩按 `known_only` 收缩：区间末条必是前端能找到的消息，
     /// **live 降级路径实际不再触发**；overflow 强制压缩允许压运行中消息
