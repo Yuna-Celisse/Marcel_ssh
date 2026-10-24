@@ -261,8 +261,21 @@ pub async fn agent_list_conversations(
 
     let conversations = state
         .conversation_db
-        .list_conversations(&connection_id)
+        .list_active_conversations(&connection_id)
         .map_err(|e| AppError::Agent(format!("Failed to list conversations: {}", e)))?;
+    Ok(overlay_session_models(&state, filter_sub_conversations(conversations)).await)
+}
+
+/// List archived conversations for a connection (archived view).
+#[tauri::command]
+pub async fn agent_list_archived_conversations(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<Conversation>, AppError> {
+    let conversations = state
+        .conversation_db
+        .list_archived_conversations(&connection_id)
+        .map_err(|e| AppError::Agent(format!("Failed to list archived conversations: {}", e)))?;
     Ok(overlay_session_models(&state, filter_sub_conversations(conversations)).await)
 }
 
@@ -639,6 +652,73 @@ pub async fn agent_delete_conversation(
     Ok(())
 }
 
+/// 归档会话（含子agent对话）：默认列表/搜索/长期回忆不再返回它，但消息与
+/// plan 全部保留，可随时恢复。**不做二次确认是产品决定**（见归档按钮文案），
+/// 真正的不可逆操作只有归档视图里的「永久删除」。
+#[tauri::command]
+pub async fn agent_archive_conversation(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<(), AppError> {
+    let archived = state
+        .conversation_db
+        .archive_conversation_cascade(&conversation_id)
+        .map_err(|e| AppError::Agent(format!("Failed to archive conversation: {}", e)))?;
+    log::info!(
+        "Archived conversation: {} (cascade: {})",
+        conversation_id,
+        archived.len()
+    );
+    // 刻意不清理 session_models / session_efforts / 记忆附属数据：
+    // 恢复后模型与档位记忆还要继续生效，归档只是「收起来」。
+    Ok(())
+}
+
+/// 恢复归档会话（含子agent对话）：回到默认列表的原日期分组。
+#[tauri::command]
+pub async fn agent_unarchive_conversation(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<(), AppError> {
+    let restored = state
+        .conversation_db
+        .unarchive_conversation_cascade(&conversation_id)
+        .map_err(|e| AppError::Agent(format!("Failed to unarchive conversation: {}", e)))?;
+    log::info!(
+        "Unarchived conversation: {} (cascade: {})",
+        conversation_id,
+        restored.len()
+    );
+    Ok(())
+}
+
+/// 清理归档超过 N 天的会话。`retention_days <= 0` 表示永不自动清理。
+/// 由前端在启动时按设置项调用（设置是前端的权威来源）。
+#[tauri::command]
+pub async fn agent_purge_expired_archived(
+    state: State<'_, AppState>,
+    retention_days: u64,
+) -> Result<usize, AppError> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+    let purged = state
+        .conversation_db
+        .purge_archived_before(&cutoff.to_rfc3339())
+        .map_err(|e| AppError::Agent(format!("Failed to purge archived conversations: {}", e)))?;
+    if !purged.is_empty() {
+        log::info!(
+            "Purged {} archived conversation(s) older than {} day(s)",
+            purged.len(),
+            retention_days
+        );
+        drop_session_models(&state, &purged);
+        forget_conversations_in_memory(&state, &purged);
+    }
+    Ok(purged.len())
+}
+
 /// Save compressed user images for a message. Returns relative paths under `images/`.
 /// `images_base64` items are raw base64 or data URLs (frontend already compressed).
 #[tauri::command]
@@ -891,7 +971,7 @@ pub async fn agent_list_conversations_by_connection(
 ) -> Result<Vec<Conversation>, AppError> {
     let conversations = state
         .conversation_db
-        .list_conversations(&connection_id)
+        .list_active_conversations(&connection_id)
         .map_err(|e| AppError::Agent(format!("Failed to list conversations: {}", e)))?;
     Ok(overlay_session_models(&state, filter_sub_conversations(conversations)).await)
 }
@@ -903,15 +983,18 @@ pub async fn agent_search_conversations(
     state: State<'_, AppState>,
     keyword: String,
     connection_id: Option<String>,
+    include_archived: Option<bool>,
 ) -> Result<Vec<ConversationSearchResult>, AppError> {
+    let include_archived = include_archived.unwrap_or(false);
     log::info!(
-        "agent_search_conversations: keyword_len={}, connection_filter={}",
+        "agent_search_conversations: keyword_len={}, connection_filter={}, include_archived={}",
         keyword.trim().chars().count(),
-        connection_id.is_some()
+        connection_id.is_some(),
+        include_archived
     );
     let results = state
         .conversation_db
-        .search_conversations(&keyword, connection_id.as_deref())
+        .search_conversations(&keyword, connection_id.as_deref(), include_archived)
         .map_err(|e| AppError::Agent(format!("Failed to search conversations: {}", e)))?;
     Ok(results)
 }
