@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AlertCircle, Check, Loader2, Save, Search, Undo2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
-import BetaTag from '@/components/ui/BetaTag';
 import { SETTINGS_CATEGORIES } from './settingsNavigation';
 import { useSettingsLayout } from './helpers';
 
@@ -80,7 +79,6 @@ export function SettingsSidebar({
           >
             {cat.icon}
             <span className="truncate">{cat.label}</span>
-            {cat.beta && <BetaTag className="ml-auto" />}
           </button>
         ))}
       </nav>

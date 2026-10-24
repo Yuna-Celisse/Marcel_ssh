@@ -103,9 +103,9 @@ export const DEFAULT_MOBILE_BACKGROUND_SETTINGS: MobileBackgroundSettings = {
   keepAliveEnabled: false,
 };
 
-/** 长期记忆还在 Beta：默认关闭，用户自己在设置里打开（与 Rust 侧 `MemorySettings::default` 一致）。 */
+/** 长期记忆默认开启、后台复盘默认关闭（与 Rust 侧 `MemorySettings::default` 一致）。 */
 export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
-  enabled: false,
+  enabled: true,
   autoReflect: false,
 };
 

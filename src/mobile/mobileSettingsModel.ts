@@ -32,8 +32,6 @@ export interface MobileSettingsCategory {
   id: MobileSettingsCategoryId;
   title: string;
   description: string;
-  /** 标题后面标「Beta」。 */
-  beta?: boolean;
 }
 
 export const MOBILE_SETTINGS_CATEGORIES: readonly MobileSettingsCategory[] = [
@@ -61,7 +59,6 @@ export const MOBILE_SETTINGS_CATEGORIES: readonly MobileSettingsCategory[] = [
     id: 'memory',
     title: '记忆',
     description: '长期记忆、后台复盘与整理助手',
-    beta: true,
   },
   {
     id: 'commands-skills',
