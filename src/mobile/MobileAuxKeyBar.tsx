@@ -67,7 +67,7 @@ export default function MobileAuxKeyBar({
           ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
           : isCopy && copied
             ? 'border-emerald-600 bg-emerald-500/20 text-emerald-300'
-            : 'border-zinc-700/80 bg-zinc-800 text-zinc-200 active:bg-zinc-700';
+            : 'border-edge/80 bg-zinc-800 text-zinc-200 active:bg-state-mid';
         return (
           <button
             key={key.id}
@@ -90,7 +90,7 @@ export default function MobileAuxKeyBar({
 
   return (
     <div
-      className="flex flex-shrink-0 flex-col gap-1 border-t border-zinc-800 bg-zinc-900 px-1.5 py-1.5"
+      className="flex flex-shrink-0 flex-col gap-1 border-t border-edge-subtle bg-zinc-900 px-1.5 py-1.5"
       style={{
         // When the IME is open the content area already sits above the
         // keyboard, so subtract --ime-bottom from the nav-bar safe-area to

@@ -382,12 +382,12 @@ export default function ImagePreviewModal({
         data-region="image-preview"
         onKeyDown={handleKeyDown}
         onAnimationEnd={onExitAnimationEnd}
-        className={`relative w-full max-w-6xl mx-4 h-[88vh] rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl flex flex-col overflow-hidden ${
+        className={`relative w-full max-w-6xl mx-4 h-[88vh] rounded-2xl bg-zinc-800 border border-edge shadow-2xl flex flex-col overflow-hidden ${
           closing ? 'modal-panel-exit' : 'modal-panel-enter'
         }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <svg
               className="w-4 h-4 text-zinc-400 flex-shrink-0"
@@ -422,7 +422,7 @@ export default function ImagePreviewModal({
         </div>
 
         {/* 状态栏 */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 border-b border-zinc-700/50 bg-zinc-800/50 flex-shrink-0 text-xs text-zinc-400">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 border-b border-edge/50 bg-zinc-800/50 flex-shrink-0 text-xs text-zinc-400">
           {hasSize && (
             <span>
               大小: <span>{formatSize(fileSize!)}</span>
@@ -550,7 +550,7 @@ export default function ImagePreviewModal({
         </div>
 
         {/* 工具栏 */}
-        <div className="flex items-center justify-center gap-1 px-4 py-2.5 border-t border-zinc-700 flex-shrink-0 bg-zinc-800/80">
+        <div className="flex items-center justify-center gap-1 px-4 py-2.5 border-t border-edge flex-shrink-0 bg-zinc-800/80">
           <ToolbarButton
             title="左旋转 (Shift+R)"
             onClick={() => rotate(-1)}
@@ -721,7 +721,7 @@ export default function ImagePreviewModal({
           <button
             type="button"
             onClick={handleClose}
-            className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+            className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
           >
             关闭
           </button>
@@ -760,7 +760,7 @@ function ToolbarButton({
       className={`p-1.5 rounded-lg transition-colors ${
         active
           ? 'bg-indigo-600 text-white'
-          : 'text-zinc-300 bg-zinc-700/50 hover:bg-zinc-700'
+          : 'text-zinc-300 bg-zinc-700/50 hover:bg-state-mid'
       } disabled:opacity-30 disabled:cursor-not-allowed`}
     >
       {children}

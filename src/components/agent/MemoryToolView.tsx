@@ -103,7 +103,7 @@ function MemoryCard({ meta }: { meta: MemoryToolMeta }) {
     else setError('这条记忆已经不在了（被删除或撤销）');
   };
 
-  const btn = `rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700/60 active:scale-[0.96] transition disabled:opacity-40 ${
+  const btn = `rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-state-mid/60 active:scale-[0.96] transition disabled:opacity-40 ${
     mobile ? 'px-2.5 py-1.5 text-xs' : 'px-2 py-0.5 text-[11px]'
   }`;
 
@@ -122,7 +122,7 @@ function MemoryCard({ meta }: { meta: MemoryToolMeta }) {
         onToggle={() => setExpanded((v) => !v)}
       >
         {expanded && item && (
-          <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+          <div className="min-w-0 ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
             <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-zinc-400">
               {meta.op === 'update' && meta.before && meta.before.content !== item.content ? (
                 <>

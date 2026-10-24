@@ -142,7 +142,7 @@ export default function AboutSection() {
           <button
             type="button"
             onClick={handleVersionTap}
-            className="rounded px-1 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-400"
+            className="rounded px-1 text-left text-sm text-zinc-300 transition-colors hover:bg-state-soft hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-400"
             title="版本信息"
           >
             {appVersion}
@@ -165,7 +165,7 @@ export default function AboutSection() {
             {error && <span className="text-sm text-red-400">{error}</span>}
           </div>
           {result && result.hasUpdate && (
-            <div className="mt-3 rounded-lg border border-zinc-700 bg-zinc-800/50 p-4 space-y-3">
+            <div className="mt-3 rounded-lg border border-edge bg-zinc-800/50 p-4 space-y-3">
               <p className="text-sm text-zinc-200">
                 新版本 <span className="text-indigo-400 font-medium">{result.latestVersion}</span> 可用！
               </p>

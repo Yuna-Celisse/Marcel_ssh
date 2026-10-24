@@ -43,10 +43,10 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
     >
       <div
         onClick={onExpand}
-        className="group relative flex items-center gap-3 p-3 pl-3.5 pr-3 rounded-2xl bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/80 hover:border-zinc-600 text-zinc-100 shadow-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] cursor-pointer select-none"
+        className="group relative flex items-center gap-3 p-3 pl-3.5 pr-3 rounded-2xl bg-zinc-900/95 backdrop-blur-xl border border-edge/80 hover:border-edge-strong text-zinc-100 shadow-2xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] cursor-pointer select-none"
       >
         {/* Subtle status icon container without aggressive glow */}
-        <div className="relative flex items-center justify-center h-8 w-8 rounded-xl bg-zinc-800 border border-zinc-700 shrink-0">
+        <div className="relative flex items-center justify-center h-8 w-8 rounded-xl bg-zinc-800 border border-edge shrink-0">
           {isApproval ? (
             <ShieldAlert className="w-4 h-4 text-amber-400" />
           ) : (
@@ -66,7 +66,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
               </Badge>
             )}
             {(interaction.queueLength ?? 1) > 1 && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-zinc-800 rounded-full text-zinc-400 border border-zinc-700 font-medium shrink-0">
+              <span className="text-[10px] px-1.5 py-0.5 bg-zinc-800 rounded-full text-zinc-400 border border-edge font-medium shrink-0">
                 1/{interaction.queueLength}
               </span>
             )}
@@ -88,7 +88,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
 
         {/* Quick Action Button Group */}
         <div
-          className="flex items-center gap-1.5 shrink-0 border-l border-zinc-800 pl-2.5"
+          className="flex items-center gap-1.5 shrink-0 border-l border-edge-subtle pl-2.5"
           onClick={(e) => e.stopPropagation()}
         >
           {/* 当审批不在当前会话时，提供直接切过去的跳转按钮 */}
@@ -96,7 +96,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
             <button
               type="button"
               onClick={(e) => onNavigateToContext(e)}
-              className="px-2 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-indigo-300 text-xs font-medium border border-zinc-700 transition-all flex items-center gap-1"
+              className="px-2 py-1.5 rounded-xl bg-zinc-800 hover:bg-state-mid active:scale-95 text-indigo-300 text-xs font-medium border border-edge transition-all flex items-center gap-1"
               title="切换到该任务所在的会话"
             >
               <span>跳转</span>
@@ -110,7 +110,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
                 e.stopPropagation();
                 onReject();
               }}
-              className="p-2 rounded-xl bg-zinc-800 hover:bg-red-950/80 hover:text-red-200 hover:border-red-500/40 text-zinc-300 border border-zinc-700 active:scale-95 transition-all"
+              className="p-2 rounded-xl bg-zinc-800 hover:bg-red-950/80 hover:text-red-200 hover:border-red-500/40 text-zinc-300 border border-edge active:scale-95 transition-all"
               title="拒绝"
               aria-label="拒绝"
             >
@@ -139,7 +139,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
               e.stopPropagation();
               onExpand();
             }}
-            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700 active:scale-95 transition-all"
+            className="p-2 rounded-xl bg-zinc-800 hover:bg-state-mid text-zinc-400 hover:text-zinc-200 border border-edge active:scale-95 transition-all"
             title="展开弹窗"
             aria-label="展开"
           >

@@ -274,7 +274,7 @@ export default function MobileConnectionList({
       className="flex h-full min-h-0 flex-col bg-zinc-950"
       style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
-      <header className="flex-shrink-0 border-b border-zinc-800 px-4 py-3">
+      <header className="flex-shrink-0 border-b border-edge-subtle px-4 py-3">
         {onBack && (
           <button
             type="button"
@@ -440,7 +440,7 @@ export default function MobileConnectionList({
                             : `transition-transform ${drag.isDragging ? 'duration-150' : ''}`
                         } ${reveal.className}`}
                       >
-                        <div className="flex w-full items-center rounded-xl border border-zinc-800 bg-zinc-900 pr-1">
+                        <div className="flex w-full items-center rounded-xl border border-edge-subtle bg-zinc-900 pr-1">
                           <button
                             type="button"
                             disabled={busy || connectingId != null}
@@ -471,7 +471,7 @@ export default function MobileConnectionList({
                             type="button"
                             data-nodrag
                             onClick={() => openMemorySettings({ scope: 'host', key: conn.id })}
-                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800"
+                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft"
                             aria-label={`${conn.name} 的记忆（${hostMemoryCount(conn.id)} 条）`}
                           >
                             <Bookmark className="h-4 w-4" />
@@ -480,7 +480,7 @@ export default function MobileConnectionList({
                             type="button"
                             data-nodrag
                             onClick={() => openEditForm(conn)}
-                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800"
+                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft"
                             aria-label={`编辑 ${conn.name}`}
                           >
                             <Pencil className="h-4 w-4" />
@@ -492,7 +492,7 @@ export default function MobileConnectionList({
                               setDeleteMemories(false);
                               setDeleteTarget(conn);
                             }}
-                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-zinc-800 active:text-red-400"
+                            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-state-soft active:text-red-400"
                             aria-label={`删除 ${conn.name}`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -541,7 +541,7 @@ export default function MobileConnectionList({
             删除连接「{deleteTargetLabel}」？此操作不可撤销。
           </p>
           {deleteTargetMemoryCount > 0 && (
-            <label className="mb-1 flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-sm text-zinc-200">
+            <label className="mb-1 flex items-start gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3 text-sm text-zinc-200">
               <input
                 type="checkbox"
                 checked={deleteMemories}
@@ -566,7 +566,7 @@ export default function MobileConnectionList({
           <button
             type="button"
             onClick={() => setDeleteTarget(null)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>

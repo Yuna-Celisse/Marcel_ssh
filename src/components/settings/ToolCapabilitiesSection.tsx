@@ -90,12 +90,12 @@ function MachinePicker({
             className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
               active
                 ? 'border-indigo-500 bg-indigo-500/10 text-indigo-100'
-                : 'border-zinc-700 bg-zinc-800/40 text-zinc-300 hover:border-zinc-600'
+                : 'border-edge bg-zinc-800/40 text-zinc-300 hover:border-edge-strong'
             }`}
           >
             <span
               className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
-                active ? 'border-indigo-400 bg-indigo-500' : 'border-zinc-600 bg-transparent'
+                active ? 'border-indigo-400 bg-indigo-500' : 'border-edge-strong bg-transparent'
               }`}
             >
               {active && (
@@ -134,7 +134,7 @@ function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placehol
         }}
         placeholder={hasKey ? '已保存，输入新 Key 可覆盖' : placeholder}
         autoComplete="off"
-        className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+        className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
       />
       {hasKey && (
         <Button
@@ -270,7 +270,7 @@ export function ToolCapabilitiesSection() {
                         placeholder={CUSTOM_URL_PLACEHOLDER}
                         autoComplete="off"
                         spellCheck={false}
-                        className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                        className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                       />
                       {customForm.check.error && (
                         <p className="text-xs text-red-400">{customForm.check.error}</p>
@@ -410,7 +410,7 @@ export function ToolCapabilitiesSection() {
                     placeholder={CUSTOM_FETCH_URL_PLACEHOLDER}
                     autoComplete="off"
                     spellCheck={false}
-                    className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                   />
                   {customFetchForm.check.error && (
                     <p className="text-xs text-red-400">{customFetchForm.check.error}</p>

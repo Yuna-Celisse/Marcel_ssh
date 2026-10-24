@@ -2,6 +2,19 @@
 @plugin "@tailwindcss/typography";
 @import 'highlight.js/styles/github-dark.css';
 
+/* 按用途拆出的中性色：边框（border-edge*）与悬停/按下底（bg-state-*）。
+   默认值指向 zinc 调色板，所以不启用主题时与原来逐像素一致；应用主题把它们当
+   独立槽位写在 <html> 上（lib/uiTheme.ts）。static：未被引用也要输出默认值。 */
+@theme static {
+  --color-edge-subtle: var(--color-zinc-800);
+  --color-edge: var(--color-zinc-700);
+  --color-edge-strong: var(--color-zinc-600);
+  --color-state-soft: var(--color-zinc-800);
+  --color-state-mid: var(--color-zinc-700);
+  --color-state-strong: var(--color-zinc-600);
+  --color-state-selected: var(--color-zinc-800);
+}
+
 /* ── 浅色主题下的代码高亮令牌（GitHub Light）──
    全局引入的是 github-dark（暗色令牌）；浅色主题在下面整层覆盖。
    从 highlight.js/styles/github.css 机械转写生成，升级 hljs 后如令牌变色重新对一遍。
@@ -146,7 +159,7 @@ html[data-marcel-theme='light'] .hljs-deletion {
   --marcel-viz-surface: color-mix(in oklab, var(--color-zinc-100) 6%, transparent);
   --marcel-viz-text: var(--color-zinc-100);
   --marcel-viz-muted: var(--color-zinc-400);
-  --marcel-viz-border: var(--color-zinc-600);
+  --marcel-viz-border: var(--color-edge-strong);
   --marcel-viz-accent: var(--color-indigo-400);
   --marcel-viz-accentText: #ffffff;
 
@@ -177,15 +190,15 @@ html[data-marcel-theme='light'] .prose.marcel-prose :not(pre) > code {
   --tw-prose-bold: var(--color-zinc-100);
   --tw-prose-counters: var(--color-zinc-500);
   --tw-prose-bullets: var(--color-zinc-500);
-  --tw-prose-hr: var(--color-zinc-700);
+  --tw-prose-hr: var(--color-edge);
   --tw-prose-quotes: var(--color-zinc-300);
-  --tw-prose-quote-borders: var(--color-zinc-600);
+  --tw-prose-quote-borders: var(--color-edge-strong);
   --tw-prose-captions: var(--color-zinc-400);
   --tw-prose-code: var(--marcel-md-code-text);
   --tw-prose-pre-code: var(--color-zinc-300);
   --tw-prose-pre-bg: var(--color-zinc-900);
-  --tw-prose-th-borders: var(--color-zinc-600);
-  --tw-prose-td-borders: var(--color-zinc-700);
+  --tw-prose-th-borders: var(--color-edge-strong);
+  --tw-prose-td-borders: var(--color-edge);
 }
 
 /*
@@ -325,7 +338,7 @@ html.marcel-theme-transition *::after {
   padding-left: 8px;
   padding-right: 8px;
   background-color: color-mix(in oklab, var(--color-zinc-800, #27272a) 50%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-zinc-700, #3f3f46) 60%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-edge, #3f3f46) 60%, transparent);
 }
 .tool-card-row-settled {
   max-width: 100%;

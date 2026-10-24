@@ -21,7 +21,7 @@ export default function AppHeader({ onToggleSidebar, onToggleDock, dockPanel, cl
   }, []);
 
   return (
-    <header className={`flex items-center justify-between bg-zinc-950 border-b border-zinc-800 select-none h-8 ${className ?? ''}`}>
+    <header className={`flex items-center justify-between bg-zinc-950 border-b border-edge-subtle select-none h-8 ${className ?? ''}`}>
       <div
         className="flex items-center gap-3 px-2 flex-1"
         data-tauri-drag-region
@@ -38,7 +38,7 @@ export default function AppHeader({ onToggleSidebar, onToggleDock, dockPanel, cl
       >
         <button
           onClick={onToggleSidebar}
-          className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="p-1 rounded-lg hover:bg-state-soft text-zinc-400 hover:text-zinc-200 transition-colors"
           title="切换侧边栏"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,7 +53,7 @@ export default function AppHeader({ onToggleSidebar, onToggleDock, dockPanel, cl
         <div className="flex-1" data-tauri-drag-region />
         <button
           onClick={onToggleDock}
-          className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="p-1 rounded-lg hover:bg-state-soft text-zinc-400 hover:text-zinc-200 transition-colors"
           title={dockPanel === 'terminal' ? '切换终端面板' : '切换智能助手面板'}
         >
           {dockPanel === 'terminal' ? (

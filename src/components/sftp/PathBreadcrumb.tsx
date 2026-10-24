@@ -30,7 +30,7 @@ export default function PathBreadcrumb({ currentPath, onNavigate }: PathBreadcru
           setEditing(false);
           if (p !== currentPath) onNavigate(p);
         }}
-        className="flex-1 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-100 outline-none focus:border-indigo-500 font-mono"
+        className="flex-1 rounded-md bg-zinc-800 border border-edge px-2 py-0.5 text-xs text-zinc-100 outline-none focus:border-indigo-500 font-mono"
         autoFocus
       />
     );
@@ -38,7 +38,7 @@ export default function PathBreadcrumb({ currentPath, onNavigate }: PathBreadcru
 
   return (
     <div
-      className="flex-1 flex items-center gap-0.5 text-xs text-zinc-400 overflow-x-auto whitespace-nowrap cursor-text rounded-md px-2 py-0.5 hover:bg-zinc-800 transition-colors"
+      className="flex-1 flex items-center gap-0.5 text-xs text-zinc-400 overflow-x-auto whitespace-nowrap cursor-text rounded-md px-2 py-0.5 hover:bg-state-soft transition-colors"
       onClick={() => {
         setEditValue(currentPath);
         setEditing(true);

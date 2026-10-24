@@ -35,7 +35,7 @@ export default function ContextMenu({ x, y, anchor = 'below', items, onClose }: 
       // overflow-hidden 且容器不留上下内边距：悬停高亮是铺满整行的方块，留着内边距它既碰不到
       // 菜单边缘（上下各空一截），方角又会戳出圆角轮廓；改成由菜单自己裁切，高亮就铺到边、
       // 角被圆角裁掉。首项/末项用自己的 pt/pb 补回这段间距（见下），文字位置不变。
-      className="context-menu-enter fixed z-50 bg-zinc-800 border border-zinc-700 rounded-xl shadow-lg overflow-hidden min-w-32"
+      className="context-menu-enter fixed z-50 bg-zinc-800 border border-edge rounded-xl shadow-lg overflow-hidden min-w-32"
       style={
         anchor === 'above'
           ? { bottom: window.innerHeight - y, left: x, transformOrigin: 'bottom left' }
@@ -45,7 +45,7 @@ export default function ContextMenu({ x, y, anchor = 'below', items, onClose }: 
     >
       {items.map((item, idx) =>
         item.divider ? (
-          <hr key={idx} className="border-zinc-700 my-1" />
+          <hr key={idx} className="border-edge my-1" />
         ) : (
           <button
             key={idx}
@@ -55,7 +55,7 @@ export default function ContextMenu({ x, y, anchor = 'below', items, onClose }: 
             }}
             // `block` 不能省：<button> 默认 inline-block，菜单是 fixed + 收缩宽度，
             // 各项会被并排算进同一行，菜单宽度成了「各项宽度之和」而不是「最宽一项」。
-            className={`block w-full text-left px-3 py-1.5 first:pt-2.5 last:pb-2.5 text-sm hover:bg-zinc-700 transition-colors ${
+            className={`block w-full text-left px-3 py-1.5 first:pt-2.5 last:pb-2.5 text-sm hover:bg-state-mid transition-colors ${
               item.variant === 'danger' ? 'text-red-400' : 'text-zinc-200'
             }`}
           >

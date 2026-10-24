@@ -103,14 +103,14 @@ export default function KeyManager({
   // 触屏：行高与按压反馈按手指来（按下即亮，不等抬起）
   const touch = variant === 'mobile';
   const rowClass = touch
-    ? 'min-h-[52px] rounded-xl px-3 py-3 transition-colors active:bg-zinc-800/70'
+    ? 'min-h-[52px] rounded-xl px-3 py-3 transition-colors active:bg-state-soft/70'
     : 'rounded-lg px-3 py-2 transition-colors';
   const rowActionClass = touch
-    ? 'shrink-0 rounded-lg px-3 py-2 text-sm transition-colors active:bg-zinc-700/60'
+    ? 'shrink-0 rounded-lg px-3 py-2 text-sm transition-colors active:bg-state-mid/60'
     : 'shrink-0 rounded px-1.5 py-1 text-xs transition-colors';
   const fieldClass = touch
-    ? 'w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-3 text-base text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500'
-    : 'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+    ? 'w-full rounded-xl border border-edge bg-zinc-800 px-3 py-3 text-base text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500'
+    : 'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
   const inlineBtnClass = touch ? 'py-2.5 text-sm' : 'py-1.5 text-sm';
   const smallBtnClass = touch ? 'py-2 text-sm' : 'py-1 text-xs';
 
@@ -221,7 +221,7 @@ export default function KeyManager({
       </p>
 
       {keys.length === 0 ? (
-        <p className="rounded-lg border border-zinc-700/60 bg-zinc-900/40 px-3 py-4 text-center text-sm text-zinc-500">
+        <p className="rounded-lg border border-edge/60 bg-zinc-900/40 px-3 py-4 text-center text-sm text-zinc-500">
           还没有导入任何私钥
         </p>
       ) : (
@@ -238,7 +238,7 @@ export default function KeyManager({
                 className={`border ${rowClass} ${
                   selected
                     ? 'border-indigo-500/70 bg-indigo-500/10'
-                    : 'border-zinc-700 bg-zinc-900/40'
+                    : 'border-edge bg-zinc-900/40'
                 }`}
               >
                 {renamingId === key.id ? (
@@ -441,7 +441,7 @@ export default function KeyManager({
       )}
 
       {pasteOpen && (
-        <div className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-3">
+        <div className="space-y-2 rounded-lg border border-edge bg-zinc-900/40 px-3 py-3">
           <p className="text-xs leading-relaxed text-zinc-500">
             把私钥全文（-----BEGIN … 那一段，含首尾行）贴进来。
           </p>
@@ -459,7 +459,7 @@ export default function KeyManager({
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className={`w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500 ${
+            className={`w-full resize-y rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500 ${
               touch ? 'text-sm' : 'text-xs'
             }`}
           />

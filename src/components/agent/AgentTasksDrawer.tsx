@@ -98,19 +98,19 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
       {/* Drawer Panel */}
       <div
         onAnimationEnd={presence.onAnimationEnd}
-        className={`absolute top-0 right-0 h-full w-88 max-w-[90vw] bg-zinc-950/95 backdrop-blur-xl border-l border-zinc-800 z-50 flex flex-col shadow-2xl ${
+        className={`absolute top-0 right-0 h-full w-88 max-w-[90vw] bg-zinc-950/95 backdrop-blur-xl border-l border-edge-subtle z-50 flex flex-col shadow-2xl ${
           presence.phase === 'exit' ? 'animate-slideOutRight' : 'animate-slideInRight'
         }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/80 bg-zinc-900/40">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge-subtle/80 bg-zinc-900/40">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-zinc-100">任务与作业中心</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-state-soft transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -119,7 +119,7 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-zinc-800/80 bg-zinc-900/20 px-3 pt-2 gap-2">
+        <div className="flex border-b border-edge-subtle/80 bg-zinc-900/20 px-3 pt-2 gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('agents')}
@@ -175,7 +175,7 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
                     className={`group relative flex flex-col p-3 rounded-xl border transition-all cursor-pointer ${
                       isCurrent
                         ? 'bg-zinc-800/90 border-indigo-500/40 shadow-sm shadow-indigo-500/5'
-                        : 'bg-zinc-900/60 border-zinc-800/80 hover:bg-zinc-800/70 hover:border-zinc-700/80'
+                        : 'bg-zinc-900/60 border-edge-subtle/80 hover:bg-state-soft/70 hover:border-edge/80'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -208,7 +208,7 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
                         {task.prompt}
                       </p>
                     )}
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-500">
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-edge-subtle/50 text-[10px] text-zinc-500">
                       <span>
                         {task.createdAt ? new Date(task.createdAt).toLocaleTimeString() : ''}
                       </span>
@@ -245,7 +245,7 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
                     className={`flex flex-col p-3 rounded-xl border transition-all ${
                       isRunning
                         ? 'bg-sky-950/20 border-sky-800/50'
-                        : 'bg-zinc-900/60 border-zinc-800/80'
+                        : 'bg-zinc-900/60 border-edge-subtle/80'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -280,7 +280,7 @@ export const AgentTasksDrawer: React.FC<AgentTasksDrawerProps> = ({ open, onClos
                         上一次应用运行留下的作业：应用退出时通道就关闭了，之后的输出看不到；远端进程是否还在运行，要在服务器上确认。
                       </p>
                     )}
-                    <div className="flex items-center justify-between pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-500">
+                    <div className="flex items-center justify-between pt-2 border-t border-edge-subtle/50 text-[10px] text-zinc-500">
                       <span>
                         输出: {job.totalOutputBytes} 字节
                         {job.detail ? ` · ${job.detail}` : ''}

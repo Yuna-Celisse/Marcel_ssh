@@ -338,7 +338,7 @@ export default function Terminal() {
                 : `max-height ${PANEL_TRANSITION_MS}ms ${PANEL_TRANSITION_EASING}`,
             }}
             className={`overflow-hidden ${
-              activeTab ? 'border-t border-zinc-800' : ''
+              activeTab ? 'border-t border-edge-subtle' : ''
             }`}
           >
             <div

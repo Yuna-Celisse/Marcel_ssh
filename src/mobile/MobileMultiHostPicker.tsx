@@ -97,10 +97,10 @@ export default function MobileMultiHostPicker({
         className={[
           'flex min-w-0 max-w-[7.5rem] items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-all active:scale-95',
           buttonDisabled
-            ? 'cursor-not-allowed border-zinc-800 text-zinc-600'
+            ? 'cursor-not-allowed border-edge-subtle text-zinc-600'
             : selected.length > 0
               ? 'border-indigo-500/40 bg-indigo-500/10 text-indigo-200'
-              : 'border-zinc-700/80 bg-zinc-900/60 text-zinc-300',
+              : 'border-edge/80 bg-zinc-900/60 text-zinc-300',
         ].join(' ')}
         title={
           currentLabel
@@ -205,7 +205,7 @@ export default function MobileMultiHostPicker({
                       className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
                         active
                           ? 'border-indigo-400 bg-indigo-500'
-                          : 'border-zinc-600 bg-transparent'
+                          : 'border-edge-strong bg-transparent'
                       }`}
                     >
                       {active && (

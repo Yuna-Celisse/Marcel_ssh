@@ -47,7 +47,7 @@ export default function PluginConfigModal({ open, onClose, pluginId, pluginName,
                   setError(null);
                   setRetryKey((k) => k + 1);
                 }}
-                className="mt-2 px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-zinc-600 transition-colors"
+                className="mt-2 px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-state-strong transition-colors"
               >
                 重试
               </button>

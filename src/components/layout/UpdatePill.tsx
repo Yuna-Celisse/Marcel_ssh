@@ -142,7 +142,7 @@ export default function UpdatePill() {
       <div className="relative" ref={rootRef}>
         {state.status === 'downloading' ? (
           <span
-            className={`${base} border border-zinc-700/60 bg-zinc-800/80 text-zinc-300 cursor-default`}
+            className={`${base} border border-edge/60 bg-zinc-800/80 text-zinc-300 cursor-default`}
             title={pillText}
           >
             <span className="inline-block motion-reduce:animate-none animate-pulse">
@@ -162,7 +162,7 @@ export default function UpdatePill() {
                 ? 'border border-indigo-500/30 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
                 : state.status === 'failed'
                   ? 'border border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
-                  : 'border border-zinc-700/60 bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700/80'
+                  : 'border border-edge/60 bg-zinc-800/80 text-zinc-300 hover:bg-state-mid/80'
             }`}
             title={pillText}
           >
@@ -175,7 +175,7 @@ export default function UpdatePill() {
         )}
 
         {open && state.status !== 'downloading' && (
-          <div className="absolute top-7 left-0 z-50 w-72 rounded-xl border border-zinc-700 bg-zinc-900/95 p-3 shadow-xl backdrop-blur">
+          <div className="absolute top-7 left-0 z-50 w-72 rounded-xl border border-edge bg-zinc-900/95 p-3 shadow-xl backdrop-blur">
             {state.status === 'ready' && (
               <>
                 <p className="mb-1 text-xs text-zinc-200">

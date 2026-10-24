@@ -127,7 +127,7 @@ export default function MobileUpdateToast() {
               if (status === 'failed') dismissFailure();
               else if (version) dismiss(version);
             }}
-            className="flex-1 rounded-xl bg-zinc-800 px-3 py-3 text-sm font-medium text-zinc-200 active:bg-zinc-700 disabled:opacity-50"
+            className="flex-1 rounded-xl bg-zinc-800 px-3 py-3 text-sm font-medium text-zinc-200 active:bg-state-mid disabled:opacity-50"
           >
             稍后
           </button>

@@ -189,12 +189,12 @@ export default function FileEditorModal({
 
       <div
         onAnimationEnd={onExitAnimationEnd}
-        className={`relative w-full max-w-5xl mx-4 h-[85vh] rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl flex flex-col overflow-hidden ${
+        className={`relative w-full max-w-5xl mx-4 h-[85vh] rounded-2xl bg-zinc-800 border border-edge shadow-2xl flex flex-col overflow-hidden ${
           closing ? 'modal-panel-exit' : 'modal-panel-enter'
         }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -211,7 +211,7 @@ export default function FileEditorModal({
         </div>
 
         {/* Info bar */}
-        <div className="flex items-center gap-4 px-4 py-1.5 border-b border-zinc-700/50 bg-zinc-800/50 flex-shrink-0">
+        <div className="flex items-center gap-4 px-4 py-1.5 border-b border-edge/50 bg-zinc-800/50 flex-shrink-0">
           <span className="text-xs text-zinc-500">
             大小: <span className="text-zinc-400">{formatSize(fileSize)}</span>
           </span>
@@ -254,11 +254,11 @@ export default function FileEditorModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-zinc-700 flex-shrink-0">
+        <div className="flex items-center justify-end gap-2 px-4 py-2.5 border-t border-edge flex-shrink-0">
           <button
             type="button"
             onClick={handleClose}
-            className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+            className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
           >
             取消
           </button>
@@ -290,7 +290,7 @@ export default function FileEditorModal({
         {/* Close confirmation dialog */}
         {showCloseConfirm && (
           <div className="modal-backdrop-enter absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-zinc-700 shadow-2xl p-4">
+            <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-edge shadow-2xl p-4">
               <h3 className="text-sm font-semibold text-zinc-200 mb-2">未保存的修改</h3>
               <p className="text-xs text-zinc-400 mb-4">
                 文件有未保存的修改，是否在关闭前保存？
@@ -299,7 +299,7 @@ export default function FileEditorModal({
                 <button
                   type="button"
                   onClick={handleCloseWithoutSaving}
-                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
                 >
                   放弃
                 </button>
@@ -317,7 +317,7 @@ export default function FileEditorModal({
                 <button
                   type="button"
                   onClick={() => setShowCloseConfirm(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
                 >
                   取消
                 </button>
@@ -329,7 +329,7 @@ export default function FileEditorModal({
         {/* Overwrite confirmation dialog */}
         {showOverwriteConfirm && (
           <div className="modal-backdrop-enter absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-zinc-700 shadow-2xl p-4">
+            <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-edge shadow-2xl p-4">
               <h3 className="text-sm font-semibold text-amber-300 mb-2">文件已被外部修改</h3>
               <p className="text-xs text-zinc-400 mb-4">
                 此文件在编辑期间被其他程序修改过。覆盖将丢失外部修改。
@@ -338,7 +338,7 @@ export default function FileEditorModal({
                 <button
                   type="button"
                   onClick={() => setShowOverwriteConfirm(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+                  className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
                 >
                   取消
                 </button>

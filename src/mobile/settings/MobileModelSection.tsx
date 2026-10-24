@@ -25,11 +25,11 @@ import MobileSheet from '../ui/MobileSheet';
 import { MobileSettingRow } from './MobileSettingRow';
 
 const inputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
 /** 候选的选型提示是中文散文，不用渠道/模型字段那套等宽字体。 */
 const descriptionInputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
 /** 空注册表兜底（settings 尚未初始化时）：用 lib/llmRegistry 的共享版。 */
 
@@ -69,7 +69,7 @@ export function MobileModelPickerSheet({
               onChange('');
               onClose();
             }}
-            className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm active:bg-zinc-800"
+            className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm active:bg-state-soft"
           >
             <span className="text-zinc-200">{emptyLabel}</span>
             {!value && <span className="text-xs text-indigo-400">当前</span>}
@@ -92,7 +92,7 @@ export function MobileModelPickerSheet({
                   </span>
                 )}
               </div>
-              <div className="divide-y divide-zinc-800/70">
+              <div className="divide-y divide-edge-subtle/70">
                 {channelModels.map((m) => {
                   const selected = value === m.id;
                   const occupiedHere = !selected && occupied?.has(m.id);
@@ -105,7 +105,7 @@ export function MobileModelPickerSheet({
                         onChange(m.id);
                         onClose();
                       }}
-                      className={`flex w-full items-center justify-between gap-2 px-3 py-3 text-left active:bg-zinc-800 ${
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-3 text-left active:bg-state-soft ${
                         channelDisabled || occupiedHere ? "opacity-40" : ""
                       }`}
                     >
@@ -311,7 +311,7 @@ function MobileModelEditorSheet({
                   placeholder={'low\nmedium\nhigh'}
                   spellCheck={false}
                   rows={3}
-                  className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500"
+                  className="w-full resize-y rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500"
                 />
                 <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                   填写该模型支持的推理档位（如 low/medium/high、max）。填了之后，会话输入条模型名旁会出现
@@ -329,7 +329,7 @@ function MobileModelEditorSheet({
                   placeholder={`{\n  "thinking": { "type": "enabled" },\n  "top_p": 0.9\n}`}
                   spellCheck={false}
                   rows={4}
-                  className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500"
+                  className="w-full resize-y rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-indigo-500"
                 />
                 <p className="text-[11px] text-zinc-500">
                   以 JSON 对象形式追加到请求体（如 thinking、top_p）。执行前模型审批不会携带这些参数。
@@ -539,7 +539,7 @@ function MobileChannelEditorSheet({
         </div>
 
         {/* 模型列表 */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-3 py-3">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/40 px-3 py-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium text-zinc-200">
               模型 <span className="text-zinc-500">（{models.length}）</span>
@@ -552,7 +552,7 @@ function MobileChannelEditorSheet({
                   setFetchFilter('');
                   void fetchModels();
                 }}
-                className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-zinc-700"
+                className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-state-mid"
               >
                 获取列表
               </button>
@@ -570,7 +570,7 @@ function MobileChannelEditorSheet({
               还没有模型。可「获取列表」从供应商拉取，或手动添加。
             </p>
           ) : (
-            <div className="divide-y divide-zinc-800">
+            <div className="divide-y divide-edge-subtle">
               {models.map((m) => (
                 <div key={m.id} className="flex items-center gap-2 py-2">
                   <div className="min-w-0 flex-1">
@@ -589,7 +589,7 @@ function MobileChannelEditorSheet({
                   <button
                     type="button"
                     onClick={() => setModelEditor({ open: true, initial: m })}
-                    className="rounded-lg bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-300 active:bg-zinc-700"
+                    className="rounded-lg bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-300 active:bg-state-mid"
                   >
                     编辑
                   </button>
@@ -669,7 +669,7 @@ function MobileChannelEditorSheet({
               <button
                 type="button"
                 onClick={() => void fetchModels()}
-                className="w-full rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
+                className="w-full rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-state-mid"
               >
                 重试
               </button>
@@ -681,7 +681,7 @@ function MobileChannelEditorSheet({
             </p>
           )}
           {!fetchLoading && !fetchError && filtered.length > 0 && (
-            <div className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
+            <div className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-subtle">
               {filtered.map((m) => (
                 <button
                   key={m.id}
@@ -691,7 +691,7 @@ function MobileChannelEditorSheet({
                     // 预填模型名进入新建模型表单
                     setModelEditor({ open: true, initial: undefined, preset: m.id });
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-3 text-left font-mono text-sm text-zinc-200 active:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-3 text-left font-mono text-sm text-zinc-200 active:bg-state-soft"
                 >
                   <span className="min-w-0 flex-1 truncate">{m.id}</span>
                 </button>
@@ -787,7 +787,7 @@ export function MobileModelSection() {
         <button
           type="button"
           onClick={() => setSummarizerPicker(true)}
-          className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 active:bg-zinc-700"
+          className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 active:bg-state-mid"
         >
           <span className="truncate">
             {slots.summarizerModelId
@@ -821,13 +821,13 @@ export function MobileModelSection() {
               return (
               <div
                 key={i}
-                className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2"
+                className="space-y-2 rounded-lg border border-edge-subtle bg-zinc-900/40 p-2"
               >
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setChoicePicker(i)}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 active:bg-zinc-700"
+                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2 text-sm text-zinc-100 active:bg-state-mid"
                   >
                     <span className="truncate">{triggerLabel}</span>
                     <ChevronDown className="h-4 w-4 flex-shrink-0 text-zinc-500" />
@@ -835,7 +835,7 @@ export function MobileModelSection() {
                   <button
                     type="button"
                     onClick={() => removeSubagentChoice(i)}
-                    className="flex-shrink-0 rounded-lg bg-zinc-800 px-2.5 py-2 text-xs text-zinc-300 active:bg-zinc-700"
+                    className="flex-shrink-0 rounded-lg bg-zinc-800 px-2.5 py-2 text-xs text-zinc-300 active:bg-state-mid"
                   >
                     移除
                   </button>
@@ -856,7 +856,7 @@ export function MobileModelSection() {
               <button
                 type="button"
                 onClick={addSubagentChoice}
-                className="w-full rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-sm text-zinc-400 active:bg-zinc-800"
+                className="w-full rounded-lg border border-dashed border-edge px-3 py-2 text-sm text-zinc-400 active:bg-state-soft"
               >
                 + 添加候选
               </button>
@@ -992,7 +992,7 @@ export function MobileModelSection() {
       </MobileSettingRow>
 
       {/* ── 渠道列表 ── */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-medium text-zinc-100">渠道</div>
@@ -1014,7 +1014,7 @@ export function MobileModelSection() {
             还没有渠道，点击「添加」接入第一个模型服务
           </p>
         ) : (
-          <div className="mt-2 divide-y divide-zinc-800">
+          <div className="mt-2 divide-y divide-edge-subtle">
             {registry.channels.map((ch) => {
               const models = modelsOfChannel(registry, ch.id);
               const hasKey = channelKeyStatus[ch.id] ?? !!ch.apiKey;
@@ -1023,7 +1023,7 @@ export function MobileModelSection() {
                   key={ch.id}
                   type="button"
                   onClick={() => setChannelEditor({ open: true, channel: ch })}
-                  className="flex w-full items-center gap-2 py-3 text-left active:bg-zinc-800/50"
+                  className="flex w-full items-center gap-2 py-3 text-left active:bg-state-soft/50"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

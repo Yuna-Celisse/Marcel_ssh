@@ -115,7 +115,7 @@ function ManageBody({ manager }: { manager: MemoryManager }) {
 
   return (
     <div className="flex min-h-[26rem]">
-      <nav className="w-56 shrink-0 space-y-3 border-r border-zinc-800 p-3 text-sm" aria-label="记忆作用域">
+      <nav className="w-56 shrink-0 space-y-3 border-r border-edge-subtle p-3 text-sm" aria-label="记忆作用域">
         <ScopeButton
           label="全部"
           count={directory.total}
@@ -163,7 +163,7 @@ function ManageBody({ manager }: { manager: MemoryManager }) {
 
       <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
         <div className="flex items-center gap-2">
-          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-1.5 focus-within:border-indigo-500 transition-colors">
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-1.5 focus-within:border-indigo-500 transition-colors">
             <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
             <input
               value={manager.query}
@@ -175,7 +175,7 @@ function ManageBody({ manager }: { manager: MemoryManager }) {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="flex items-center gap-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-700 active:scale-[0.97] transition"
+            className="flex items-center gap-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-sm text-zinc-200 hover:bg-state-mid active:scale-[0.97] transition"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             新增
@@ -185,7 +185,7 @@ function ManageBody({ manager }: { manager: MemoryManager }) {
         <FilterHeader manager={manager} />
 
         {manager.undo && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-700 bg-zinc-800/80 px-3 py-2 text-xs animate-fadeIn">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-zinc-800/80 px-3 py-2 text-xs animate-fadeIn">
             <span className="min-w-0 truncate text-zinc-300">{manager.undo.text}</span>
             <div className="flex shrink-0 items-center gap-1">
               <button type="button" onClick={() => void manager.undoLast()}
@@ -206,7 +206,7 @@ function ManageBody({ manager }: { manager: MemoryManager }) {
         ) : manager.items.length === 0 ? (
           <EmptyList manager={manager} />
         ) : (
-          <ul key={filterKey(filter)} className="flex flex-col divide-y divide-zinc-800/80">
+          <ul key={filterKey(filter)} className="flex flex-col divide-y divide-edge-subtle/80">
             {manager.items.map((m) => (
               <ItemRow key={m.id} item={m} manager={manager} onEdit={() => setEditing(m)} />
             ))}
@@ -254,7 +254,7 @@ function ScopeButton({
       onClick={onClick}
       aria-current={active ? 'true' : undefined}
       className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
-        active ? 'bg-indigo-500/15 text-zinc-100' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+        active ? 'bg-indigo-500/15 text-zinc-100' : 'text-zinc-400 hover:bg-state-soft hover:text-zinc-200'
       }`}
     >
       <span className="min-w-0 flex-1 truncate" title={label}>
@@ -344,7 +344,7 @@ function RowAction({ children, onClick, danger = false }: { children: ReactNode;
       type="button"
       onClick={onClick}
       className={`rounded-md px-2 py-1 text-xs transition active:scale-[0.96] ${
-        danger ? 'text-zinc-400 hover:bg-red-500/10 hover:text-red-300' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+        danger ? 'text-zinc-400 hover:bg-red-500/10 hover:text-red-300' : 'text-zinc-400 hover:bg-state-soft hover:text-zinc-100'
       }`}
     >
       {children}

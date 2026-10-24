@@ -54,8 +54,8 @@ function NavButton({
         relative flex items-center justify-center w-12 h-12 rounded-lg transition-colors
         ${
           active
-            ? 'bg-zinc-800 text-indigo-400'
-            : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60'
+            ? 'bg-state-selected text-indigo-400'
+            : 'text-zinc-500 hover:text-zinc-200 hover:bg-state-soft/60'
         }
       `}
     >
@@ -99,7 +99,7 @@ export default function NavRail({ activeId, onChange }: Props) {
   }, []);
 
   return (
-    <nav className="flex flex-col items-center justify-between w-14 flex-shrink-0 bg-zinc-950 border-r border-zinc-800 py-2">
+    <nav className="flex flex-col items-center justify-between w-14 flex-shrink-0 bg-zinc-950 border-r border-edge-subtle py-2">
       <div className="flex flex-col gap-1">
         {topItems.map((p) => (
           <NavButton

@@ -1,7 +1,7 @@
-import { Card, SettingItem } from './helpers';
-import { useLiveSettingsPatch } from './useLiveSettingsPatch';
-import { UiThemeEditor } from './UiThemeEditor';
-import { FontSizeInput } from './FontSizeInput';
+import { Card, SettingItem } from "./helpers";
+import { useLiveSettingsPatch } from "./useLiveSettingsPatch";
+import { UiThemeEditor } from "./UiThemeEditor";
+import { FontSizeInput } from "./FontSizeInput";
 
 /**
  * 应用主题分区（桌面）：界面主题 + 终端外观（终端颜色 / 字号 / 字体）。
@@ -18,19 +18,40 @@ export function ThemeSection() {
   const fontFamily = preview?.fontFamily ?? settings.fontFamily;
 
   return (
-    <Card id="settings-theme" title="应用主题" description="界面与终端的配色、字号与字体；改动即时生效，无需保存">
+    <Card
+      id="settings-theme"
+      title="应用主题"
+      description="界面与终端的配色、字号与字体；改动即时生效，无需保存"
+    >
       <SettingItem
         id="ui-theme"
         label="主题与颜色分区"
         description="选预设整体换色（终端配色随主题成套切换），或进自定义逐分区调整；语义色按基准色自动生成整套深浅"
         sectionId="settings-theme"
-        keywords={['theme', 'color', 'dark', 'light', 'terminal', '主题', '颜色', '配色', '深色', '浅色', '外观', '界面', '终端颜色', '终端配色']}
+        keywords={[
+          "theme",
+          "color",
+          "dark",
+          "light",
+          "terminal",
+          "主题",
+          "颜色",
+          "配色",
+          "深色",
+          "浅色",
+          "外观",
+          "界面",
+          "终端颜色",
+          "终端配色",
+        ]}
       >
         <UiThemeEditor
           value={uiTheme}
           terminalColors={terminalColors}
           // 主题与终端配色同一次 patch 写入：preview 与落库都是原子的，不会出现半套
-          onChange={(uiTheme, terminalColors) => liveUpdate({ uiTheme, ...(terminalColors && { terminalColors }) })}
+          onChange={(uiTheme, terminalColors) =>
+            liveUpdate({ uiTheme, ...(terminalColors && { terminalColors }) })
+          }
         />
       </SettingItem>
       <SettingItem
@@ -38,22 +59,33 @@ export function ThemeSection() {
         label="字号"
         description="终端字体大小"
         sectionId="settings-theme"
-        keywords={['font', 'size', '字体大小', '界面', '终端外观']}
+        keywords={["font", "size", "字体大小", "界面", "终端外观"]}
       >
-        <FontSizeInput value={fontSize} onChange={(fontSize) => liveUpdate({ fontSize })} />
+        <FontSizeInput
+          value={fontSize}
+          onChange={(fontSize) => liveUpdate({ fontSize })}
+        />
       </SettingItem>
       <SettingItem
         id="font-family"
         label="字体"
         description="终端字体族；Nerd Fonts 图标已内置，无需自己安装"
         sectionId="settings-theme"
-        keywords={['font', 'family', 'typeface', 'nerd', '字体', '界面', '终端外观']}
+        keywords={[
+          "font",
+          "family",
+          "typeface",
+          "nerd",
+          "字体",
+          "界面",
+          "终端外观",
+        ]}
       >
         <input
           type="text"
           value={fontFamily}
           onChange={(e) => liveUpdate({ fontFamily: e.target.value })}
-          className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+          className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
         />
       </SettingItem>
     </Card>

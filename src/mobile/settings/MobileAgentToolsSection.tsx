@@ -121,7 +121,7 @@ export function selectMobileFetchMode(
 }
 
 const KEY_INPUT_CLASS =
-  'flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'flex-1 rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
 /** 联网工具的 API Key 输入框。已存时回显掩码；失焦即保存；Key 永不回传前端。 */
 function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placeholder: string }) {
@@ -145,7 +145,7 @@ function ToolApiKeyInput({ slot, placeholder }: { slot: ToolApiKeySlot; placehol
         <button
           type="button"
           onClick={() => void clearToolApiKey(slot).then((cleared) => cleared && setDraft(''))}
-          className="flex-shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
+          className="flex-shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-state-mid"
         >
           清除
         </button>
@@ -459,7 +459,7 @@ export function MobileAgentToolsSection() {
           <button
             type="button"
             onClick={() => void fetchConnections()}
-            className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-900/50 px-3 py-3 text-xs text-zinc-400 active:bg-zinc-800"
+            className="mt-2 w-full rounded-xl border border-edge bg-zinc-900/50 px-3 py-3 text-xs text-zinc-400 active:bg-state-soft"
           >
             加载已保存连接
           </button>
@@ -489,7 +489,7 @@ export function MobileAgentToolsSection() {
                       className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border ${
                         active
                           ? 'border-indigo-400 bg-indigo-500'
-                          : 'border-zinc-600 bg-transparent'
+                          : 'border-edge-strong bg-transparent'
                       }`}
                     >
                       {active && (

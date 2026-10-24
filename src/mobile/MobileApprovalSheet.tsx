@@ -126,7 +126,7 @@ export default function MobileApprovalSheet({
               <button
                 type="button"
                 onClick={onMinimize}
-                className="p-1 rounded-lg text-zinc-400 active:text-zinc-200 active:bg-zinc-800"
+                className="p-1 rounded-lg text-zinc-400 active:text-zinc-200 active:bg-state-soft"
                 title="收起为浮动条"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,13 +146,13 @@ export default function MobileApprovalSheet({
             onChange={(e) => setReason(e.target.value)}
             placeholder="可选：说明拒绝原因，会转达给 Agent"
             aria-label="拒绝原因"
-            className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-600"
+            className="w-full rounded-xl bg-zinc-900 border border-edge-subtle px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-edge-strong"
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => onReject(reason.trim() || undefined)}
-              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm font-medium text-zinc-200 active:bg-zinc-700"
+              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm font-medium text-zinc-200 active:bg-state-mid"
             >
               拒绝
             </button>
@@ -179,7 +179,7 @@ export default function MobileApprovalSheet({
       <div className="space-y-3 px-4 pb-3">
         {/* 上下文提示 (Context Banner) */}
         {(sessionName || conversationTitle) && (
-          <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
+          <div className="p-2.5 rounded-xl bg-zinc-950 border border-edge-subtle flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -263,7 +263,7 @@ export default function MobileApprovalSheet({
                 {path}
               </div>
             )}
-            <div className="overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
+            <div className="overflow-hidden rounded-lg border border-edge bg-zinc-950">
               <div className="overflow-x-auto">
                 <FileChangeView
                   toolName={diffTool}
@@ -293,7 +293,7 @@ export default function MobileApprovalSheet({
               </div>
             )}
             <div className="mb-1 text-xs text-zinc-500">派发给子 agent 的完整指令</div>
-            <pre className="max-h-80 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-zinc-200">
+            <pre className="max-h-80 overflow-y-auto rounded-lg border border-edge bg-zinc-950 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-zinc-200">
               {promptText}
             </pre>
           </div>
@@ -310,7 +310,7 @@ export default function MobileApprovalSheet({
               </div>
             )}
             <div className="mb-1 text-xs text-zinc-500">参数</div>
-            <div className="overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
+            <div className="overflow-hidden rounded-lg border border-edge bg-zinc-950">
               <div className="flex items-start gap-2 px-3 py-2">
                 <span className="select-none font-mono text-xs leading-relaxed text-emerald-400">$</span>
                 <code className="min-w-0 flex-1 break-words whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-200">
@@ -318,7 +318,7 @@ export default function MobileApprovalSheet({
                 </code>
               </div>
               {Object.keys(cleanedCmd.extras).length > 0 && (
-                <pre className="max-h-40 overflow-y-auto border-t border-zinc-700/60 px-3 py-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-zinc-400">
+                <pre className="max-h-40 overflow-y-auto border-t border-edge/60 px-3 py-2 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap text-zinc-400">
                   {JSON.stringify(cleanedCmd.extras, null, 2)}
                 </pre>
               )}

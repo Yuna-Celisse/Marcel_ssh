@@ -29,7 +29,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { name: '', description: '', prompt: '' };
 
 const inputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
 /** Skill management for mobile: import file / create / edit / toggle / delete. */
 export function MobileSkillSection() {
@@ -252,7 +252,7 @@ export function MobileSkillSection() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-edge px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
         >
           <FileUp className="h-4 w-4" />
           导入文件
@@ -263,7 +263,7 @@ export function MobileSkillSection() {
             setMessage(null);
             setForm(EMPTY_FORM);
           }}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-edge px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
         >
           <Plus className="h-4 w-4" />
           手动创建
@@ -275,7 +275,7 @@ export function MobileSkillSection() {
             closeGh();
             setGhOpen(true);
           }}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-zinc-700 px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-edge px-2 py-3 text-xs text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
         >
           <CloudDownload className="h-4 w-4" />
           GitHub
@@ -317,7 +317,7 @@ export function MobileSkillSection() {
             onTouchEnd={drag.onTouchEndPending}
             style={{ transform: drag.translateFor(skill.id) }}
             className={
-              'relative flex touch-pan-y items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3' +
+              'relative flex touch-pan-y items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3' +
               (drag.isDragging && !isDragged
                 ? ' transition-transform duration-200 ease-out motion-reduce:transition-none'
                 : '') +
@@ -347,12 +347,12 @@ export function MobileSkillSection() {
                 {skill.name}
               </span>
               {builtin && (
-                <span className="flex-shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
+                <span className="flex-shrink-0 rounded border border-edge bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
                   内置
                 </span>
               )}
               {skill.resources && skill.resources.length > 0 && (
-                <span className="flex-shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
+                <span className="flex-shrink-0 rounded border border-edge bg-zinc-800 px-1 py-px text-[10px] leading-4 text-zinc-400">
                   {skill.resources.length} 资源
                 </span>
               )}
@@ -386,7 +386,7 @@ export function MobileSkillSection() {
             <button
               type="button"
               onClick={() => setForm(null)}
-              className="w-full rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+              className="w-full rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
             >
               关闭
             </button>
@@ -402,7 +402,7 @@ export function MobileSkillSection() {
                       setDeleteTarget(target);
                     }
                   }}
-                  className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-red-300 active:bg-zinc-700"
+                  className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-red-300 active:bg-state-mid"
                 >
                   删除
                 </button>
@@ -410,7 +410,7 @@ export function MobileSkillSection() {
               <button
                 type="button"
                 onClick={() => setForm(null)}
-                className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+                className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
               >
                 取消
               </button>
@@ -510,7 +510,7 @@ export function MobileSkillSection() {
               <button
                 type="button"
                 onClick={closeGh}
-                className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+                className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
               >
                 取消
               </button>
@@ -611,7 +611,7 @@ export function MobileSkillSection() {
           <button
             type="button"
             onClick={() => setDeleteTarget(null)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>

@@ -142,19 +142,19 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-edge-subtle px-3 py-2">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="搜索进程..."
-          className="flex-1 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 outline-none focus:border-indigo-500 placeholder:text-zinc-500"
+          className="flex-1 rounded-md bg-zinc-800 border border-edge px-2 py-1 text-xs text-zinc-100 outline-none focus:border-indigo-500 placeholder:text-zinc-500"
         />
         <button
           type="button"
           onClick={loadProcesses}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-state-mid disabled:opacity-40"
         >
           {loading && (
             <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -170,7 +170,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
         {error && <div className="px-3 py-2 text-xs text-red-300">{error}</div>}
 
         <table className="w-full text-xs table-fixed">
-          <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800">
+          <thead className="sticky top-0 bg-zinc-900 border-b border-edge-subtle">
             <tr className="text-zinc-500">
               <th className="px-3 py-2 text-left font-medium w-16 whitespace-nowrap">
                 <button type="button" onClick={() => toggleSort('pid')} className="flex items-center gap-1 hover:text-zinc-300 transition-colors">
@@ -225,7 +225,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
             ) : filteredAndSorted.map((proc) => (
               <tr
                 key={proc.pid}
-                className="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors cursor-pointer"
+                className="border-b border-edge-subtle/50 hover:bg-state-soft/50 transition-colors cursor-pointer"
                 onContextMenu={(e) => handleContextMenu(e, proc)}
               >
                 <td className="px-3 py-1.5 text-zinc-300 truncate">{proc.pid}</td>
@@ -250,7 +250,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
       {menuProcess && createPortal(
         <div
           ref={menuRef}
-          className="context-menu-enter fixed z-50 w-36 rounded-lg border border-zinc-700 bg-zinc-800 p-1 shadow-lg"
+          className="context-menu-enter fixed z-50 w-36 rounded-lg border border-edge bg-zinc-800 p-1 shadow-lg"
           style={{
             top: menuPos.y,
             left: menuPos.x,
@@ -259,7 +259,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
           <button
             type="button"
             onClick={() => handleCopyInfo(menuProcess)}
-            className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700"
+            className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-state-mid"
           >
             复制所有信息
           </button>
@@ -279,7 +279,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
 
       {killConfirm && createPortal(
         <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-zinc-700 shadow-2xl p-4">
+          <div className="modal-panel-enter w-80 rounded-xl bg-zinc-800 border border-edge shadow-2xl p-4">
             <h3 className="text-sm font-semibold text-red-300 mb-2">确认终止进程</h3>
             <p className="text-xs text-zinc-400 mb-1">
               PID: <span className="text-zinc-200">{killConfirm.pid}</span>
@@ -291,7 +291,7 @@ export default function ProcessPanel({ sessionId }: ProcessPanelProps) {
               <button
                 type="button"
                 onClick={() => setKillConfirm(null)}
-                className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-zinc-600"
+                className="px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-700 hover:bg-state-strong"
               >
                 取消
               </button>

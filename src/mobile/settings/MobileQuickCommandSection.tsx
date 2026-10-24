@@ -76,7 +76,7 @@ async function loadAllCommands(
 }
 
 const inputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 
 /**
  * Quick command management for mobile: list / create / edit / delete for both
@@ -219,7 +219,7 @@ export function MobileQuickCommandSection() {
           setFormMessage(null);
           setForm(EMPTY_FORM);
         }}
-        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-700 px-3 py-3 text-sm text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
+        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-edge px-3 py-3 text-sm text-zinc-300 transition-colors duration-100 active:scale-[0.99] active:bg-zinc-900"
       >
         <Plus className="h-4 w-4" />
         新建快捷命令
@@ -244,7 +244,7 @@ export function MobileQuickCommandSection() {
       {commands.map((cmd) => (
         <div
           key={cmd.id}
-          className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3"
+          className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export function MobileQuickCommandSection() {
                 insertOnly: cmd.insertOnly,
               });
             }}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft"
             aria-label={`编辑 ${cmd.name}`}
           >
             <Pencil className="h-4 w-4" />
@@ -289,7 +289,7 @@ export function MobileQuickCommandSection() {
           <button
             type="button"
             onClick={() => setDeleteTarget(cmd)}
-            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-zinc-800 active:text-red-400"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-state-soft active:text-red-400"
             aria-label={`删除 ${cmd.name}`}
           >
             <Trash2 className="h-4 w-4" />
@@ -307,7 +307,7 @@ export function MobileQuickCommandSection() {
             <button
               type="button"
               onClick={() => setForm(null)}
-              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
             >
               取消
             </button>
@@ -370,7 +370,7 @@ export function MobileQuickCommandSection() {
                       className={`rounded-xl border px-3 py-2.5 text-left transition-colors duration-100 active:scale-[0.99] ${
                         active
                           ? 'border-indigo-500 bg-indigo-500/10'
-                          : 'border-zinc-700 bg-zinc-800/60'
+                          : 'border-edge bg-zinc-800/60'
                       }`}
                     >
                       <div
@@ -453,7 +453,7 @@ export function MobileQuickCommandSection() {
                 />
               )}
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-700 bg-zinc-800/60 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-zinc-800/60 px-3 py-2.5">
               <div className="min-w-0 pr-3">
                 <div className="text-sm text-zinc-200">点击后自动执行</div>
                 <div className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">
@@ -511,7 +511,7 @@ export function MobileQuickCommandSection() {
           <button
             type="button"
             onClick={() => setDeleteTarget(null)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>

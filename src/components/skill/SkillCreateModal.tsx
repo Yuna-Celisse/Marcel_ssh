@@ -235,7 +235,7 @@ export default function SkillCreateModal({ open, onClose }: Props) {
             'rounded-xl border-2 border-dashed cursor-pointer select-none transition-colors p-5 flex flex-col items-center gap-1.5 ' +
             (isDragging
               ? 'border-indigo-400 bg-indigo-950/30'
-              : 'border-zinc-600 hover:border-zinc-500 hover:bg-zinc-700/40')
+              : 'border-edge-strong hover:border-zinc-500 hover:bg-state-mid/40')
           }
         >
           <svg className='w-7 h-7 text-zinc-500' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
@@ -259,7 +259,7 @@ export default function SkillCreateModal({ open, onClose }: Props) {
         </div>
 
         {/* GitHub import */}
-        <div className='rounded-xl border border-zinc-700 bg-zinc-900/40 p-3 space-y-2'>
+        <div className='rounded-xl border border-edge bg-zinc-900/40 p-3 space-y-2'>
           <div className='flex items-center justify-between'>
             <div className='text-xs text-zinc-400'>或从 GitHub 导入（仓库 / 目录 / 文件地址）</div>
             <GithubImportGuideButton open={guideOpen} onToggle={() => setGuideOpen((v) => !v)} />
@@ -275,12 +275,12 @@ export default function SkillCreateModal({ open, onClose }: Props) {
               }}
               placeholder='https://github.com/owner/repo[/tree/main/skills]'
               disabled={ghBusy}
-              className='flex-1 rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500'
+              className='flex-1 rounded-lg bg-zinc-900 border border-edge px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500'
             />
             <button
               onClick={() => void handleFetchFromUrl()}
               disabled={ghBusy || !ghUrl.trim()}
-              className='flex-shrink-0 rounded-lg bg-zinc-700 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+              className='flex-shrink-0 rounded-lg bg-zinc-700 px-3 py-2 text-xs text-zinc-200 hover:bg-state-strong disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
             >
               {ghBusy ? '拉取中…' : '拉取'}
             </button>
@@ -295,7 +295,7 @@ export default function SkillCreateModal({ open, onClose }: Props) {
                 {found.skills.map((s) => (
                   <label
                     key={s.subpath}
-                    className='flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-800/60 cursor-pointer'
+                    className='flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-state-soft/60 cursor-pointer'
                   >
                     <input
                       type='checkbox'
@@ -334,7 +334,7 @@ export default function SkillCreateModal({ open, onClose }: Props) {
         {/* Divider */}
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
-            <div className='w-full border-t border-zinc-700' />
+            <div className='w-full border-t border-edge' />
           </div>
           <div className='relative flex justify-center text-xs'>
             <span className='bg-zinc-800 px-2 text-zinc-500'>或手动填写</span>
@@ -357,7 +357,7 @@ export default function SkillCreateModal({ open, onClose }: Props) {
         <div className='flex justify-end gap-2 pt-2'>
           <button
             onClick={handleClose}
-            className='px-4 py-1.5 text-sm rounded-lg bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors'
+            className='px-4 py-1.5 text-sm rounded-lg bg-zinc-700 text-zinc-200 hover:bg-state-strong transition-colors'
           >
             取消
           </button>

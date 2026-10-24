@@ -178,6 +178,49 @@ describe('resolveThemeVars', () => {
   });
 });
 
+describe('中性色按用途拆分', () => {
+  it('每个槽位写到各自独立的变量：改边框不碰卡片，改悬停不碰边框', () => {
+    const base = getUiThemePreset('daylight')!.zones;
+    const a = resolveThemeVars({ presetId: CUSTOM_PRESET_ID, zones: base });
+    const b = resolveThemeVars({ presetId: CUSTOM_PRESET_ID, zones: { ...base, edge: '#ff0000' } });
+    expect(b['--color-edge']).toBe('#ff0000');
+    for (const key of Object.keys(a)) {
+      if (key !== '--color-edge') expect(b[key]).toBe(a[key]);
+    }
+    const c = resolveThemeVars({ presetId: CUSTOM_PRESET_ID, zones: { ...base, card: '#fafafa' } });
+    expect(c['--color-zinc-800']).toBe('#fafafa');
+    expect(c['--color-edge-subtle']).toBe(a['--color-edge-subtle']);
+    expect(c['--color-state-soft']).toBe(a['--color-state-soft']);
+  });
+
+  it('旧存档（中性 10 档）迁移后外观不变：新槽位跟着旧档位走，而不是回落暗色默认', () => {
+    const legacy = { ...getUiThemePreset('daylight')!.zones } as Record<string, string>;
+    for (const id of ['control', 'controlStrong', 'hoverSoft', 'hoverMid', 'hoverStrong', 'selected', 'edgeSubtle', 'edge', 'edgeStrong']) delete legacy[id];
+    legacy.hover = '#e5e5ea';
+    legacy.line = '#d1d1d9';
+    const out = normalizeUiTheme({ presetId: CUSTOM_PRESET_ID, zones: legacy as never });
+    expect(out.presetId).toBe(CUSTOM_PRESET_ID);
+    expect(out.zones.edge).toBe('#e5e5ea');
+    expect(out.zones.edgeStrong).toBe('#d1d1d9');
+    expect(out.zones.edgeSubtle).toBe(legacy.card);
+    expect(out.zones.control).toBe('#e5e5ea');
+    expect(out.zones.selected).toBe(legacy.card);
+  });
+
+  it('在册预设以代码为准：存档里的旧分区快照盖不住预设改版', () => {
+    const out = normalizeUiTheme({ presetId: 'daylight', zones: { ...DEFAULT_UI_THEME_ZONES, bg: '#123456' } });
+    expect(out.zones.bg).toBe(getUiThemePreset('daylight')!.zones.bg);
+  });
+
+  it('默认（曜石）的新槽位与原 zinc 值一致，不启用主题时逐像素不变', () => {
+    expect(DEFAULT_UI_THEME_ZONES.edge).toBe('#3f3f46');
+    expect(DEFAULT_UI_THEME_ZONES.edgeSubtle).toBe('#27272a');
+    expect(DEFAULT_UI_THEME_ZONES.hoverSoft).toBe('#27272a');
+    expect(DEFAULT_UI_THEME_ZONES.hoverMid).toBe('#3f3f46');
+    expect(DEFAULT_UI_THEME_ZONES.selected).toBe('#27272a');
+  });
+});
+
 describe('terminal colors belong to the theme', () => {
   const luminance = (hex: string) => hexToL(hex);
 

@@ -264,7 +264,7 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
 
     return (
       <table className="w-full text-xs table-fixed">
-        <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800">
+        <thead className="sticky top-0 bg-zinc-900 border-b border-edge-subtle">
           <tr className="text-zinc-500">
             {columns.map((col) => (
               <th key={col.key} className={`px-3 py-2 text-left font-medium whitespace-nowrap ${col.w}`}>
@@ -291,7 +291,7 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
           ) : filteredAndSorted.map((row, i) => (
             <tr
               key={`${row.proto}-${row.laddr}-${row.lport}-${row.raddr}-${row.rport}-${i}`}
-              className="border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors cursor-pointer"
+              className="border-b border-edge-subtle/50 hover:bg-state-soft/50 transition-colors cursor-pointer"
               onContextMenu={(e) => handleContextMenu(e, row)}
             >
               <td className="px-3 py-1.5 font-mono text-[11px] text-cyan-400">{row.proto.toUpperCase()}</td>
@@ -323,7 +323,7 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
   const renderInterfaces = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 p-3">
       {interfaces.map((iface) => (
-        <div key={iface.name} className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3.5 hover:border-zinc-700/80 transition-colors">
+        <div key={iface.name} className="rounded-lg border border-edge-subtle bg-zinc-900/50 p-3.5 hover:border-edge/80 transition-colors">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-zinc-100">{iface.name}</span>
             <span className={`inline-flex px-1.5 py-px rounded text-[10px] font-medium leading-4 ${iface.state === 'UP' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
@@ -352,19 +352,19 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-edge-subtle px-3 py-2">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="搜索地址、端口或进程…"
-          className="flex-1 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 outline-none focus:border-indigo-500 placeholder:text-zinc-500"
+          className="flex-1 rounded-md bg-zinc-800 border border-edge px-2 py-1 text-xs text-zinc-100 outline-none focus:border-indigo-500 placeholder:text-zinc-500"
         />
         <button
           type="button"
           onClick={loadData}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-state-mid disabled:opacity-40"
         >
           {loading && (
             <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -376,7 +376,7 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
         </button>
       </div>
 
-      <div className="flex border-b border-zinc-800 px-3">
+      <div className="flex border-b border-edge-subtle px-3">
         {(['listen', 'connections', 'interfaces'] as SubView[]).map((v) => (
           <button
             key={v}
@@ -397,8 +397,8 @@ export default function NetworkPanel({ sessionId }: NetworkPanelProps) {
       </div>
 
       {menuRow && createPortal(
-        <div ref={menuRef} className="fixed z-[100] min-w-[140px] rounded-lg border border-zinc-700 bg-zinc-800 p-1 shadow-lg" style={{ top: menuPos.y, left: menuPos.x }}>
-          <button type="button" onClick={() => handleCopyInfo(menuRow)} className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-700">
+        <div ref={menuRef} className="fixed z-[100] min-w-[140px] rounded-lg border border-edge bg-zinc-800 p-1 shadow-lg" style={{ top: menuPos.y, left: menuPos.x }}>
+          <button type="button" onClick={() => handleCopyInfo(menuRow)} className="w-full rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-state-mid">
             复制连接信息
           </button>
         </div>,

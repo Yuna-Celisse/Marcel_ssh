@@ -161,7 +161,7 @@ export default function PluginWebviewSlot({ provider }: Props) {
               <button
                 type="button"
                 onClick={handleDisable}
-                className="px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-zinc-600 transition-colors"
+                className="px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-state-strong transition-colors"
               >
                 禁用此插件
               </button>
@@ -173,7 +173,7 @@ export default function PluginWebviewSlot({ provider }: Props) {
             <button
               type="button"
               onClick={handleRetry}
-              className="mt-2 px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-zinc-600 transition-colors"
+              className="mt-2 px-3 py-1.5 text-xs bg-zinc-700 text-zinc-200 rounded-lg hover:bg-state-strong transition-colors"
             >
               重试
             </button>

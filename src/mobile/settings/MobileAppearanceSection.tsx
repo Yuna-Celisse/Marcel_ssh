@@ -1,15 +1,22 @@
-import { TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '@/lib/terminalFont';
-import { useSettingsActions } from '@/components/settings/SettingsActionsContext';
-import { useLiveSettingsPatch } from '@/components/settings/useLiveSettingsPatch';
-import Toggle from '@/components/ui/Toggle';
-import { MobileSettingRow } from './MobileSettingRow';
-import { UiThemeEditor } from '@/components/settings/UiThemeEditor';
+import {
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+} from "@/lib/terminalFont";
+import { useSettingsActions } from "@/components/settings/SettingsActionsContext";
+import { useLiveSettingsPatch } from "@/components/settings/useLiveSettingsPatch";
+import Toggle from "@/components/ui/Toggle";
+import { MobileSettingRow } from "./MobileSettingRow";
+import { UiThemeEditor } from "@/components/settings/UiThemeEditor";
 
 /** Touch-first terminal appearance settings for the mobile shell. */
 export function MobileAppearanceSection() {
   const { settings, update } = useSettingsActions();
   // 主题与终端外观走免保存通道：preview 即时生效、停稳后自动落库（与桌面同一实现）。
-  const { settings: liveSettings, preview, liveUpdate } = useLiveSettingsPatch();
+  const {
+    settings: liveSettings,
+    preview,
+    liveUpdate,
+  } = useLiveSettingsPatch();
   const colors = preview?.terminalColors ?? liveSettings.terminalColors;
   const uiTheme = preview?.uiTheme ?? liveSettings.uiTheme;
 
@@ -20,14 +27,20 @@ export function MobileAppearanceSection() {
   return (
     <div className="flex flex-col gap-2">
       {/* 应用主题（与桌面共用编辑器与分区模型，lib/uiTheme.ts） */}
-      <MobileSettingRow label="应用主题" description="选预设整体换色（终端配色随主题成套切换），或逐分区自定义；改动即时生效">
+      <MobileSettingRow
+        label="应用主题"
+        description="选预设整体换色（终端配色随主题成套切换），或逐分区自定义；改动即时生效"
+      >
         <div className="pt-1">
           <UiThemeEditor
             value={uiTheme}
             terminalColors={colors}
             // 主题与终端配色同一次 patch 写入，与桌面一致
             onChange={(nextTheme, nextColors) =>
-              liveUpdate({ uiTheme: nextTheme, ...(nextColors && { terminalColors: nextColors }) })
+              liveUpdate({
+                uiTheme: nextTheme,
+                ...(nextColors && { terminalColors: nextColors }),
+              })
             }
           />
         </div>
@@ -54,7 +67,10 @@ export function MobileAppearanceSection() {
       </MobileSettingRow>
 
       {/* Font family */}
-      <MobileSettingRow label="字体" description="终端字体族；Nerd Fonts 图标已内置">
+      <MobileSettingRow
+        label="字体"
+        description="终端字体族；Nerd Fonts 图标已内置"
+      >
         <input
           type="text"
           value={preview?.fontFamily ?? liveSettings.fontFamily}
@@ -62,7 +78,7 @@ export function MobileAppearanceSection() {
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none focus:border-indigo-500"
+          className="mt-1 w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none focus:border-indigo-500"
         />
       </MobileSettingRow>
 

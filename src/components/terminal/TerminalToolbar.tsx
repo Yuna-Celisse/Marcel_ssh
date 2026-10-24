@@ -12,7 +12,7 @@ export default function TerminalToolbar() {
   const activeSession = activeSessionId ? sessions[activeSessionId] ?? null : null;
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-850 border-b border-zinc-800 bg-zinc-900/50">
+    <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-850 border-b border-edge-subtle bg-zinc-900/50">
       {/* Connection info */}
       <div className="flex items-center gap-2 text-sm">
         {activeSession ? (
@@ -40,7 +40,7 @@ export default function TerminalToolbar() {
               ${
                 mode === m.value
                   ? 'bg-indigo-600 text-indigo-100'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-state-mid'
               }
             `}
           >

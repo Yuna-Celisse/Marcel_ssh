@@ -60,7 +60,7 @@ export default function MobilePathBar({
         <button
           type="button"
           onClick={() => onNavigate('/')}
-          className={`flex-shrink-0 rounded-md px-2.5 py-1.5 font-mono text-sm active:bg-zinc-800 ${
+          className={`flex-shrink-0 rounded-md px-2.5 py-1.5 font-mono text-sm active:bg-state-soft ${
             pathParts.length === 0
               ? 'font-semibold text-zinc-100'
               : 'text-zinc-400'
@@ -78,7 +78,7 @@ export default function MobilePathBar({
                 onClick={() =>
                   onNavigate('/' + pathParts.slice(0, i + 1).join('/'))
                 }
-                className={`rounded-md px-2 py-1.5 font-mono text-sm active:bg-zinc-800 ${
+                className={`rounded-md px-2 py-1.5 font-mono text-sm active:bg-state-soft ${
                   isLast ? 'font-semibold text-zinc-100' : 'text-zinc-400'
                 }`}
               >
@@ -94,7 +94,7 @@ export default function MobilePathBar({
           setEditValue(currentPath);
           setEditing(true);
         }}
-        className="flex-shrink-0 rounded-md px-2 py-1.5 text-xs text-zinc-500 active:bg-zinc-800"
+        className="flex-shrink-0 rounded-md px-2 py-1.5 text-xs text-zinc-500 active:bg-state-soft"
         aria-label="编辑路径"
       >
         编辑

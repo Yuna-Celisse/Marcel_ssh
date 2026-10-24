@@ -58,14 +58,14 @@ export default function StarPromptModal() {
       open={open}
       onClose={handleSkip}
       size="sm"
-      contentClassName="!max-w-[340px] !bg-zinc-900 !border-zinc-800"
+      contentClassName="!max-w-[340px] !bg-zinc-900 !border-edge-subtle"
     >
       <div className="relative px-4 pb-2">
         <button
           type="button"
           onClick={handleSkip}
           aria-label="关闭"
-          className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-sm leading-none text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+          className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-sm leading-none text-zinc-600 hover:bg-state-soft hover:text-zinc-300 transition-colors"
         >
           ✕
         </button>

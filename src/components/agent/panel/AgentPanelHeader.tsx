@@ -45,7 +45,7 @@ export function AgentPanelHeader({
   );
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+    <div className="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
       <div className="flex items-center gap-2 min-w-0">
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <h2 className="text-sm font-semibold text-zinc-200">智能助手</h2>
@@ -54,7 +54,7 @@ export function AgentPanelHeader({
               type="button"
               onClick={() => setTokenPopoverOpen((v) => !v)}
               className={`flex h-5 w-5 items-center justify-center rounded-full transition-colors ${
-                tokenPopoverOpen ? 'bg-indigo-600/30' : 'hover:bg-zinc-700/70'
+                tokenPopoverOpen ? 'bg-indigo-600/30' : 'hover:bg-state-mid/70'
               }`}
               title={
                 meter.percent != null
@@ -76,8 +76,8 @@ export function AgentPanelHeader({
               />
               {/* `text-xs` 是这块面板的字号基准：内部尺寸都用 em 相对它算，
                   移动端那张 sheet 用 text-sm，两端各自贴合各自的字号体系 */}
-              <div className="absolute top-full left-0 mt-2 w-64 text-xs bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl z-50 p-3 animate-fadeIn">
-                <div className="mb-2 border-b border-zinc-700 pb-1.5 text-xs font-semibold text-zinc-300">
+              <div className="absolute top-full left-0 mt-2 w-64 text-xs bg-zinc-800 border border-edge rounded-xl shadow-2xl z-50 p-3 animate-fadeIn">
+                <div className="mb-2 border-b border-edge pb-1.5 text-xs font-semibold text-zinc-300">
                   Token 用量
                 </div>
                 <TokenUsagePanel
@@ -151,7 +151,7 @@ export function AgentPanelHeader({
           type="button"
           onClick={onNewConversation}
           disabled={!canInteract}
-          className="p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-state-mid disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           title="新建会话"
         >
           <svg
@@ -171,7 +171,7 @@ export function AgentPanelHeader({
         <button
           type="button"
           onClick={onHistoryClick}
-          className="p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+          className="p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-state-mid transition-colors"
           title="历史会话"
         >
           <svg

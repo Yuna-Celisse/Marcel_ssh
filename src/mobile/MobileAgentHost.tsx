@@ -452,7 +452,7 @@ export default function MobileAgentHost({
       data-region="mobile-agent"
     >
       <header
-        className="flex flex-shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2"
+        className="flex flex-shrink-0 items-center gap-2 border-b border-edge-subtle bg-zinc-950 px-3 py-2"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
       >
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -539,7 +539,7 @@ export default function MobileAgentHost({
               setHistoryBrowserOpen(true);
             }
           }}
-          className="rounded-lg bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 transition-transform duration-100 active:scale-95 active:bg-zinc-700"
+          className="rounded-lg bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-200 transition-transform duration-100 active:scale-95 active:bg-state-mid"
         >
           历史
         </button>
@@ -554,7 +554,7 @@ export default function MobileAgentHost({
       )}
 
       {rollbackHint && (
-        <div className="flex-shrink-0 border-b border-zinc-700 bg-zinc-900 px-3 py-1.5 text-center text-xs text-zinc-300">
+        <div className="flex-shrink-0 border-b border-edge bg-zinc-900 px-3 py-1.5 text-center text-xs text-zinc-300">
           {rollbackHint}
         </div>
       )}
@@ -608,7 +608,7 @@ export default function MobileAgentHost({
           />
           <div
             onAnimationEnd={historyPresence.onAnimationEnd}
-            className={`absolute inset-x-0 bottom-0 z-30 max-h-[55%] overflow-y-auto rounded-t-2xl border-t border-zinc-700 bg-zinc-900 p-3 shadow-2xl ${
+            className={`absolute inset-x-0 bottom-0 z-30 max-h-[55%] overflow-y-auto rounded-t-2xl border-t border-edge bg-zinc-900 p-3 shadow-2xl ${
               historyPresence.phase === "exit"
                 ? "mobile-sheet-exit"
                 : "mobile-sheet-enter"
@@ -676,7 +676,7 @@ export default function MobileAgentHost({
                                   console.error('Failed to toggle pin:', getErrorMessage(err)),
                                 )
                               }
-                              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800 active:text-zinc-200"
+                              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft active:text-zinc-200"
                               aria-label={conv.pinned ? `取消置顶 ${conv.title}` : `置顶 ${conv.title}`}
                             >
                               <Pin className="h-3.5 w-3.5" />
@@ -684,7 +684,7 @@ export default function MobileAgentHost({
                             <button
                               type="button"
                               onClick={() => handleStartRename(conv.id, conv.title)}
-                              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800 active:text-zinc-200"
+                              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft active:text-zinc-200"
                               aria-label={`重命名 ${conv.title}`}
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -692,7 +692,7 @@ export default function MobileAgentHost({
                             <button
                               type="button"
                               onClick={() => setDeleteTargetId(conv.id)}
-                              className="mr-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800 active:text-red-400"
+                              className="mr-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft active:text-red-400"
                               aria-label={`删除 ${conv.title}`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -726,14 +726,14 @@ export default function MobileAgentHost({
               }
             }}
             placeholder="请输入会话名称"
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
+            className="w-full rounded-xl border border-edge bg-zinc-800 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
             autoFocus
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setRenameTargetId(null)}
-              className="flex-1 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 active:bg-zinc-700"
+              className="flex-1 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 active:bg-state-mid"
             >
               取消
             </button>
@@ -768,7 +768,7 @@ export default function MobileAgentHost({
           <button
             type="button"
             onClick={() => setDeleteTargetId(null)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>
@@ -793,7 +793,7 @@ export default function MobileAgentHost({
               setUsageSheetOpen(false);
               setMemorySheetOpen(true);
             }}
-            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100"
+            className="mt-3 flex w-full items-center gap-2 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100"
           >
             <Bookmark className="h-4 w-4 flex-shrink-0 text-zinc-400" aria-hidden />
             <span className="min-w-0 flex-1 text-zinc-200">这段对话带着的记忆</span>
@@ -839,8 +839,8 @@ export default function MobileAgentHost({
       />
 
       {isSubConversation ? (
-        <div className="flex-shrink-0 border-t border-zinc-800 p-3">
-          <div className="flex items-center gap-3 rounded-xl border border-zinc-700/60 bg-zinc-900/70 px-3 py-3">
+        <div className="flex-shrink-0 border-t border-edge-subtle p-3">
+          <div className="flex items-center gap-3 rounded-xl border border-edge/60 bg-zinc-900/70 px-3 py-3">
             <button
               type="button"
               onClick={handleBackToParent}
@@ -861,7 +861,7 @@ export default function MobileAgentHost({
               </svg>
               返回主对话
             </button>
-            <div className="min-w-0 flex-1 border-l border-zinc-700/50 pl-3">
+            <div className="min-w-0 flex-1 border-l border-edge/50 pl-3">
               <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
                 {/* 本机子任务（local_subagent）：这条子对话在用户这台电脑上跑，
                     没有 SSH 会话。不标的话用户会以为它跑在某台服务器上。
@@ -886,7 +886,7 @@ export default function MobileAgentHost({
         </div>
       ) : (
         <AgentDraft draftKey={draftKey}>{(inputDraft) => (
-        <div className="relative flex-shrink-0 border-t border-zinc-800 p-3">
+        <div className="relative flex-shrink-0 border-t border-edge-subtle p-3">
           {/* `/` 命令面板：锚定输入框上方，触摸点选执行；遮罩点击/返回键关闭 */}
           {commandMenuOpen && (
             <div
@@ -917,7 +917,7 @@ export default function MobileAgentHost({
           <AgentQueueTray conversationId={attachments.conversationId} mobile />
           <DraftSkillChips attachments={attachments} mobile />
           <DraftAttachments attachments={attachments} mobile />
-          <div className="agent-input rounded-2xl border border-zinc-700 bg-zinc-900 focus-within:border-indigo-500">
+          <div className="agent-input rounded-2xl border border-edge bg-zinc-900 focus-within:border-indigo-500">
             {/* 移动端不拦截回车：软键盘/IME 的「换行」键走 textarea 原生行为插入换行
                 （含拼音组合中确认候选词的回车，不会误发）；发送只走右侧按钮——
                 手机上没有 shift+Enter，若拦截回车则多行输入无法换行。桌面端语义不受影响。 */}
@@ -945,7 +945,7 @@ export default function MobileAgentHost({
                 type="button"
                 onClick={() => void attachments.handleAttach()}
                 disabled={!canInteract || !ids}
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center -ml-0.5 text-zinc-400 active:text-zinc-200 active:bg-zinc-800 rounded-full transition-transform duration-150 active:scale-90 disabled:opacity-40"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center -ml-0.5 text-zinc-400 active:text-zinc-200 active:bg-state-soft rounded-full transition-transform duration-150 active:scale-90 disabled:opacity-40"
                 title="添加图片或文本文件"
                 aria-label="添加图片或文本文件"
               >
@@ -955,7 +955,7 @@ export default function MobileAgentHost({
                 <button
                   type="button"
                   onClick={() => setModeOpen((v) => !v)}
-                  className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium text-zinc-300 active:bg-zinc-800 transition-transform duration-150 active:scale-95"
+                  className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium text-zinc-300 active:bg-state-soft transition-transform duration-150 active:scale-95"
                   title={currentModeInfo.description}
                 >
                   {currentModeInfo.label}
@@ -971,7 +971,7 @@ export default function MobileAgentHost({
               {modePresence.mounted && (
                 <div
                   onAnimationEnd={modePresence.onAnimationEnd}
-                  className={`absolute bottom-full left-0 z-30 mb-2 w-56 rounded-xl border border-zinc-700 bg-zinc-800 py-1 shadow-2xl ${
+                  className={`absolute bottom-full left-0 z-30 mb-2 w-56 rounded-xl border border-edge bg-zinc-800 py-1 shadow-2xl ${
                     modePresence.phase === "exit"
                       ? "mobile-popover-exit"
                       : "mobile-popover-enter"
@@ -990,7 +990,7 @@ export default function MobileAgentHost({
                         className={`w-full px-3 py-2 text-left text-sm ${
                           active
                             ? "bg-indigo-600/20 text-indigo-200"
-                            : "text-zinc-200 active:bg-zinc-700"
+                            : "text-zinc-200 active:bg-state-mid"
                         }`}
                       >
                         <div className="font-semibold">
@@ -1042,7 +1042,7 @@ export default function MobileAgentHost({
             <button
               type="button"
               onClick={() => setUsageSheetOpen(true)}
-              className="mr-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-transform duration-150 active:scale-95 active:bg-zinc-800"
+              className="mr-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-transform duration-150 active:scale-95 active:bg-state-soft"
               title={
                 meter.percent != null
                   ? `上下文占用 ${formatPercent(meter.percent)}%`

@@ -29,7 +29,7 @@ export default function LiveOutputPanel({
   }, [text, executing, follow]);
 
   return (
-    <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+    <div className="min-w-0 ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
       <pre
         ref={ref}
         onScroll={onScroll}

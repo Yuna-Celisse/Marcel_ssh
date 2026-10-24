@@ -13,8 +13,8 @@ export function SubconversationBar({
   onBack,
 }: SubconversationBarProps) {
   return (
-    <div className="p-3 border-t border-zinc-800">
-      <div className="flex items-center gap-3 rounded-lg border border-zinc-700/60 bg-zinc-800/40 px-3 py-2.5">
+    <div className="p-3 border-t border-edge-subtle">
+      <div className="flex items-center gap-3 rounded-lg border border-edge/60 bg-zinc-800/40 px-3 py-2.5">
         <button
           type="button"
           onClick={onBack}
@@ -35,7 +35,7 @@ export function SubconversationBar({
           </svg>
           返回主对话
         </button>
-        <div className="flex-1 min-w-0 border-l border-zinc-700/50 pl-3">
+        <div className="flex-1 min-w-0 border-l border-edge/50 pl-3">
           <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
             {/* 本机子任务（local_subagent）：这条子对话在用户这台电脑上跑，
                 没有 SSH 会话。不标的话用户会以为它跑在某台服务器上。 */}

@@ -83,7 +83,7 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
                   key={s.label}
                   type="button"
                   onClick={() => send(s.prompt)}
-                  className={`rounded-full border border-zinc-700 bg-zinc-800/60 text-zinc-300 transition hover:border-indigo-500/50 hover:text-zinc-100 active:scale-[0.97] ${
+                  className={`rounded-full border border-edge bg-zinc-800/60 text-zinc-300 transition hover:border-indigo-500/50 hover:text-zinc-100 active:scale-[0.97] ${
                     mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'
                   }`}
                 >
@@ -107,13 +107,13 @@ export default function MemoryAssistantPanel({ focus, mobile = false }: Props) {
         )}
       </div>
 
-      <div className={`flex-shrink-0 border-t px-3 pb-3 pt-2.5 ${mobile ? 'border-zinc-800' : 'border-zinc-700/70'}`}>
+      <div className={`flex-shrink-0 border-t px-3 pb-3 pt-2.5 ${mobile ? 'border-edge-subtle' : 'border-edge/70'}`}>
         {/* 药丸输入框：外圈圆角 = 内圈按钮半径 + 内边距，按钮是正圆，嵌进去才同心。
             全局 :focus-visible 的描边会在圆角框里再画出一个方框，且盖得过 Tailwind 的 outline-none
             （它在 layer 里），所以靠 `.agent-input` 这条全局规则关掉，外框的 border 是唯一的焦点提示。
             底色与宿主面板错开一档（弹窗 zinc-800 → 输入框 zinc-900；手机面板 zinc-900 → zinc-800）。 */}
         <div
-          className={`agent-input flex items-end gap-1 rounded-[1.375rem] border border-zinc-700 p-1.5 pl-4 transition-colors focus-within:border-indigo-500 ${
+          className={`agent-input flex items-end gap-1 rounded-[1.375rem] border border-edge p-1.5 pl-4 transition-colors focus-within:border-indigo-500 ${
             mobile ? 'bg-zinc-800' : 'bg-zinc-900'
           }`}
         >
@@ -208,7 +208,7 @@ function BatchUndoBar({
             type="button"
             disabled={busy}
             onClick={() => void undo()}
-            className={`rounded-md text-zinc-300 transition hover:bg-zinc-700/60 active:scale-[0.96] disabled:opacity-40 ${
+            className={`rounded-md text-zinc-300 transition hover:bg-state-mid/60 active:scale-[0.96] disabled:opacity-40 ${
               mobile ? 'px-2.5 py-1.5' : 'px-2 py-0.5'
             }`}
           >

@@ -789,7 +789,7 @@ export default function App() {
           <aside
             ref={sidebarAsideRef}
             data-region="sidebar"
-            className="layout-contained flex-shrink-0 bg-zinc-900 border-r border-zinc-800 overflow-hidden"
+            className="layout-contained flex-shrink-0 bg-zinc-900 border-r border-edge-subtle overflow-hidden"
             style={{
               width: effectiveSidebarOpen ? `${sidebarWidth}px` : '0rem',
               borderRightWidth: effectiveSidebarOpen ? '1px' : '0px',
@@ -896,7 +896,7 @@ export default function App() {
                 <aside
                   ref={dockAsideRef}
                   data-region={agentPrimary ? 'center' : 'agent'}
-                  className="layout-contained flex flex-col overflow-hidden border-l border-zinc-800 flex-shrink-0"
+                  className="layout-contained flex flex-col overflow-hidden border-l border-edge-subtle flex-shrink-0"
                   style={{ width: `${dockWidth}px` }}
                 >
                   {agentPrimary ? terminalBody : (

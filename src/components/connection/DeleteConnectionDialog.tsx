@@ -46,7 +46,7 @@ export default function DeleteConnectionDialog({ connection, onClose, onConfirm 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700/60 active:scale-[0.97] transition"
+            className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-state-mid/60 active:scale-[0.97] transition"
           >
             取消
           </button>

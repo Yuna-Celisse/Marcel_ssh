@@ -155,7 +155,7 @@ export default function TabBar() {
           </button>
         </div>
       )}
-      <div className="flex items-center bg-zinc-900 border-b border-zinc-800 overflow-x-auto">
+      <div className="flex items-center bg-zinc-900 border-b border-edge-subtle overflow-x-auto">
         <div className="flex items-center">
           {sessionList.map((session) => {
             const isActive = session.id === activeSessionId;
@@ -173,12 +173,12 @@ export default function TabBar() {
                 onClick={() => setActiveSession(session.id)}
                 className={`
                   group flex items-center gap-2 px-3 py-2 text-xs cursor-pointer
-                  border-r border-zinc-800 min-w-0 max-w-[180px]
+                  border-r border-edge-subtle min-w-0 max-w-[180px]
                   transition-colors
                   ${
                     isActive
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                      ? 'bg-state-selected text-zinc-100'
+                      : 'text-zinc-400 hover:bg-state-soft/50 hover:text-zinc-200'
                   }
                 `}
               >
@@ -226,7 +226,7 @@ export default function TabBar() {
                       transition-colors
                       ${
                         canReconnect
-                          ? 'text-zinc-400 hover:bg-zinc-700 hover:text-emerald-400'
+                          ? 'text-zinc-400 hover:bg-state-mid hover:text-emerald-400'
                           : 'text-zinc-600 cursor-not-allowed'
                       }
                     `}
@@ -262,7 +262,7 @@ export default function TabBar() {
                   }}
                   className="
                     opacity-0 group-hover:opacity-100
-                    p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200
+                    p-0.5 rounded hover:bg-state-mid text-zinc-500 hover:text-zinc-200
                     transition-opacity flex-shrink-0
                   "
                   title="关闭会话"

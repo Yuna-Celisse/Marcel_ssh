@@ -51,11 +51,11 @@ export function FontSizeInput({
         onChange={(e) => setInputValue(e.target.value)}
         onFocus={() => setShowSlider(true)}
         onBlur={handleBlur}
-        className="w-24 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        className="w-24 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       />
       {showSlider && (
         <div 
-          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-zinc-800 border border-zinc-700 rounded-xl shadow-xl z-50 w-52 animate-slide-down"
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-zinc-800 border border-edge rounded-xl shadow-xl z-50 w-52 animate-slide-down"
           style={{ animationDuration: '200ms', animationTimingFunction: 'var(--spring-bounce)' }}
         >
           <input

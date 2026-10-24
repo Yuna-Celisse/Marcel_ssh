@@ -147,8 +147,8 @@ export default memo(function AgentTranscript({
           title="回到底部"
           aria-label="回到底部"
           className={mobile
-            ? 'absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-zinc-600 bg-zinc-800/95 px-3 py-1.5 text-xs font-medium text-zinc-100 shadow-lg backdrop-blur-sm active:bg-zinc-700'
-            : 'absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-zinc-600 bg-zinc-800/95 text-zinc-100 shadow-lg backdrop-blur-sm transition-colors hover:bg-zinc-700'}
+            ? 'absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-edge-strong bg-zinc-800/95 px-3 py-1.5 text-xs font-medium text-zinc-100 shadow-lg backdrop-blur-sm active:bg-state-mid'
+            : 'absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-edge-strong bg-zinc-800/95 text-zinc-100 shadow-lg backdrop-blur-sm transition-colors hover:bg-state-mid'}
         >
           {mobile ? '回到底部' : <ArrowDown className="h-4 w-4" />}
         </button>

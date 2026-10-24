@@ -86,7 +86,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
         <button
           type="button"
           onClick={onBack ?? fallbackBack}
-          className="-ml-2 mb-5 flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-400"
+          className="-ml-2 mb-5 flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-zinc-400 transition-colors hover:bg-state-soft hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-400"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           返回设置
@@ -99,7 +99,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
           虚拟服务器仅在本次运行中有效，重启应用后自动移除。
         </p>
         <section
-          className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4"
+          className="mt-6 rounded-xl border border-edge-subtle bg-zinc-950/50 p-4"
           aria-labelledby="debug-server-title"
         >
           <div className="flex items-start gap-3">
@@ -137,7 +137,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
               <button
                 type="button"
                 onClick={onShowServers ?? fallbackServers}
-                className="flex min-h-10 items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-indigo-300 transition-colors hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-indigo-400"
+                className="flex min-h-10 items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-indigo-300 transition-colors hover:bg-state-soft focus-visible:outline-2 focus-visible:outline-indigo-400"
               >
                 去服务器列表
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -178,7 +178,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
         </section>
 
         <section
-          className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4"
+          className="mt-4 rounded-xl border border-edge-subtle bg-zinc-950/50 p-4"
           aria-labelledby="debug-plugin-title"
         >
           <div className="flex items-start gap-3">
@@ -192,7 +192,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
             type="button"
             onClick={() => void reloadPlugins()}
             disabled={pluginReloading}
-            className="mt-4 flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-indigo-400 disabled:cursor-wait disabled:opacity-60"
+            className="mt-4 flex min-h-10 items-center gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-state-mid focus-visible:outline-2 focus-visible:outline-indigo-400 disabled:cursor-wait disabled:opacity-60"
           >
             <PlugZap className="h-4 w-4" aria-hidden="true" />
             {pluginReloading ? "正在尝试热重载…" : "尝试热重载插件"}
@@ -201,7 +201,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
         </section>
 
         <section
-          className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4"
+          className="mt-4 rounded-xl border border-edge-subtle bg-zinc-950/50 p-4"
           aria-labelledby="debug-error-screen-title"
         >
           <div className="flex items-start gap-3">
@@ -218,7 +218,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
           <button
             type="button"
             onClick={() => setErrorPreviewOpen(true)}
-            className="mt-4 flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-indigo-400"
+            className="mt-4 flex min-h-10 items-center gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:bg-state-mid focus-visible:outline-2 focus-visible:outline-indigo-400"
           >
             <Eye className="h-4 w-4" aria-hidden="true" />
             预览错误界面
@@ -226,7 +226,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
         </section>
 
         <section
-          className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4"
+          className="mt-4 rounded-xl border border-edge-subtle bg-zinc-950/50 p-4"
           aria-labelledby="debug-experimental-title"
         >
           <div className="flex items-start gap-3">
@@ -263,7 +263,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
           </label>
           <p className="mt-1 text-xs leading-5 text-zinc-500">开启后跳过真实模型，Agent 会模拟连续输出“67”，直到设定的 token 上限；状态会保留到手动关闭。</p>
           {debug67Mode && (
-            <div className="mt-3 space-y-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div className="mt-3 space-y-3 rounded-lg border border-edge-subtle bg-zinc-900/40 p-3">
               <label className="flex items-center justify-between gap-3 text-sm text-zinc-200">
                 <span>输出 token 上限</span>
                 <input
@@ -276,7 +276,7 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
                     const value = Number(event.currentTarget.value);
                     if (Number.isFinite(value)) setDebug67TokenLimit(value);
                   }}
-                  className="w-28 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-right text-sm text-zinc-100 outline-none focus:border-indigo-500"
+                  className="w-28 rounded-md border border-edge bg-zinc-800 px-2 py-1 text-right text-sm text-zinc-100 outline-none focus:border-indigo-500"
                   aria-label="67 模式输出 token 上限"
                 />
               </label>

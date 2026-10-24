@@ -75,13 +75,13 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         onAnimationEnd={presence.onAnimationEnd}
-        className={`relative w-full mx-4 rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl max-h-[min(90vh,calc(100dvh-var(--ime-bottom,0px)-2rem))] flex flex-col ${
+        className={`relative w-full mx-4 rounded-2xl bg-zinc-800 border border-edge shadow-2xl max-h-[min(90vh,calc(100dvh-var(--ime-bottom,0px)-2rem))] flex flex-col ${
           exiting ? 'modal-panel-exit' : 'modal-panel-enter'
         } ${SIZE_CLASSES[size]} ${contentClassName}`}
       >
         {/* Header */}
         {title && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge flex-shrink-0">
             <h2 className="text-lg font-semibold text-zinc-100">{title}</h2>
             {dismissible && (
               <button

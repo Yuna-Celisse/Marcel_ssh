@@ -37,7 +37,7 @@ export default function WindowControls() {
     <div className="flex items-center">
       <button
         onClick={handleMinimize}
-        className="w-11 h-8 flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+        className="w-11 h-8 flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-state-mid transition-colors"
         title="最小化"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -46,7 +46,7 @@ export default function WindowControls() {
       </button>
       <button
         onClick={handleMaximize}
-        className="w-11 h-8 flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+        className="w-11 h-8 flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-state-mid transition-colors"
         title={isMaximized ? '还原' : '最大化'}
       >
         {isMaximized ? (

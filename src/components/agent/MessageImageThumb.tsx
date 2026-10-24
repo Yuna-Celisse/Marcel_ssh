@@ -70,12 +70,12 @@ export default function MessageImageThumb({
           aria-haspopup="dialog"
           className="h-full w-full rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
-          <img src={src} alt={label} className="h-full w-full object-cover rounded-md border border-zinc-700" onError={() => setFailed(true)} />
+          <img src={src} alt={label} className="h-full w-full object-cover rounded-md border border-edge" onError={() => setFailed(true)} />
         </button>
       ) : <img
         src={src}
         alt=""
-        className="h-full w-full object-cover rounded-md border border-zinc-700"
+        className="h-full w-full object-cover rounded-md border border-edge"
         onError={() => setFailed(true)}
       />}
       {removable && (
@@ -85,7 +85,7 @@ export default function MessageImageThumb({
             e.stopPropagation();
             onRemove?.();
           }}
-          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 border border-zinc-600 text-zinc-300 hover:text-white hover:bg-red-600 flex items-center justify-center text-[10px] leading-none"
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-zinc-900 border border-edge-strong text-zinc-300 hover:text-white hover:bg-red-600 flex items-center justify-center text-[10px] leading-none"
           title="移除"
         >
           ×

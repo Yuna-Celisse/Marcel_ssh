@@ -41,7 +41,7 @@ export default function MobilePasteConfirmSheet({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>

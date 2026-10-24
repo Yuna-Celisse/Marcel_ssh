@@ -98,7 +98,7 @@ function InjectionDetail({
                       console.error('retry injection failed:', e);
                     });
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-700 text-zinc-200 hover:bg-state-strong transition-colors"
                 >
                   <RotateCw className="w-3 h-3" />
                   重试
@@ -337,9 +337,9 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
 
   return (
     <>
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-edge-subtle">
           <div className="flex items-center gap-3 min-w-0">
             <Puzzle className="w-5 h-5 text-zinc-500 flex-shrink-0" />
             <div className="min-w-0">
@@ -407,7 +407,7 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
 
       {/* 卸载完成提示 */}
       {uninstallDone && (
-        <div className="px-5 py-3 border-b border-zinc-800 bg-emerald-500/5">
+        <div className="px-5 py-3 border-b border-edge-subtle bg-emerald-500/5">
           <p className="text-xs text-emerald-400 leading-relaxed">
             已卸载，重启应用后完全移除
           </p>
@@ -416,28 +416,28 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
 
       {/* 更新完成提示 */}
       {updateDone && (
-        <div className="px-5 py-3 border-b border-zinc-800 bg-emerald-500/5">
+        <div className="px-5 py-3 border-b border-edge-subtle bg-emerald-500/5">
           <p className="text-xs text-emerald-400 leading-relaxed">
             已更新至 v{updateInfo?.marketVersion}，重启应用后生效
           </p>
         </div>
       )}
       {updateError && !updateDone && (
-        <div className="px-5 py-3 border-b border-zinc-800 bg-red-500/5">
+        <div className="px-5 py-3 border-b border-edge-subtle bg-red-500/5">
           <p className="text-xs text-red-400 leading-relaxed break-all">{updateError}</p>
         </div>
       )}
 
       {/* Description */}
       {manifest.description && (
-        <div className="px-5 py-3 border-b border-zinc-800">
+        <div className="px-5 py-3 border-b border-edge-subtle">
           <p className="text-sm text-zinc-400 leading-relaxed">{manifest.description}</p>
         </div>
       )}
 
       {/* Incompatibility explanation */}
       {incompatible && minRequired && (
-        <div className="px-5 py-3 border-b border-zinc-800 bg-amber-500/5">
+        <div className="px-5 py-3 border-b border-edge-subtle bg-amber-500/5">
           <p className="text-xs text-amber-400 leading-relaxed">
             此插件需要应用 v{minRequired} 及以上版本，当前版本无法启用。
             升级应用后刷新将自动恢复可用。
@@ -552,7 +552,7 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
             : '某些插件禁用后窗口不会完全关闭，重启应用可以解决。'}
         </p>
       </div>
-      <div className="flex justify-end px-4 py-3 border-t border-zinc-700">
+      <div className="flex justify-end px-4 py-3 border-t border-edge">
         <Button
           variant="primary"
           size="sm"
@@ -578,7 +578,7 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
           <p className="mt-2 text-xs text-red-400">{uninstallError}</p>
         )}
       </div>
-      <div className="flex justify-end gap-2 px-4 py-3 border-t border-zinc-700">
+      <div className="flex justify-end gap-2 px-4 py-3 border-t border-edge">
         <Button
           variant="secondary"
           size="sm"
@@ -611,7 +611,7 @@ function PluginCard({ manifest, appVersion, injectionStatus, updateInfo, onResta
           将用新版本覆盖插件文件，个人数据（如记忆、配置）会保留，旧版多余文件会被清理。重启后生效。
         </p>
       </div>
-      <div className="flex justify-end gap-2 px-4 py-3 border-t border-zinc-700">
+      <div className="flex justify-end gap-2 px-4 py-3 border-t border-edge">
         <Button variant="secondary" size="sm" onClick={() => setShowUpdateConfirm(false)}>
           取消
         </Button>
@@ -756,7 +756,7 @@ export function PluginSection() {
 
       {/* Plugin cards */}
       {!loading && !error && manifests.length === 0 && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-6 py-12 text-center">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 px-6 py-12 text-center">
           <Puzzle className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
           <p className="text-sm text-zinc-500">暂无已安装插件</p>
           <p className="text-xs text-zinc-600 mt-1">将插件放入上方目录后重启应用</p>
@@ -790,7 +790,7 @@ export function PluginSection() {
               : `插件「${globalRestartHint?.name}」已禁用，某些窗口不会完全关闭，重启应用可以解决。`}
           </p>
         </div>
-        <div className="flex justify-end px-4 py-3 border-t border-zinc-700">
+        <div className="flex justify-end px-4 py-3 border-t border-edge">
           <Button variant="primary" size="sm" onClick={() => setGlobalRestartHint(null)}>
             知道了
           </Button>

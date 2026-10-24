@@ -45,7 +45,7 @@ export default function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="inline-flex gap-0.5 rounded-lg border border-zinc-700 bg-zinc-800/60 p-0.5"
+      className="inline-flex gap-0.5 rounded-lg border border-edge bg-zinc-800/60 p-0.5"
     >
       {options.map((option, index) => {
         const active = option.value === value;
@@ -77,7 +77,7 @@ export default function SegmentedControl<T extends string>({
               ${
                 active
                   ? 'bg-indigo-600 text-white'
-                  : 'text-zinc-300 hover:bg-zinc-700/70 hover:text-zinc-100'
+                  : 'text-zinc-300 hover:bg-state-mid/70 hover:text-zinc-100'
               }`}
             style={{ transitionTimingFunction: 'var(--spring-bounce)' }}
           >

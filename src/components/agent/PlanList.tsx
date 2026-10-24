@@ -126,13 +126,13 @@ export default function PlanList() {
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
-    <div className="min-h-0 flex-shrink overflow-hidden border-t border-zinc-800/60">
+    <div className="min-h-0 flex-shrink overflow-hidden border-t border-edge-subtle/60">
       {/* Header */}
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="w-full min-h-6 flex items-center justify-between px-3 py-0.5 hover:bg-zinc-800/30 active:bg-zinc-800/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 [@media(pointer:coarse)]:min-h-8 motion-reduce:transition-none"
+        className="w-full min-h-6 flex items-center justify-between px-3 py-0.5 hover:bg-state-soft/30 active:bg-state-soft/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 [@media(pointer:coarse)]:min-h-8 motion-reduce:transition-none"
       >
         <div className="flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

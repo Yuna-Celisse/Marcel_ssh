@@ -48,7 +48,7 @@ function CardIcon({ plugin }: { plugin: MarketPlugin }) {
 
   if (fallback || !plugin.icon) {
     return (
-      <div className="w-14 h-14 rounded-xl bg-zinc-800/80 flex items-center justify-center text-zinc-500 flex-shrink-0 border border-zinc-700/40">
+      <div className="w-14 h-14 rounded-xl bg-zinc-800/80 flex items-center justify-center text-zinc-500 flex-shrink-0 border border-edge/40">
         <Store className="w-7 h-7" />
       </div>
     );
@@ -58,14 +58,14 @@ function CardIcon({ plugin }: { plugin: MarketPlugin }) {
       <img
         src={plugin.icon.value}
         alt=""
-        className="w-14 h-14 rounded-xl object-cover bg-zinc-800 flex-shrink-0 border border-zinc-700/40"
+        className="w-14 h-14 rounded-xl object-cover bg-zinc-800 flex-shrink-0 border border-edge/40"
         loading="lazy"
         onError={() => setFallback(true)}
       />
     );
   }
   return (
-    <div className="w-14 h-14 rounded-xl bg-zinc-800/80 flex items-center justify-center flex-shrink-0 border border-zinc-700/40">
+    <div className="w-14 h-14 rounded-xl bg-zinc-800/80 flex items-center justify-center flex-shrink-0 border border-edge/40">
       <span className="text-2xl">{plugin.icon.value}</span>
     </div>
   );
@@ -75,7 +75,7 @@ function CardIcon({ plugin }: { plugin: MarketPlugin }) {
 function SkeletonCard({ index }: { index: number }) {
   return (
     <div
-      className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3 flex items-center gap-3"
+      className="rounded-xl border border-edge-subtle bg-zinc-900/40 px-4 py-3 flex items-center gap-3"
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="w-14 h-14 rounded-xl bg-zinc-800 animate-pulse flex-shrink-0" />
@@ -218,7 +218,7 @@ export function MarketSection() {
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* ─── 顶部工具栏（吸顶，半透明材质） ─── */}
-      <div className="flex-shrink-0 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-xl">
+      <div className="flex-shrink-0 border-b border-edge-subtle bg-zinc-900/80 backdrop-blur-xl">
         <div className="py-3 space-y-2.5" style={{ paddingLeft: padX, paddingRight: padX }}>
           {/* 标题行 */}
           <div className="flex items-center gap-3">
@@ -297,7 +297,7 @@ export function MarketSection() {
                       className={`text-[11px] px-2.5 py-1 rounded-full transition-all duration-200 flex-shrink-0 inline-flex items-center gap-1.5 ${
                         active
                           ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/30'
-                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 border border-transparent'
+                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-state-soft/60 border border-transparent'
                       }`}
                       style={{ transitionTimingFunction: 'var(--spring-bounce)' }}
                     >
@@ -316,7 +316,7 @@ export function MarketSection() {
 
           {/* 源设置折叠区 */}
           {sourceOpen && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 space-y-2">
+            <div className="rounded-lg border border-edge-subtle bg-zinc-900/60 p-3 space-y-2">
               <p className="text-[11px] text-zinc-500 leading-relaxed">
                 填写 GitHub 加速镜像前缀（如 https://ghfast.top），市场列表、详情、图片与插件下载统一走该镜像。留空使用内置默认（jsDelivr 拉取列表 + 内置镜像下载 + GitHub 直连兜底）。
               </p>
@@ -354,7 +354,7 @@ export function MarketSection() {
       {/* ─── 错误条 ─── */}
       {error && (
         <div
-          className="flex-shrink-0 py-2.5 border-b border-zinc-800 bg-red-500/5 flex items-center gap-2"
+          className="flex-shrink-0 py-2.5 border-b border-edge-subtle bg-red-500/5 flex items-center gap-2"
           style={{ paddingLeft: padX, paddingRight: padX }}
         >
           <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
@@ -416,7 +416,7 @@ export function MarketSection() {
                 key={p.id}
                 type="button"
                 onClick={() => setSelected(p)}
-                className="group w-full text-left rounded-xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-800/40 px-4 py-3 transition-all duration-200 active:scale-[0.99]"
+                className="group w-full text-left rounded-xl border border-edge-subtle bg-zinc-900/40 hover:border-edge hover:bg-state-soft/40 px-4 py-3 transition-all duration-200 active:scale-[0.99]"
                 style={{ transitionTimingFunction: 'var(--spring-bounce)' }}
               >
                 <div className="flex items-start gap-3 min-w-0">

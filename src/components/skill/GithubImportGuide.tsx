@@ -70,7 +70,7 @@ export default function GithubImportGuide({ touch = false }: { touch?: boolean }
   };
 
   return (
-    <div className='space-y-3 rounded-lg border border-zinc-700/60 bg-zinc-900/60 p-3'>
+    <div className='space-y-3 rounded-lg border border-edge/60 bg-zinc-900/60 p-3'>
       <div className='space-y-2'>
         <div className='text-xs font-medium text-zinc-300'>可以贴这三种地址</div>
         {EXAMPLES.map((e) => (
@@ -81,7 +81,7 @@ export default function GithubImportGuide({ touch = false }: { touch?: boolean }
               onClick={() => copy(e.url)}
               title='点击复制示例'
               className={
-                'block w-full break-all rounded bg-zinc-950 px-2 py-1 text-left font-mono text-zinc-300 hover:bg-zinc-800 active:bg-zinc-800 ' +
+                'block w-full break-all rounded bg-zinc-950 px-2 py-1 text-left font-mono text-zinc-300 hover:bg-state-soft active:bg-state-soft ' +
                 (touch ? 'text-[11px]' : 'text-[10px]')
               }
             >

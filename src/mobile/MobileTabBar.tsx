@@ -40,7 +40,7 @@ export default function MobileTabBar({
         : 'idle';
   return (
     <nav
-      className="flex flex-shrink-0 border-t border-zinc-800 bg-zinc-950"
+      className="flex flex-shrink-0 border-t border-edge-subtle bg-zinc-950"
       style={{
         paddingBottom:
           'max(env(safe-area-inset-bottom, 0px), var(--nav-bar-bottom, 0px))',

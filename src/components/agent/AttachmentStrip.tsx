@@ -79,11 +79,11 @@ function AttachmentCard({
         : !hasContent
           ? "内容暂不可用"
           : `${item.kind === "image" ? "图片" : "文本"}${hasSize ? ` · ${formatSize(item.size!)}` : ""}`;
-  const actionClass = `inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-100 active:bg-zinc-700 focus-visible:outline-offset-[-2px] ${mobile ? "h-12 w-12" : "h-9 w-8"}`;
+  const actionClass = `inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-state-mid hover:text-zinc-100 active:bg-state-mid focus-visible:outline-offset-[-2px] ${mobile ? "h-12 w-12" : "h-9 w-8"}`;
 
   return (
     <li
-      className={`flex shrink-0 items-center overflow-hidden rounded-xl border ${item.status === "error" ? "border-red-800/60 bg-red-950/30" : "border-zinc-700 bg-zinc-900"} ${item.status === "error" && onRetry ? "w-[18rem]" : mobile ? "w-[15rem]" : "w-[13rem]"} max-w-full`}
+      className={`flex shrink-0 items-center overflow-hidden rounded-xl border ${item.status === "error" ? "border-red-800/60 bg-red-950/30" : "border-edge bg-zinc-900"} ${item.status === "error" && onRetry ? "w-[18rem]" : mobile ? "w-[15rem]" : "w-[13rem]"} max-w-full`}
       data-attachment-id={item.id}
     >
       <button
@@ -94,7 +94,7 @@ function AttachmentCard({
         aria-describedby={descriptionId}
         aria-haspopup="dialog"
         data-attachment-preview={item.id}
-        className="flex min-h-14 min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition-colors enabled:hover:bg-zinc-800 enabled:active:bg-zinc-800 disabled:cursor-default focus-visible:outline-offset-[-2px]"
+        className="flex min-h-14 min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left transition-colors enabled:hover:bg-state-soft enabled:active:bg-state-soft disabled:cursor-default focus-visible:outline-offset-[-2px]"
         title={canPreview ? `预览 ${name}` : `${name}：${detail}`}
       >
         <span

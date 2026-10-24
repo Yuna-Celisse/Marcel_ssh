@@ -44,7 +44,7 @@ export function MobileChoiceGroup<T extends string>({
             aria-checked={active}
             onClick={() => onChange(o.value)}
             className={`rounded-xl border px-3 py-2.5 text-left transition-colors duration-100 active:scale-[0.99] ${
-              active ? 'border-indigo-500 bg-indigo-500/10' : 'border-zinc-700 bg-zinc-800/60'
+              active ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge bg-zinc-800/60'
             }`}
           >
             <div

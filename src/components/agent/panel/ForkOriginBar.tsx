@@ -17,7 +17,7 @@ export function ForkOriginBar({ originTitle, onBack, mobile = false }: ForkOrigi
   return (
     <div
       data-testid="fork-origin-bar"
-      className="flex-shrink-0 border-b border-zinc-800 bg-zinc-900/90 backdrop-blur"
+      className="flex-shrink-0 border-b border-edge-subtle bg-zinc-900/90 backdrop-blur"
     >
       <div
         className={`flex items-center gap-2 px-3 text-xs ${mobile ? 'min-h-11' : 'py-1.5'}`}
@@ -43,8 +43,8 @@ export function ForkOriginBar({ originTitle, onBack, mobile = false }: ForkOrigi
         <button
           type="button"
           onClick={onBack}
-          className={`flex flex-shrink-0 items-center gap-1 rounded-md font-medium text-indigo-400 transition-colors hover:text-indigo-300 active:bg-zinc-800 ${
-            mobile ? 'min-h-11 px-2' : 'px-1.5 py-0.5 hover:bg-zinc-800'
+          className={`flex flex-shrink-0 items-center gap-1 rounded-md font-medium text-indigo-400 transition-colors hover:text-indigo-300 active:bg-state-soft ${
+            mobile ? 'min-h-11 px-2' : 'px-1.5 py-0.5 hover:bg-state-soft'
           }`}
         >
           <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>

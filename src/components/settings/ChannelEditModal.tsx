@@ -35,7 +35,7 @@ export interface ChannelDraft {
 }
 
 const inputClass =
-  'w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500';
+  'w-full rounded-lg bg-zinc-900 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500';
 
 export default function ChannelEditModal({
   open,
@@ -232,7 +232,7 @@ export default function ChannelEditModal({
               <button
                 type="button"
                 onClick={() => setShowKey((v) => !v)}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-state-mid transition-colors flex-shrink-0"
               >
                 {showKey ? '隐藏' : '显示'}
               </button>
@@ -273,11 +273,11 @@ export default function ChannelEditModal({
           </div>
 
           {models.length === 0 ? (
-            <p className="text-xs text-zinc-500 py-3 text-center border border-dashed border-zinc-800 rounded-lg">
+            <p className="text-xs text-zinc-500 py-3 text-center border border-dashed border-edge-subtle rounded-lg">
               还没有模型。点击「获取模型列表」从供应商拉取，或手动添加。
             </p>
           ) : (
-            <ul className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
+            <ul className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-subtle">
               {models.map((m) => (
                 <li key={m.id} className="flex items-center gap-2 px-3 py-2 bg-zinc-900/40">
                   <div className="min-w-0 flex-1">
@@ -301,14 +301,14 @@ export default function ChannelEditModal({
                   <button
                     type="button"
                     onClick={() => setModelEditor({ open: true, initial: m })}
-                    className="px-2 py-1 rounded text-xs text-zinc-300 hover:bg-zinc-800 transition-colors flex-shrink-0"
+                    className="px-2 py-1 rounded text-xs text-zinc-300 hover:bg-state-soft transition-colors flex-shrink-0"
                   >
                     编辑
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteModel(m)}
-                    className="px-2 py-1 rounded text-xs text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors flex-shrink-0"
+                    className="px-2 py-1 rounded text-xs text-zinc-500 hover:text-red-400 hover:bg-state-soft transition-colors flex-shrink-0"
                   >
                     删除
                   </button>

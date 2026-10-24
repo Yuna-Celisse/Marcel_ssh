@@ -47,7 +47,7 @@ export function SettingsSidebar({
 
   return (
     <div
-      className="settings-sidebar flex-shrink-0 bg-zinc-950 border-r border-zinc-800 flex flex-col"
+      className="settings-sidebar flex-shrink-0 bg-zinc-950 border-r border-edge-subtle flex flex-col"
       style={{ width: `${layout.sidebarWidth}px` }}
     >
       <div className={`settings-sidebar-padding ${layout.mode === 'wide' ? 'p-5' : 'p-4'}`}>
@@ -59,7 +59,7 @@ export function SettingsSidebar({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Ctrl+F 搜索"
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+            className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-edge-subtle text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
           />
         </div>
       </div>
@@ -73,8 +73,8 @@ export function SettingsSidebar({
             }}
             className={`w-full flex items-center gap-3 px-3 ${layout.mode === 'wide' ? 'py-2.5' : 'py-2'} rounded-lg text-sm transition-colors ${
               activeCategory === cat.id && !searchQuery
-                ? 'bg-zinc-800 text-zinc-100'
-                : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'
+                ? 'bg-state-selected text-zinc-100'
+                : 'text-zinc-400 hover:bg-state-soft/60 hover:text-zinc-200'
             }`}
           >
             {cat.icon}
@@ -83,7 +83,7 @@ export function SettingsSidebar({
         ))}
       </nav>
       {!searchQuery && (
-        <div className="border-t border-zinc-800 px-4 py-3 space-y-2">
+        <div className="border-t border-edge-subtle px-4 py-3 space-y-2">
           {(saving || savedNotice || saveError || validationErrors.length > 0 || dirty) && (
             <div className="text-xs">
               {saving && (

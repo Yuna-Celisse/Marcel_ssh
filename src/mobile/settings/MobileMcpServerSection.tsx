@@ -221,7 +221,7 @@ export function MobileMcpServerSection() {
             disabled={running || busy}
             inputMode="numeric"
             aria-label="端口"
-            className="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+            className="w-28 rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-sm text-zinc-100 focus:border-indigo-500 focus:outline-none disabled:opacity-50"
           />
         </div>
       </MobileSettingRow>
@@ -242,7 +242,7 @@ export function MobileMcpServerSection() {
             spellCheck={false}
             aria-label="访问令牌"
             placeholder="启动时自动生成"
-            className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300 focus:border-indigo-500 focus:outline-none read-only:opacity-70"
+            className="min-w-0 flex-1 rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300 focus:border-indigo-500 focus:outline-none read-only:opacity-70"
           />
           {shownToken && <CopyButton text={shownToken} size="md" />}
         </div>
@@ -278,7 +278,7 @@ export function MobileMcpServerSection() {
         </p>
       </div>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-3">
         <div className="mb-2 text-xs font-medium text-zinc-300">在手机上用要知道</div>
         <ul className="space-y-1.5 text-xs leading-relaxed text-zinc-500">
           <li>· 服务开着时会启用前台服务（状态栏常驻通知），关掉服务后自动恢复。</li>
@@ -310,7 +310,7 @@ function ScopeButton({
       disabled={disabled}
       aria-pressed={active}
       className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors duration-100 disabled:opacity-60 ${
-        active ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 active:bg-zinc-800'
+        active ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 active:bg-state-soft'
       }`}
     >
       {icon}

@@ -97,7 +97,7 @@ export default function MobileActiveAgentsSheet({
       title="任务与作业中心"
       maxHeightClassName="max-h-[85dvh]"
     >
-      <div className="flex border-b border-zinc-800 px-4 pt-1 gap-4 bg-zinc-900/50">
+      <div className="flex border-b border-edge-subtle px-4 pt-1 gap-4 bg-zinc-900/50">
         <button
           type="button"
           onClick={() => setActiveTab('agents')}
@@ -149,7 +149,7 @@ export default function MobileActiveAgentsSheet({
                   className={`group flex flex-col p-3 rounded-xl border transition-transform duration-100 active:scale-[0.98] ${
                     isCurrent
                       ? 'bg-zinc-800/90 border-indigo-500/40'
-                      : 'bg-zinc-900/70 border-zinc-800/80 active:bg-zinc-800'
+                      : 'bg-zinc-900/70 border-edge-subtle/80 active:bg-state-soft'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -186,7 +186,7 @@ export default function MobileActiveAgentsSheet({
                     </p>
                   )}
 
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-500">
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-edge-subtle/50 text-[10px] text-zinc-500">
                     <span>
                       {task.createdAt ? new Date(task.createdAt).toLocaleTimeString() : ''}
                     </span>
@@ -218,7 +218,7 @@ export default function MobileActiveAgentsSheet({
                   className={`flex flex-col p-3 rounded-xl border ${
                     isRunning
                       ? 'bg-sky-950/20 border-sky-800/50'
-                      : 'bg-zinc-900/70 border-zinc-800/80'
+                      : 'bg-zinc-900/70 border-edge-subtle/80'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -253,7 +253,7 @@ export default function MobileActiveAgentsSheet({
                       上一次应用运行留下的作业：应用退出时通道就关闭了，之后的输出看不到；远端进程是否还在运行，要在服务器上确认。
                     </p>
                   )}
-                  <div className="flex items-center justify-between pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-500">
+                  <div className="flex items-center justify-between pt-2 border-t border-edge-subtle/50 text-[10px] text-zinc-500">
                     <span>
                       输出: {job.totalOutputBytes} 字节
                       {job.detail ? ` · ${job.detail}` : ''}

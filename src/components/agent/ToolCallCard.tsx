@@ -275,7 +275,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
               <button
                 type="button"
                 onClick={() => openSubConversation(meta)}
-                className="group/task w-full ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5 text-left transition-colors"
+                className="group/task w-full ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5 text-left transition-colors"
               >
                 <span className="flex items-center gap-1.5 text-xs font-medium text-sky-400 group-hover/task:text-sky-300">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,7 +290,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
         )}
         {/* Model approval phase — distinct from execution progress */}
         <TransientReveal show={message.modelApproval?.status === 'checking'}>
-          <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+          <div className="ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
             <div className="flex items-center gap-2 text-xs text-indigo-400">
               <svg className="animate-spin h-3 w-3 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -301,7 +301,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
           </div>
         </TransientReveal>
         {message.modelApproval?.status === 'done' && message.modelApproval.decision === 'route_to_human' && (
-          <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+          <div className="ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
             <div className="text-xs text-amber-400 font-medium mb-0.5">模型建议人工审批</div>
             <ApprovalMeta
               engine={message.modelApproval.engine}
@@ -315,7 +315,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
           </div>
         )}
         {message.modelApproval?.status === 'done' && message.modelApproval.decision === 'block' && (
-          <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+          <div className="ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
             <div className="text-xs text-red-400 font-medium mb-0.5">模型阻止</div>
             <ApprovalMeta
               engine={message.modelApproval.engine}
@@ -332,7 +332,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
             放在正文之前，先解释「发生了什么」再看内容，避免用户把验证页正文
             当成真实页面。正常情况不渲染，不占版面。 */}
         {webNotice && !isExecuting && (
-          <div className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-2">
+          <div className="ml-3 border-l border-edge/50 pl-3 pr-1.5 py-2">
             <div
               className={`rounded-lg border px-3 py-2 ${
                 webNotice.tone === 'danger'
@@ -360,7 +360,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
           </div>
         )}
         {expanded && !isExecuting && webDetails.length > 0 && (
-          <details className="ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 text-xs text-zinc-400">
+          <details className="ml-3 border-l border-edge/50 pl-3 pr-1.5 text-xs text-zinc-400">
             <summary className="min-h-11 py-3 cursor-pointer rounded-sm hover:text-zinc-300 active:text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 touch-manipulation">
               获取详情
             </summary>
@@ -379,7 +379,7 @@ function ToolCallCard({ message, autoExpand, messageId, onExpandChange }: Props)
           tr.success && fileChangeTool ? (
             <FileChangeView toolName={fileChangeTool} arguments={tr.arguments || {}} metadata={tr.metadata} />
           ) : (
-            <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+            <div className="min-w-0 ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
               {isSubagentTool(tr.toolName) && tr.success && (
                 <button
                   onClick={() => openSubConversation(tr.metadata)}

@@ -27,14 +27,14 @@ export default function ListPanel({
   return (
     <div {...rest} className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
         <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
           {title}
         </h2>
         {onAdd && (
           <button
             onClick={onAdd}
-            className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition-colors"
+            className="p-1 rounded-lg hover:bg-state-soft text-zinc-400 hover:text-zinc-100 transition-colors"
             title={addButtonTitle}
             aria-label={addButtonTitle}
           >
@@ -56,19 +56,19 @@ export default function ListPanel({
       </div>
 
       {/* Search */}
-      <div className="p-2 border-b border-zinc-800">
+      <div className="p-2 border-b border-edge-subtle">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={searchPlaceholder}
-          className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+          className="w-full rounded-lg bg-zinc-800 border border-edge px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
         />
       </div>
 
       {/* Status */}
       {status && (
-        <div className="px-3 py-1.5 border-b border-zinc-800/50 text-xs text-zinc-500">
+        <div className="px-3 py-1.5 border-b border-edge-subtle/50 text-xs text-zinc-500">
           {status}
         </div>
       )}

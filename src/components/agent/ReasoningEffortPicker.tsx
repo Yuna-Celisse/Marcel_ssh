@@ -232,7 +232,7 @@ export function ReasoningEffortPicker({
           });
         }}
         className={`flex w-full min-w-0 items-center gap-1 rounded-full text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 ${
-          isOpen ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50'
+          isOpen ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200 hover:bg-state-mid/50'
         } ${compact ? 'px-1.5 py-1.5' : 'px-2 py-1.5'} disabled:opacity-40 disabled:cursor-not-allowed`}
         title={hasModelSettings ? `模型设置：${resolvedModelName}` : `思考强度：${label}`}
         aria-label={hasModelSettings ? `模型设置：${resolvedModelName}` : `思考强度：${label}`}

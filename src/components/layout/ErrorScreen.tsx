@@ -48,7 +48,7 @@ export default function ErrorScreen({ error, onClose }: ErrorScreenProps) {
   const detail = describeError(error);
   return (
     <div className="flex h-full flex-col bg-zinc-950 text-zinc-300">
-      <div className="flex h-8 flex-shrink-0 select-none items-center justify-between border-b border-zinc-800 bg-zinc-950">
+      <div className="flex h-8 flex-shrink-0 select-none items-center justify-between border-b border-edge-subtle bg-zinc-950">
         <div className="flex items-center gap-2 px-2 text-xs text-zinc-500">
           <span className="text-red-400">错误</span>
         </div>
@@ -57,7 +57,7 @@ export default function ErrorScreen({ error, onClose }: ErrorScreenProps) {
         <div className="w-full max-w-3xl space-y-4 text-center">
           <h1 className="text-xl font-semibold">出错了</h1>
           <p className="text-sm text-zinc-500">应用遇到意外错误，请尝试重新加载</p>
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-left text-xs leading-relaxed text-zinc-400">
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-edge-subtle bg-zinc-900 p-4 text-left text-xs leading-relaxed text-zinc-400">
             {detail}
           </pre>
           <div className="flex items-center justify-center gap-2">
@@ -68,8 +68,8 @@ export default function ErrorScreen({ error, onClose }: ErrorScreenProps) {
                 copyState === 'copied'
                   ? 'border-emerald-700/60 text-emerald-300'
                   : copyState === 'failed'
-                    ? 'border-zinc-700 text-zinc-500'
-                    : 'border-zinc-700 text-zinc-200 hover:bg-zinc-800'
+                    ? 'border-edge text-zinc-500'
+                    : 'border-edge text-zinc-200 hover:bg-state-soft'
               }`}
             >
               {copyState === 'copied'

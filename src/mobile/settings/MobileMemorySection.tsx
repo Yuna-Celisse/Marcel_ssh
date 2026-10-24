@@ -52,7 +52,7 @@ export function MobileMemorySection() {
         <button
           type="button"
           onClick={() => setModelPicker(true)}
-          className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 active:bg-zinc-700"
+          className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 active:bg-state-mid"
         >
           <span className="truncate">{memoryModelId ? modelFullLabel(registry, memoryModelId) : '跟随会话模型'}</span>
           <ChevronDown className="h-4 w-4 flex-shrink-0 text-zinc-500" />
@@ -60,7 +60,7 @@ export function MobileMemorySection() {
       </MobileSettingRow>
 
       <SectionTitle title="整理助手" />
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3">
         <MemoryAssistantLauncher focus={manager.focus} mobile />
       </div>
 
@@ -117,7 +117,7 @@ function MobileManage({ manager }: { manager: MemoryManager }) {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="-mr-1 flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-indigo-300 active:bg-zinc-800"
+            className="-mr-1 flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-indigo-300 active:bg-state-soft"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden />
             新增
@@ -135,7 +135,7 @@ function MobileManage({ manager }: { manager: MemoryManager }) {
               aria-selected={active}
               onClick={() => setFilter(c.filter)}
               className={`flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition active:scale-[0.97] ${
-                active ? 'border-indigo-500/60 bg-indigo-500/15 text-zinc-100' : 'border-zinc-800 bg-zinc-900 text-zinc-400'
+                active ? 'border-indigo-500/60 bg-indigo-500/15 text-zinc-100' : 'border-edge-subtle bg-zinc-900 text-zinc-400'
               }`}
             >
               {c.label}
@@ -146,7 +146,7 @@ function MobileManage({ manager }: { manager: MemoryManager }) {
         })}
       </div>
 
-      <label className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 focus-within:border-indigo-500/70">
+      <label className="flex items-center gap-2 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-2.5 focus-within:border-indigo-500/70">
         <Search className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
         <input
           value={manager.query}
@@ -159,7 +159,7 @@ function MobileManage({ manager }: { manager: MemoryManager }) {
       <MobileFilterHeader manager={manager} />
 
       {manager.undo && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-zinc-800 px-3 py-2 text-xs">
           <span className="min-w-0 truncate text-zinc-300">{manager.undo.text}</span>
           <button type="button" onClick={() => void manager.undoLast()}
             className="shrink-0 rounded-lg px-2.5 py-1.5 font-medium text-indigo-300 active:bg-indigo-500/10">
@@ -250,7 +250,7 @@ function MobileItem({ item, showScope, onOpen }: { item: MemoryItem; showScope: 
       <button
         type="button"
         onClick={onOpen}
-        className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
+        className="w-full rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
       >
         <div className="flex min-w-0 items-center gap-2">
           {item.pinned && <Pin className="h-3 w-3 shrink-0 text-indigo-400" aria-label="置顶" />}
@@ -273,7 +273,7 @@ function SheetAction({ children, onClick, danger = false }: { children: ReactNod
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-4 py-3 text-left text-sm active:bg-zinc-800 ${danger ? 'text-red-400' : 'text-zinc-200'}`}
+      className={`rounded-xl px-4 py-3 text-left text-sm active:bg-state-soft ${danger ? 'text-red-400' : 'text-zinc-200'}`}
     >
       {children}
     </button>

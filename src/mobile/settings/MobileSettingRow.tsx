@@ -17,7 +17,7 @@ export function MobileSettingRow({
   children,
 }: MobileSettingRowProps) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3">
+    <div className="rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-zinc-100">{label}</div>

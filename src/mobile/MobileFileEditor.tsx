@@ -203,13 +203,13 @@ export default function MobileFileEditor({
     >
       {/* Header */}
       <header
-        className="flex flex-shrink-0 items-center gap-1 border-b border-zinc-800 px-1 py-2"
+        className="flex flex-shrink-0 items-center gap-1 border-b border-edge-subtle px-1 py-2"
         style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
       >
         <button
           type="button"
           onClick={handleClose}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-zinc-800"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-state-soft"
           aria-label="返回"
         >
           <ChevronLeft className="h-5 w-5" />
@@ -232,7 +232,7 @@ export default function MobileFileEditor({
           onPointerDown={(e) => e.preventDefault()}
           onClick={handleUndo}
           disabled={loading || !canUndoNow}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-zinc-800 disabled:opacity-30"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-state-soft disabled:opacity-30"
           aria-label="撤销"
         >
           <Undo2 className="h-5 w-5" />
@@ -242,7 +242,7 @@ export default function MobileFileEditor({
           onPointerDown={(e) => e.preventDefault()}
           onClick={handleRedo}
           disabled={loading || !canRedoNow}
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-zinc-800 disabled:opacity-30"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-zinc-300 active:bg-state-soft disabled:opacity-30"
           aria-label="重做"
         >
           <Redo2 className="h-5 w-5" />
@@ -309,14 +309,14 @@ export default function MobileFileEditor({
               setCloseConfirmOpen(false);
               requestClose();
             }}
-            className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-red-300 active:bg-zinc-700"
+            className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-red-300 active:bg-state-mid"
           >
             放弃修改
           </button>
           <button
             type="button"
             onClick={() => setCloseConfirmOpen(false)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             继续编辑
           </button>
@@ -346,7 +346,7 @@ export default function MobileFileEditor({
           <button
             type="button"
             onClick={() => setOverwriteConfirmOpen(false)}
-            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-zinc-800"
+            className="rounded-xl px-4 py-3 text-sm text-zinc-400 active:bg-state-soft"
           >
             取消
           </button>

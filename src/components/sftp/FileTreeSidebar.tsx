@@ -84,7 +84,7 @@ export default function FileTreeSidebar({
               className={`group flex items-center gap-0.5 pr-2 min-h-[28px] cursor-pointer transition-colors ${
                 isSelected
                   ? 'bg-indigo-500/10 text-zinc-100'
-                  : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'
+                  : 'text-zinc-400 hover:bg-state-soft/50 hover:text-zinc-200'
               }`}
               style={{ paddingLeft: 6 + row.depth * INDENT_PX }}
               onClick={() => onNavigate(row.path)}

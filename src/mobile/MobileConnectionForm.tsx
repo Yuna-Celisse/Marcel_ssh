@@ -31,7 +31,7 @@ interface MobileConnectionFormProps {
 }
 
 const inputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500';
 const inputErrorClass =
   'w-full rounded-lg border border-red-500 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-red-400';
 
@@ -335,7 +335,7 @@ export default function MobileConnectionForm({
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+            className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
           >
             取消
           </button>
@@ -457,7 +457,7 @@ export default function MobileConnectionForm({
                 <button
                   type="button"
                   onClick={() => setKeyManagerTarget('main')}
-                  className="shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
+                  className="shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-state-mid"
                 >
                   选择 / 导入…
                 </button>
@@ -494,7 +494,7 @@ export default function MobileConnectionForm({
                 <button
                   type="button"
                   onClick={() => setSecretDirty(true)}
-                  className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-zinc-700"
+                  className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-state-mid"
                 >
                   修改
                 </button>
@@ -517,7 +517,7 @@ export default function MobileConnectionForm({
                       }
                     })()
                   }
-                  className="rounded-lg px-3 py-2 text-xs text-red-400/80 active:bg-zinc-800"
+                  className="rounded-lg px-3 py-2 text-xs text-red-400/80 active:bg-state-soft"
                 >
                   清除
                 </button>
@@ -553,7 +553,7 @@ export default function MobileConnectionForm({
                   <button
                     type="button"
                     onClick={() => setLoginPasswordDirty(true)}
-                    className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-zinc-700"
+                    className="rounded-lg bg-zinc-800 px-3 py-2 text-xs text-zinc-200 active:bg-state-mid"
                   >
                     修改
                   </button>
@@ -572,7 +572,7 @@ export default function MobileConnectionForm({
                         }
                       })()
                     }
-                    className="rounded-lg px-3 py-2 text-xs text-red-400/80 active:bg-zinc-800"
+                    className="rounded-lg px-3 py-2 text-xs text-red-400/80 active:bg-state-soft"
                   >
                     清除
                   </button>
@@ -610,11 +610,11 @@ export default function MobileConnectionForm({
         </Field>
 
         {/* Jump host (ProxyJump) */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/40">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/40">
           <button
             type="button"
             onClick={() => setUseJump((v) => !v)}
-            className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-300 active:bg-zinc-800/50"
+            className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm text-zinc-300 active:bg-state-soft/50"
           >
             <span className="font-medium">跳板机（可选）</span>
             <span
@@ -633,7 +633,7 @@ export default function MobileConnectionForm({
           </button>
 
           {useJump && (
-            <div className="space-y-3 border-t border-zinc-800 px-3 pb-3 pt-3">
+            <div className="space-y-3 border-t border-edge-subtle px-3 pb-3 pt-3">
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
                   <Field label="主机" error={errors.jumpHost}>
@@ -748,7 +748,7 @@ export default function MobileConnectionForm({
                       <button
                         type="button"
                         onClick={() => setKeyManagerTarget('jump')}
-                        className="shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-zinc-700"
+                        className="shrink-0 rounded-lg bg-zinc-800 px-3 py-2.5 text-sm text-zinc-200 active:bg-state-mid"
                       >
                         选择 / 导入…
                       </button>

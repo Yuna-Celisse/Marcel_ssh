@@ -960,13 +960,20 @@ export interface MemorySettings {
 /** 更新方式三态（与后端 `UpdateMode` 的线上取值一一对应）。 */
 export type UpdateMode = 'auto' | 'notify' | 'off';
 
-/** 应用主题的分区 id：中性灰阶 10 档 + 语义色 5 档（定义见 lib/uiTheme.ts）。 */
+/** 应用主题的分区 id：中性 16 个（填充/状态/边框/文字，按用途拆）+ 语义色 5 档（定义见 lib/uiTheme.ts）。 */
 export type UiThemeZoneId =
   | 'bg'
   | 'surface'
   | 'card'
-  | 'hover'
-  | 'line'
+  | 'control'
+  | 'controlStrong'
+  | 'hoverSoft'
+  | 'hoverMid'
+  | 'hoverStrong'
+  | 'selected'
+  | 'edgeSubtle'
+  | 'edge'
+  | 'edgeStrong'
   | 'textMuted'
   | 'textSecondary'
   | 'textBright'

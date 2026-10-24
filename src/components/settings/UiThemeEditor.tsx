@@ -1,37 +1,43 @@
-import { useEffect, useState } from 'react';
-import type { TerminalColors, UiThemeSettings, UiThemeZoneId, UiThemeZones } from '@/lib/types';
-import { TERMINAL_COLOR_PRESETS } from '@/lib/constants';
+import { useEffect, useState } from "react";
+import type {
+  TerminalColors,
+  UiThemeSettings,
+  UiThemeZoneId,
+  UiThemeZones,
+} from "@/lib/types";
+import { TERMINAL_COLOR_PRESETS } from "@/lib/constants";
 import {
   CUSTOM_PRESET_ID,
+  UI_THEME_NEUTRAL_SECTIONS,
   UI_THEME_NEUTRAL_ZONES,
   UI_THEME_PRESETS,
   UI_THEME_SEMANTIC_ZONES,
   deriveNeutralRamp,
   deriveTerminalColors,
   inferScheme,
-} from '@/lib/uiTheme';
+} from "@/lib/uiTheme";
 
 const TERMINAL_COLOR_FIELDS: { key: keyof TerminalColors; label: string }[] = [
-  { key: 'background', label: '背景' },
-  { key: 'foreground', label: '前景' },
-  { key: 'cursor', label: '光标' },
-  { key: 'selectionBackground', label: '选区' },
-  { key: 'black', label: '黑' },
-  { key: 'red', label: '红' },
-  { key: 'green', label: '绿' },
-  { key: 'yellow', label: '黄' },
-  { key: 'blue', label: '蓝' },
-  { key: 'magenta', label: '品红' },
-  { key: 'cyan', label: '青' },
-  { key: 'white', label: '白' },
-  { key: 'brightBlack', label: '亮黑' },
-  { key: 'brightRed', label: '亮红' },
-  { key: 'brightGreen', label: '亮绿' },
-  { key: 'brightYellow', label: '亮黄' },
-  { key: 'brightBlue', label: '亮蓝' },
-  { key: 'brightMagenta', label: '亮品红' },
-  { key: 'brightCyan', label: '亮青' },
-  { key: 'brightWhite', label: '亮白' },
+  { key: "background", label: "背景" },
+  { key: "foreground", label: "前景" },
+  { key: "cursor", label: "光标" },
+  { key: "selectionBackground", label: "选区" },
+  { key: "black", label: "黑" },
+  { key: "red", label: "红" },
+  { key: "green", label: "绿" },
+  { key: "yellow", label: "黄" },
+  { key: "blue", label: "蓝" },
+  { key: "magenta", label: "品红" },
+  { key: "cyan", label: "青" },
+  { key: "white", label: "白" },
+  { key: "brightBlack", label: "亮黑" },
+  { key: "brightRed", label: "亮红" },
+  { key: "brightGreen", label: "亮绿" },
+  { key: "brightYellow", label: "亮黄" },
+  { key: "brightBlue", label: "亮蓝" },
+  { key: "brightMagenta", label: "亮品红" },
+  { key: "brightCyan", label: "亮青" },
+  { key: "brightWhite", label: "亮白" },
 ];
 
 const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -68,8 +74,11 @@ function ZoneColorField({
   };
 
   return (
-    <label className="flex items-center gap-2.5 min-w-0" title={zone.hint ?? zone.label}>
-      <span className="relative h-7 w-7 flex-shrink-0 overflow-hidden rounded-md border border-zinc-600">
+    <label
+      className="flex items-center gap-2.5 min-w-0"
+      title={zone.hint ?? zone.label}
+    >
+      <span className="relative h-7 w-7 flex-shrink-0 overflow-hidden rounded-md border border-edge-strong">
         <input
           type="color"
           value={value}
@@ -77,11 +86,18 @@ function ZoneColorField({
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           aria-label={zone.label}
         />
-        <span className="block h-full w-full" style={{ backgroundColor: value }} />
+        <span
+          className="block h-full w-full"
+          style={{ backgroundColor: value }}
+        />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
         <span className="truncate text-[13px] text-zinc-200">{zone.label}</span>
-        {zone.hint && <span className="truncate text-[11px] text-zinc-500">{zone.hint}</span>}
+        {zone.hint && (
+          <span className="truncate text-[11px] text-zinc-500">
+            {zone.hint}
+          </span>
+        )}
       </span>
       <input
         type="text"
@@ -93,7 +109,7 @@ function ZoneColorField({
         onBlur={() => setDraft(value)}
         spellCheck={false}
         autoComplete="off"
-        className="w-[5.5rem] flex-shrink-0 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-300 outline-none focus:border-indigo-500"
+        className="w-[5.5rem] flex-shrink-0 rounded-md border border-edge bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-300 outline-none focus:border-indigo-500"
         placeholder="#000000"
       />
     </label>
@@ -120,21 +136,29 @@ export function UiThemeEditor({
 }) {
   // 分区编辑器默认收起：预设一键换色是主路径，逐分区调整属于「自定义」。
   // 带着自定义主题进来时直接展开，与当前状态一致。
-  const [customOpen, setCustomOpen] = useState(value.presetId === CUSTOM_PRESET_ID);
+  const [customOpen, setCustomOpen] = useState(
+    value.presetId === CUSTOM_PRESET_ID,
+  );
   const isCustom = value.presetId === CUSTOM_PRESET_ID;
 
   const setZone = (id: UiThemeZoneId, hex: string) => {
     const zones: UiThemeZones = { ...value.zones, [id]: hex };
     // 界面明暗翻转（比如把主背景从深拖到浅）时终端跟着重新生成，别留深色终端在浅色界面里
     const flipped = inferScheme(zones) !== inferScheme(value.zones);
-    onChange({ presetId: CUSTOM_PRESET_ID, zones }, flipped ? deriveTerminalColors(zones) : undefined);
+    onChange(
+      { presetId: CUSTOM_PRESET_ID, zones },
+      flipped ? deriveTerminalColors(zones) : undefined,
+    );
   };
 
   const selectPreset = (presetId: string) => {
     const preset = UI_THEME_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
     setCustomOpen(false);
-    onChange({ presetId: preset.id, zones: { ...preset.zones } }, preset.terminal);
+    onChange(
+      { presetId: preset.id, zones: { ...preset.zones } },
+      preset.terminal,
+    );
   };
 
   const setTerminal = (next: TerminalColors) => onChange(value, next);
@@ -155,16 +179,22 @@ export function UiThemeEditor({
               onClick={() => selectPreset(preset.id)}
               className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
                 selected
-                  ? 'border-indigo-500 bg-indigo-500/10'
-                  : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-800'
+                  ? "border-indigo-500 bg-indigo-500/10"
+                  : "border-edge-subtle bg-zinc-900 hover:bg-state-soft active:bg-state-soft"
               }`}
             >
               <span
-                className="flex h-8 w-8 flex-shrink-0 flex-col justify-center gap-[3px] rounded-md border border-zinc-600 p-[3px]"
+                className="flex h-8 w-8 flex-shrink-0 flex-col justify-center gap-[3px] rounded-md border border-edge-strong p-[3px]"
                 style={{ backgroundColor: preset.zones.bg }}
               >
-                <span className="h-1.5 rounded-sm" style={{ backgroundColor: preset.zones.card }} />
-                <span className="h-1.5 rounded-sm" style={{ backgroundColor: preset.zones.hover }} />
+                <span
+                  className="h-1.5 rounded-sm"
+                  style={{ backgroundColor: preset.zones.card }}
+                />
+                <span
+                  className="h-1.5 rounded-sm"
+                  style={{ backgroundColor: preset.zones.control }}
+                />
                 <span
                   className="h-1.5 w-1.5 rounded-full"
                   style={{ backgroundColor: preset.zones.accent }}
@@ -173,13 +203,13 @@ export function UiThemeEditor({
               <span className="min-w-0">
                 <span
                   className={`block truncate text-sm ${
-                    selected ? 'font-medium text-indigo-200' : 'text-zinc-200'
+                    selected ? "font-medium text-indigo-200" : "text-zinc-200"
                   }`}
                 >
                   {preset.name}
                 </span>
                 <span className="block text-[11px] text-zinc-500">
-                  {preset.scheme === 'light' ? '浅色' : '深色'}
+                  {preset.scheme === "light" ? "浅色" : "深色"}
                 </span>
               </span>
             </button>
@@ -190,21 +220,23 @@ export function UiThemeEditor({
           onClick={() => setCustomOpen((v) => !v)}
           className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
             isCustom || customOpen
-              ? 'border-indigo-500 bg-indigo-500/10'
-              : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-800'
+              ? "border-indigo-500 bg-indigo-500/10"
+              : "border-edge-subtle bg-zinc-900 hover:bg-state-soft active:bg-state-soft"
           }`}
         >
-          <span className="h-8 w-8 flex-shrink-0 rounded-md border border-zinc-600 bg-gradient-to-br from-red-500 via-green-500 to-blue-500" />
+          <span className="h-8 w-8 flex-shrink-0 rounded-md border border-edge-strong bg-gradient-to-br from-red-500 via-green-500 to-blue-500" />
           <span className="min-w-0">
             <span
               className={`block truncate text-sm ${
-                isCustom || customOpen ? 'font-medium text-indigo-200' : 'text-zinc-200'
+                isCustom || customOpen
+                  ? "font-medium text-indigo-200"
+                  : "text-zinc-200"
               }`}
             >
               自定义
             </span>
             <span className="block text-[11px] text-zinc-500">
-              {customOpen ? '收起分区' : '逐分区调整颜色'}
+              {customOpen ? "收起分区" : "逐分区调整颜色"}
             </span>
           </span>
         </button>
@@ -212,38 +244,59 @@ export function UiThemeEditor({
 
       {customOpen && (
         <>
-          {/* 分区编辑：中性灰阶 */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+          {/* 分区编辑：中性色，按用途分「填充 / 悬停与按下 / 边框 / 文字」 */}
+          <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-xs font-medium text-zinc-400">界面灰阶</div>
+              <div className="text-xs font-medium text-zinc-400">
+                界面中性色
+              </div>
               <button
                 type="button"
                 onClick={() =>
-                  onChange({ presetId: CUSTOM_PRESET_ID, zones: deriveNeutralRamp(value.zones) })
+                  onChange({
+                    presetId: CUSTOM_PRESET_ID,
+                    zones: deriveNeutralRamp(value.zones),
+                  })
                 }
-                className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-700"
-                title="以当前「主背景 / 卡片 / 标题」为锚点，自动生成其余灰阶档位"
+                className="rounded-md border border-edge bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-state-mid"
+                title="以当前「外框 / 卡片 / 标题」为锚点，自动生成其余中性色"
               >
                 按三档自动铺满
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-              {UI_THEME_NEUTRAL_ZONES.map((zone) => (
-                <ZoneColorField
-                  key={zone.id}
-                  zone={zone}
-                  value={value.zones[zone.id]}
-                  onChange={(hex) => setZone(zone.id, hex)}
-                />
+            <div className="flex flex-col gap-4">
+              {UI_THEME_NEUTRAL_SECTIONS.map((section) => (
+                <div key={section.id}>
+                  <div className="mb-1.5 text-[11px] text-zinc-500">
+                    <span className="font-medium text-zinc-400">
+                      {section.label}
+                    </span>
+                    <span className="ml-2">{section.hint}</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+                    {UI_THEME_NEUTRAL_ZONES.filter(
+                      (zone) => zone.section === section.id,
+                    ).map((zone) => (
+                      <ZoneColorField
+                        key={zone.id}
+                        zone={zone}
+                        value={value.zones[zone.id]}
+                        onChange={(hex) => setZone(zone.id, hex)}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>
 
           {/* 分区编辑：语义色 */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+          <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-3">
             <div className="mb-2 text-xs font-medium text-zinc-400">
               语义色
-              <span className="ml-2 font-normal text-zinc-500">选一个基准色，整套深浅由它自动生成</span>
+              <span className="ml-2 font-normal text-zinc-500">
+                选一个基准色，整套深浅由它自动生成
+              </span>
             </div>
             <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
               {UI_THEME_SEMANTIC_ZONES.map((zone) => (
@@ -258,16 +311,18 @@ export function UiThemeEditor({
           </div>
 
           {/* 终端配色：主题的一部分；预设自带，这里给自定义主题微调 */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3">
+          <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-3">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="text-xs font-medium text-zinc-400">
                 终端配色
-                <span className="ml-2 font-normal text-zinc-500">选预设主题时会随主题一起换</span>
+                <span className="ml-2 font-normal text-zinc-500">
+                  选预设主题时会随主题一起换
+                </span>
               </div>
               <button
                 type="button"
                 onClick={() => setTerminal(deriveTerminalColors(value.zones))}
-                className="flex-shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-700"
+                className="flex-shrink-0 rounded-md border border-edge bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300 hover:bg-state-mid"
                 title="用当前界面的背景、文字与语义色生成一套终端配色"
               >
                 从界面配色生成
@@ -283,12 +338,12 @@ export function UiThemeEditor({
                     onClick={() => setTerminal(preset.colors)}
                     className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                       selected
-                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-200'
-                        : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 active:bg-zinc-700'
+                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-200"
+                        : "border-edge bg-zinc-800 text-zinc-300 hover:bg-state-mid active:bg-state-mid"
                     }`}
                   >
                     <span
-                      className="h-3.5 w-3.5 rounded border border-zinc-600"
+                      className="h-3.5 w-3.5 rounded border border-edge-strong"
                       style={{ backgroundColor: preset.colors.background }}
                     />
                     {preset.name}
@@ -301,14 +356,19 @@ export function UiThemeEditor({
                 <ZoneColorField
                   key={key}
                   zone={{ label }}
-                  value={terminalColors[key] ?? '#000000'}
-                  onChange={(hex) => setTerminal({ ...terminalColors, [key]: hex })}
+                  value={terminalColors[key] ?? "#000000"}
+                  onChange={(hex) =>
+                    setTerminal({ ...terminalColors, [key]: hex })
+                  }
                 />
               ))}
             </div>
             <div
               className="mt-3 rounded-lg p-3 font-mono text-xs"
-              style={{ backgroundColor: terminalColors.background, color: terminalColors.foreground }}
+              style={{
+                backgroundColor: terminalColors.background,
+                color: terminalColors.foreground,
+              }}
             >
               <div className="mb-1 flex gap-2">
                 <span style={{ color: terminalColors.red }}>错误</span>

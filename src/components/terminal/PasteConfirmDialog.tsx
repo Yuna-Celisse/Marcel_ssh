@@ -11,9 +11,9 @@ export default function PasteConfirmDialog({ text, sessionId, onConfirm, onCance
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="modal-backdrop-enter absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div className="modal-panel-enter relative w-full max-w-lg mx-4 rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl">
+      <div className="modal-panel-enter relative w-full max-w-lg mx-4 rounded-2xl bg-zinc-800 border border-edge shadow-2xl">
         {/* Header with warning */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -45,10 +45,10 @@ export default function PasteConfirmDialog({ text, sessionId, onConfirm, onCance
         </div>
 
         {/* Action buttons */}
-        <div className="flex justify-end gap-2 px-4 pb-4 border-t border-zinc-700 pt-3">
+        <div className="flex justify-end gap-2 px-4 pb-4 border-t border-edge pt-3">
           <button
             onClick={onCancel}
-            className="px-4 py-1.5 rounded-lg text-sm text-zinc-300 bg-zinc-700 hover:bg-zinc-600 transition-colors"
+            className="px-4 py-1.5 rounded-lg text-sm text-zinc-300 bg-zinc-700 hover:bg-state-strong transition-colors"
           >
             取消
           </button>

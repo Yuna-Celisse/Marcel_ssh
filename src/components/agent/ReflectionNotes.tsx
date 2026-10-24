@@ -78,7 +78,7 @@ function NoteLine({ note, mobile }: { note: ReflectionNote; mobile: boolean }) {
     }
   };
 
-  const btn = `rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700/60 active:scale-[0.96] transition disabled:opacity-40 ${
+  const btn = `rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-state-mid/60 active:scale-[0.96] transition disabled:opacity-40 ${
     mobile ? 'px-2.5 py-1.5 text-xs' : 'px-1.5 py-0.5 text-[11px]'
   }`;
 
@@ -95,7 +95,7 @@ function NoteLine({ note, mobile }: { note: ReflectionNote; mobile: boolean }) {
           onToggle={() => setOpen((v) => !v)}
         >
           {open && (
-            <div className="min-w-0 ml-3 border-l border-zinc-700/50 pl-3 pr-1.5 py-1.5">
+            <div className="min-w-0 ml-3 border-l border-edge/50 pl-3 pr-1.5 py-1.5">
               <ul className="flex flex-col gap-1">
                 {note.ops.map((op) => (
                   <OpRow
@@ -212,7 +212,7 @@ function IntroCard({ mobile, onDone }: { mobile: boolean; onDone: () => void }) 
             type="button"
             disabled={busy}
             onClick={() => void turnOff()}
-            className={`rounded-lg text-zinc-300 hover:bg-zinc-700/60 active:scale-[0.97] transition disabled:opacity-40 ${mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'}`}
+            className={`rounded-lg text-zinc-300 hover:bg-state-mid/60 active:scale-[0.97] transition disabled:opacity-40 ${mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'}`}
           >
             {busy ? '正在关闭…' : '关闭后台复盘'}
           </button>
@@ -222,7 +222,7 @@ function IntroCard({ mobile, onDone }: { mobile: boolean; onDone: () => void }) 
         <button
           type="button"
           onClick={() => openMemorySettings()}
-          className={`rounded-lg text-zinc-300 hover:bg-zinc-700/60 active:scale-[0.97] transition ${mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'}`}
+          className={`rounded-lg text-zinc-300 hover:bg-state-mid/60 active:scale-[0.97] transition ${mobile ? 'px-3 py-2 text-xs' : 'px-3 py-1 text-xs'}`}
         >
           记忆设置
         </button>

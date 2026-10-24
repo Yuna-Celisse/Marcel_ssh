@@ -45,13 +45,13 @@ export default function AgentQueueTray({ conversationId, mobile = false, onPulle
   const store = useAgentQueueStore.getState();
   // 触控目标 ≥44px；桌面指针精确，行可以紧凑。
   const iconButton = mobile
-    ? "h-11 w-11 active:bg-zinc-700/70"
-    : "h-8 w-8 hover:bg-zinc-700/60 active:bg-zinc-700";
+    ? "h-11 w-11 active:bg-state-mid/70"
+    : "h-8 w-8 hover:bg-state-mid/60 active:bg-state-mid";
 
   return (
     <section
       aria-label="待发送队列"
-      className="mb-2 min-w-0 overflow-hidden rounded-xl border border-zinc-700/70 bg-zinc-800/50"
+      className="mb-2 min-w-0 overflow-hidden rounded-xl border border-edge/70 bg-zinc-800/50"
     >
       {paused ? (
         <div
@@ -84,7 +84,7 @@ export default function AgentQueueTray({ conversationId, mobile = false, onPulle
           <span className="min-w-0 truncate">当前任务完成后依次发出</span>
         </div>
       )}
-      <ul className="min-w-0 divide-y divide-zinc-700/40">
+      <ul className="min-w-0 divide-y divide-edge/40">
         {items.map((message, index) => {
           const extra = attachmentCount(message);
           return (

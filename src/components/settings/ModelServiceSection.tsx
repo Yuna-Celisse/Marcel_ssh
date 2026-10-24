@@ -183,12 +183,12 @@ export function ModelServiceSection() {
                   value={choice.description}
                   onChange={(e) => updateSubagentChoice(i, { description: e.target.value })}
                   placeholder="选型提示，如：小模型，适合搜索等简单任务"
-                  className="flex-1 min-w-0 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors"
+                  className="flex-1 min-w-0 rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors"
                 />
                 <button
                   type="button"
                   onClick={() => removeSubagentChoice(i)}
-                  className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                  className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-state-mid transition-colors flex-shrink-0"
                   title="移除该候选"
                 >
                   移除
@@ -339,12 +339,12 @@ export function ModelServiceSection() {
         </div>
 
         {registry.channels.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-800 py-8 text-center">
+          <div className="rounded-xl border border-dashed border-edge-subtle py-8 text-center">
             <p className="text-sm text-zinc-500">还没有渠道。点击「添加渠道」接入第一个模型服务。</p>
             <p className="text-xs text-zinc-600 mt-1">API Key 加密保存在系统密钥链，不会落盘。</p>
           </div>
         ) : (
-          <ul className="divide-y divide-zinc-800 overflow-hidden rounded-xl border border-zinc-800">
+          <ul className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-subtle">
             {registry.channels.map((ch) => {
               const models = modelsOfChannel(registry, ch.id);
               const hasKey = channelKeyStatus[ch.id] ?? !!ch.apiKey;
@@ -369,7 +369,7 @@ export function ModelServiceSection() {
                   <button
                     type="button"
                     onClick={() => setChannelEditor({ open: true, channel: ch })}
-                    className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                    className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-800 hover:bg-state-mid transition-colors flex-shrink-0"
                   >
                     编辑
                   </button>

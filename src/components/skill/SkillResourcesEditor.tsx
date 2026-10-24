@@ -105,7 +105,7 @@ export default function SkillResourcesEditor({
   const selFile = fileIndex >= 0 ? resources[fileIndex] : null;
 
   const inputCls =
-    'w-full rounded-lg bg-zinc-900 border border-zinc-700 px-2.5 text-zinc-100 font-mono ' +
+    'w-full rounded-lg bg-zinc-900 border border-edge px-2.5 text-zinc-100 font-mono ' +
     'placeholder-zinc-500 focus:outline-none focus:border-indigo-500 ' +
     (touch ? 'py-2.5 text-sm' : 'py-1.5 text-xs');
   // 外形与伸缩分开：并排的操作按钮 flex-1 均分；输入行里的「创建」定宽不换行
@@ -115,7 +115,7 @@ export default function SkillResourcesEditor({
     (touch ? 'min-h-11' : 'h-8');
   const btnFill = 'bg-indigo-600 text-white hover:bg-indigo-500 active:bg-indigo-500';
   const btnPrimary = `${btnShape} min-w-0 flex-1 ${btnFill}`;
-  const btnGhost = `${btnShape} min-w-0 flex-1 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:bg-zinc-800`;
+  const btnGhost = `${btnShape} min-w-0 flex-1 border border-edge text-zinc-200 hover:bg-state-soft active:bg-state-soft`;
   const btnCreate = `${btnShape} shrink-0 px-4 ${btnFill} disabled:opacity-40`;
 
   const clearMessages = () => {
@@ -258,7 +258,7 @@ export default function SkillResourcesEditor({
 
   const indentGuides = (depth: number) =>
     Array.from({ length: depth }, (_, i) => (
-      <span key={i} aria-hidden className='ml-1.5 w-3.5 shrink-0 border-l border-zinc-800' />
+      <span key={i} aria-hidden className='ml-1.5 w-3.5 shrink-0 border-l border-edge-subtle' />
     ));
   const rowHeight = touch ? 'min-h-11' : 'min-h-7';
   const slot = touch ? 'w-9' : 'w-5';
@@ -381,7 +381,7 @@ export default function SkillResourcesEditor({
     const isRoot = node.path === '';
     const confirming = confirmDelete === `dir:${node.path}`;
     return (
-      <div className='mt-2 space-y-2 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3'>
+      <div className='mt-2 space-y-2 rounded-xl border border-edge-subtle bg-zinc-900/50 p-3'>
         <div className='flex items-center gap-2'>
           <FolderOpen className='h-4 w-4 shrink-0 text-zinc-400' />
           <span className='min-w-0 flex-1 truncate font-mono text-[12px] text-zinc-100'>
@@ -474,7 +474,7 @@ export default function SkillResourcesEditor({
         )}
 
         {!isRoot && (
-          <div className='flex justify-end border-t border-zinc-800 pt-2'>
+          <div className='flex justify-end border-t border-edge-subtle pt-2'>
             <button
               type='button'
               onClick={() => handleDeleteDir(node)}
@@ -498,7 +498,7 @@ export default function SkillResourcesEditor({
   const filePanel = (r: SkillResource, index: number) => {
     const confirming = confirmDelete === `file:${r.path}`;
     return (
-      <div className='mt-2 rounded-xl border border-zinc-800 bg-zinc-900/50 p-3'>
+      <div className='mt-2 rounded-xl border border-edge-subtle bg-zinc-900/50 p-3'>
         <div className='mb-2'>
           {readOnly ? (
             <span className='block truncate font-mono text-[12px] text-zinc-200'>{r.path}</span>
@@ -574,7 +574,7 @@ export default function SkillResourcesEditor({
         </p>
       </details>
 
-      <ul className='overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50 py-1'>
+      <ul className='overflow-hidden rounded-xl border border-edge-subtle bg-zinc-900/50 py-1'>
         {row({
           key: 'root',
           depth: 0,

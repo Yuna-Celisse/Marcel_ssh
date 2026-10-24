@@ -108,7 +108,7 @@ export function ModelPicker({
           ${
             open
               ? "bg-zinc-700 text-zinc-100"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+              : "text-zinc-400 hover:text-zinc-200 hover:bg-state-mid/50"
           }
           ${compact ? "px-1.5 py-1.5" : "px-2 py-1.5"}
           disabled:opacity-40 disabled:cursor-not-allowed
@@ -152,7 +152,7 @@ export function ModelPicker({
               width: pos.width,
               maxHeight: pos.maxHeight,
             }}
-            className={`fixed z-[100] rounded-xl border border-zinc-700 bg-zinc-800 shadow-2xl py-1 overflow-y-auto ${
+            className={`fixed z-[100] rounded-xl border border-edge bg-zinc-800 shadow-2xl py-1 overflow-y-auto ${
               presence.phase === "exit"
                 ? "mobile-popover-exit"
                 : "mobile-popover-enter"
@@ -199,7 +199,7 @@ export function ModelPicker({
                         w-full text-left px-3 py-2 transition-colors
                         ${active
                           ? "bg-indigo-600/20 border-l-2 border-indigo-500"
-                          : "hover:bg-zinc-700 border-l-2 border-transparent"}
+                          : "hover:bg-state-mid border-l-2 border-transparent"}
                         ${disabled ? "opacity-40 cursor-not-allowed" : ""}
                       `}
                     >

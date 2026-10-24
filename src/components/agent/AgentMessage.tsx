@@ -57,7 +57,7 @@ function highlightPlainText(text: string, keyword?: string): ReactNode {
 }
 
 const MARKDOWN_CLASS =
-  'text-[15px] leading-relaxed text-zinc-100 break-words prose marcel-prose prose-sm max-w-none prose-p:my-0.5 prose-code:text-[var(--marcel-md-code-text)] prose-code:bg-zinc-900 prose-code:px-1 prose-code:py-0.5 prose-code:rounded-lg prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-zinc-700 prose-a:text-indigo-400 prose-headings:my-2 prose-ul:my-0 prose-ol:my-0 prose-li:my-0 prose-blockquote:border-l-zinc-600 prose-blockquote:text-zinc-400 prose-blockquote:italic [&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-0.5 [&_.katex]:text-zinc-100 [&_.katex-error]:text-red-400 [&_.katex-error]:text-[0.9em]';
+  'text-[15px] leading-relaxed text-zinc-100 break-words prose marcel-prose prose-sm max-w-none prose-p:my-0.5 prose-code:text-[var(--marcel-md-code-text)] prose-code:bg-zinc-900 prose-code:px-1 prose-code:py-0.5 prose-code:rounded-lg prose-pre:bg-zinc-900 prose-pre:border prose-pre:border-edge prose-a:text-indigo-400 prose-headings:my-2 prose-ul:my-0 prose-ol:my-0 prose-li:my-0 prose-blockquote:border-l-edge-strong prose-blockquote:text-zinc-400 prose-blockquote:italic [&_.katex-display]:my-2 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-0.5 [&_.katex]:text-zinc-100 [&_.katex-error]:text-red-400 [&_.katex-error]:text-[0.9em]';
 
 // ─── Retry indicator: 倒计时 + 错误折叠 ───
 // 后端发完 Retrying 事件就 sleep，前端基于消息 timestamp + retryTotalDelaySecs
@@ -299,7 +299,7 @@ function AgentMessage({
                 type="button"
                 onClick={() => onRollback(message)}
                 disabled={rollbackDisabled}
-                className="p-1 rounded text-zinc-500 hover:text-amber-300 hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="p-1 rounded text-zinc-500 hover:text-amber-300 hover:bg-state-soft disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 title={
                   rollbackDisabled ? '任务运行中，暂不能撤回' : '撤回到这条消息'
                 }
@@ -321,7 +321,7 @@ function AgentMessage({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors relative"
+                className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-soft transition-colors relative"
                 title={copied ? '已复制' : '复制消息'}
               >
                 <span className="relative block w-3.5 h-3.5">
@@ -450,7 +450,7 @@ function AgentMessage({
               <div
                 ref={thinkingBodyRef}
                 onScroll={onThinkingScroll}
-                className="mt-1.5 max-h-[40vh] overflow-y-auto overscroll-contain pl-4 border-l-2 border-zinc-700 text-xs text-zinc-400 whitespace-pre-wrap break-words"
+                className="mt-1.5 max-h-[40vh] overflow-y-auto overscroll-contain pl-4 border-l-2 border-edge text-xs text-zinc-400 whitespace-pre-wrap break-words"
               >
                 {message.reasoningContent}
               </div>
@@ -560,7 +560,7 @@ function JobNoticeCard({
           onToggle={() => setExpanded((v) => !v)}
         >
           {expanded && (
-            <div className="min-w-0 border-t border-zinc-700/50 px-3 py-1.5">
+            <div className="min-w-0 border-t border-edge/50 px-3 py-1.5">
               <ul className="mb-1 space-y-0.5">
                 {jobs.map((job) => {
                   const style = JOB_STATUS_STYLE[job.status] ?? UNKNOWN_JOB_STATUS;
@@ -608,7 +608,7 @@ function CompactionRunningCard({ message }: { message: AgentMessageType }) {
 
   return (
     <div className="my-1.5 flex justify-start">
-      <div className="min-w-0 max-w-[85%] rounded-md border border-zinc-700/60 bg-zinc-800/50 px-3 py-2.5">
+      <div className="min-w-0 max-w-[85%] rounded-md border border-edge/60 bg-zinc-800/50 px-3 py-2.5">
         <div className="flex items-baseline gap-2">
           {/* 静态状态点（不转圈，避免与"思考中"的 spinner 混淆） */}
           <span className="h-2 w-2 shrink-0 translate-y-[-1px] rounded-full bg-violet-400/90 ring-2 ring-violet-400/15" />
@@ -625,7 +625,7 @@ function CompactionRunningCard({ message }: { message: AgentMessageType }) {
         <div
           ref={previewRef}
           onScroll={onPreviewScroll}
-          className="mt-2 max-h-44 overflow-y-auto rounded-md border border-zinc-700/40 bg-zinc-950/60 px-2.5 py-2"
+          className="mt-2 max-h-44 overflow-y-auto rounded-md border border-edge/40 bg-zinc-950/60 px-2.5 py-2"
         >
           {live ? (
             <pre className="whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-zinc-300 [overflow-wrap:anywhere]">
@@ -668,11 +668,11 @@ function CompactionCard({ message }: { message: AgentMessageType }) {
     comp.shadowedMessages != null && comp.shadowedTokens != null;
   return (
     <div className="my-1.5 flex justify-start">
-      <div className="min-w-0 max-w-[85%] rounded-md border border-zinc-700/60 bg-zinc-800/50 px-2 py-1.5 text-xs text-zinc-300">
+      <div className="min-w-0 max-w-[85%] rounded-md border border-edge/60 bg-zinc-800/50 px-2 py-1.5 text-xs text-zinc-300">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="group flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-700/20"
+          className="group flex w-full items-center justify-between gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-state-mid/20"
         >
           <span className="flex items-center gap-1.5 text-emerald-300">
             <svg

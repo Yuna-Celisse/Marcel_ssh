@@ -138,7 +138,7 @@ export default function MobileQuestionSheet({
           <button
             type="button"
             onClick={onMinimize}
-            className="flex-shrink-0 rounded-lg p-1 text-zinc-400 active:bg-zinc-800"
+            className="flex-shrink-0 rounded-lg p-1 text-zinc-400 active:bg-state-soft"
             title="收起为浮动条"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,7 +149,7 @@ export default function MobileQuestionSheet({
         <button
           type="button"
           onClick={onCancel}
-          className="-mr-2 flex-shrink-0 rounded-lg px-2 py-1 text-xs text-zinc-500 active:bg-zinc-800"
+          className="-mr-2 flex-shrink-0 rounded-lg px-2 py-1 text-xs text-zinc-500 active:bg-state-soft"
         >
           跳过
         </button>
@@ -157,7 +157,7 @@ export default function MobileQuestionSheet({
 
       {/* 上下文横条 (Context Banner) */}
       {(sessionName || conversationTitle) && (
-        <div className="mx-4 mt-1.5 p-2 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-between gap-2">
+        <div className="mx-4 mt-1.5 p-2 rounded-xl bg-zinc-950 border border-edge-subtle flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -201,7 +201,7 @@ export default function MobileQuestionSheet({
                   className={`w-full rounded-xl border px-3 py-3 text-left ${
                     isSelected
                       ? 'border-indigo-500 bg-indigo-600/15'
-                      : 'border-zinc-700 bg-zinc-800/50 active:bg-zinc-800'
+                      : 'border-edge bg-zinc-800/50 active:bg-state-soft'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -211,7 +211,7 @@ export default function MobileQuestionSheet({
                       } ${
                         isSelected
                           ? 'border-indigo-500 bg-indigo-600'
-                          : 'border-zinc-600'
+                          : 'border-edge-strong'
                       }`}
                     >
                       {isSelected &&
@@ -256,7 +256,7 @@ export default function MobileQuestionSheet({
                 : '或输入自定义回答…'
               : '输入你的回答…'
           }
-          className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm leading-relaxed text-zinc-200 outline-none placeholder:text-zinc-500 focus:border-indigo-500"
+          className="w-full resize-none rounded-xl border border-edge bg-zinc-950 px-3 py-2.5 text-sm leading-relaxed text-zinc-200 outline-none placeholder:text-zinc-500 focus:border-indigo-500"
         />
       </div>
 
@@ -266,7 +266,7 @@ export default function MobileQuestionSheet({
           <button
             type="button"
             onClick={() => setCurrentIndex((i) => Math.max(i - 1, 0))}
-            className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+            className="rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
           >
             上一题
           </button>

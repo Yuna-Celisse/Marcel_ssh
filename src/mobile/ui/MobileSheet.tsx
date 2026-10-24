@@ -226,7 +226,7 @@ export default function MobileSheet({
       <div
         ref={sheetRef}
         onAnimationEnd={presence.onAnimationEnd}
-        className={`relative flex w-full flex-col rounded-t-2xl border-t border-zinc-700 bg-zinc-900 shadow-2xl ${
+        className={`relative flex w-full flex-col rounded-t-2xl border-t border-edge bg-zinc-900 shadow-2xl ${
           exiting ? 'mobile-sheet-exit' : 'mobile-sheet-enter'
         } ${maxHeightClassName}`}
         style={{
@@ -256,7 +256,7 @@ export default function MobileSheet({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="-mr-1 rounded-lg px-2 py-1 text-xs text-zinc-400 active:bg-zinc-800"
+                  className="-mr-1 rounded-lg px-2 py-1 text-xs text-zinc-400 active:bg-state-soft"
                 >
                   关闭
                 </button>
@@ -271,7 +271,7 @@ export default function MobileSheet({
           {children}
         </div>
         {footer != null && (
-          <div className="flex-shrink-0 border-t border-zinc-800 px-4 py-3">
+          <div className="flex-shrink-0 border-t border-edge-subtle px-4 py-3">
             {footer}
           </div>
         )}

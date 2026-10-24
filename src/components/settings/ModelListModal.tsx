@@ -73,10 +73,10 @@ export default function ModelListModal({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="过滤模型 ID…"
-          className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+          className="w-full rounded-lg bg-zinc-900 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
         />
 
-        <div className="max-h-80 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900/40">
+        <div className="max-h-80 overflow-y-auto rounded-lg border border-edge bg-zinc-900/40">
           {loading && (
             <div className="px-3 py-10 text-center text-sm text-zinc-500">
               正在从供应商获取…
@@ -99,14 +99,14 @@ export default function ModelListModal({
           )}
 
           {!loading && !error && filtered.length > 0 && (
-            <div className="divide-y divide-zinc-800">
+            <div className="divide-y divide-edge-subtle">
               {filtered.map((m) => {
                 const isCurrent = m.id === currentModel;
                 return (
                   <button
                     key={m.id}
                     onClick={() => handleSelect(m.id)}
-                    className={`w-full text-left px-3 py-2 text-sm font-mono transition-colors hover:bg-zinc-700/40 ${
+                    className={`w-full text-left px-3 py-2 text-sm font-mono transition-colors hover:bg-state-mid/40 ${
                       isCurrent
                         ? 'text-indigo-400 bg-indigo-600/10'
                         : 'text-zinc-200'

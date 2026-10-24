@@ -167,10 +167,10 @@ export default function MultiHostPicker() {
           'group flex h-7 max-w-[11rem] items-center gap-1.5 rounded-lg border px-2 text-xs font-medium',
           'transition-all duration-150 active:scale-[0.97]',
           disabled
-            ? 'cursor-not-allowed border-zinc-800 text-zinc-600'
+            ? 'cursor-not-allowed border-edge-subtle text-zinc-600'
             : open
               ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-200'
-              : 'border-transparent text-zinc-400 hover:border-zinc-700 hover:bg-zinc-800/70 hover:text-zinc-200',
+              : 'border-transparent text-zinc-400 hover:border-edge hover:bg-state-soft/70 hover:text-zinc-200',
         ].join(' ')}
         title={
           currentLabel
@@ -230,14 +230,14 @@ export default function MultiHostPicker() {
                 ? { top: pos.top }
                 : { bottom: pos.bottom ?? 0 }),
             }}
-            className={`fixed z-[100] flex flex-col overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-800/95 shadow-2xl backdrop-blur-md ${
+            className={`fixed z-[100] flex flex-col overflow-hidden rounded-xl border border-edge/80 bg-zinc-800/95 shadow-2xl backdrop-blur-md ${
               presence.phase === 'exit'
                 ? 'mobile-popover-exit'
                 : 'mobile-popover-enter'
             }`}
           >
           {/* ── 标题 ── */}
-          <div className="flex items-center justify-between border-b border-zinc-700/60 px-3 py-2">
+          <div className="flex items-center justify-between border-b border-edge/60 px-3 py-2">
             <span className="text-xs font-semibold text-zinc-200">目标机器</span>
             <span className="text-[10px] text-zinc-500">
               当前机 + {selected.length} 台可跨机
@@ -333,14 +333,14 @@ export default function MultiHostPicker() {
                   className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors duration-100 active:scale-[0.99] ${
                     active
                       ? 'bg-indigo-500/10 text-indigo-100'
-                      : 'text-zinc-300 hover:bg-zinc-700/50'
+                      : 'text-zinc-300 hover:bg-state-mid/50'
                   }`}
                 >
                   <span
                     className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors duration-100 ${
                       active
                         ? 'border-indigo-400 bg-indigo-500'
-                        : 'border-zinc-600 bg-transparent'
+                        : 'border-edge-strong bg-transparent'
                     }`}
                   >
                     {active && (
@@ -378,7 +378,7 @@ export default function MultiHostPicker() {
             })}
           </div>
 
-          <div className="border-t border-zinc-700/60 bg-zinc-900/40 px-3 py-2 text-[10px] leading-relaxed text-zinc-500">
+          <div className="border-t border-edge/60 bg-zinc-900/40 px-3 py-2 text-[10px] leading-relaxed text-zinc-500">
             Agent 的 bash / 传输 / 子agent 可用 host 指定这些机器；未勾选的不在
             集合内，即使在线也会被拒绝。当前机器始终可执行。
           </div>

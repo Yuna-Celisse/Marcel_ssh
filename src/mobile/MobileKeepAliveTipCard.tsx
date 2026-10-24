@@ -19,8 +19,8 @@ export default function MobileKeepAliveTipCard({
   onNeverShow,
 }: MobileKeepAliveTipCardProps) {
   return (
-    <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-900 px-3 py-3">
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-3">
+    <div className="flex-shrink-0 border-t border-edge-subtle bg-zinc-900 px-3 py-3">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900/80 p-3">
         {/* 头部：图标 + 标题 + 关闭 */}
         <div className="flex items-start gap-2.5">
           <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-zinc-800">
@@ -39,7 +39,7 @@ export default function MobileKeepAliveTipCard({
             type="button"
             onClick={onIgnore}
             aria-label="忽略"
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-zinc-800 active:text-zinc-300"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-zinc-500 active:bg-state-soft active:text-zinc-300"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -57,7 +57,7 @@ export default function MobileKeepAliveTipCard({
           <button
             type="button"
             onClick={onIgnore}
-            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 active:scale-[0.98] active:bg-zinc-700"
+            className="flex-1 rounded-lg border border-edge bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 active:scale-[0.98] active:bg-state-mid"
           >
             忽略
           </button>

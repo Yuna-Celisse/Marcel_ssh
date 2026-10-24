@@ -85,10 +85,10 @@ function ListModeButton({
       onClick={() => onClick(value)}
       title={description}
       disabled={disabled}
-      className={`flex-1 px-4 py-2 text-sm transition-colors border-r border-zinc-700 last:border-r-0 ${roundedClass} ${
+      className={`flex-1 px-4 py-2 text-sm transition-colors border-r border-edge last:border-r-0 ${roundedClass} ${
         active
           ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-800/50 text-zinc-300 hover:bg-zinc-700'
+          : 'bg-zinc-800/50 text-zinc-300 hover:bg-state-mid'
       } disabled:opacity-40 disabled:cursor-not-allowed`}
       style={{ transitionTimingFunction: 'var(--spring-bounce)' }}
     >
@@ -303,7 +303,7 @@ export function AgentPolicySection() {
           <div
             className={`transition-opacity ${agent.confirmEachCommand ? 'opacity-40' : ''}`}
           >
-            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+            <div className="flex rounded-lg overflow-hidden border border-edge">
               <ListModeButton
                 value="denylist"
                 current={agent.listMode}
@@ -353,7 +353,7 @@ export function AgentPolicySection() {
                 }}
                 placeholder="例如：rm 或 sudo"
                 disabled={agent.confirmEachCommand}
-                className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
               />
               <Button
                 variant="secondary"
@@ -371,7 +371,7 @@ export function AgentPolicySection() {
                 {agent.commandList.map((cmd) => (
                   <span
                     key={cmd}
-                    className="group inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-mono text-zinc-200"
+                    className="group inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800 border border-edge text-xs font-mono text-zinc-200"
                   >
                     {cmd}
                     <button
@@ -418,7 +418,7 @@ export function AgentPolicySection() {
                   }
                 }}
                 placeholder="例如：rm -rf /tmp/test"
-                className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
               />
               <Button
                 variant="secondary"
@@ -501,7 +501,7 @@ export function AgentPolicySection() {
                     }
                   }}
                   placeholder="/home/user/.ssh"
-                  className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                  className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                 />
                 <Button
                   variant="secondary"
@@ -665,7 +665,7 @@ export function AgentPolicySection() {
                                   : '输入 Jev 的 API Key（官方或你的网关）'
                               }
                               autoComplete="off"
-                              className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                              className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                             />
                             {hasJevApiKey && (
                               <Button
@@ -694,7 +694,7 @@ export function AgentPolicySection() {
                                 updateAgent({ jevModelId: e.target.value })
                               }
                               placeholder="留空使用内置默认（钉版本号）"
-                              className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                              className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                             />
                           </div>
                           <p className="text-xs text-zinc-500">
@@ -715,7 +715,7 @@ export function AgentPolicySection() {
                                 updateAgent({ jevBaseUrl: e.target.value })
                               }
                               placeholder="留空使用官方地址 api.typesafe.ai"
-                              className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                              className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-xs font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                             />
                           </div>
                           <p className="text-xs text-zinc-500">
@@ -750,7 +750,7 @@ export function AgentPolicySection() {
                             }
                             rows={6}
                             placeholder="留空使用内置判据。这里填的是「要判断什么」，不要写输出格式——Jev 返回的是类型化选项，不生成文本。"
-                            className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-indigo-500 resize-none"
+                            className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-indigo-500 resize-none"
                           />
                           <p className="text-xs text-zinc-500">
                             {agent.jevBaseUrl?.trim() ? (
@@ -838,7 +838,7 @@ export function AgentPolicySection() {
                         }}
                         rows={6}
                         placeholder={DEFAULT_APPROVAL_PROMPT_FALLBACK}
-                        className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-indigo-500 resize-none"
+                        className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-xs font-mono text-zinc-100 focus:outline-none focus:border-indigo-500 resize-none"
                       />
                         </>
                       )}

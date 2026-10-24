@@ -126,7 +126,7 @@ export default function MemoryEditDialog({ open, onClose, item, defaultScope, on
   );
 
   const fieldClass =
-    'w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors';
+    'w-full rounded-lg bg-zinc-900 border border-edge px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors';
 
   const form = (
     <div className="flex flex-col gap-4">
@@ -222,7 +222,7 @@ export default function MemoryEditDialog({ open, onClose, item, defaultScope, on
       <button
         type="button"
         onClick={onClose}
-        className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700/60 active:scale-[0.97] transition"
+        className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-state-mid/60 active:scale-[0.97] transition"
       >
         取消
       </button>

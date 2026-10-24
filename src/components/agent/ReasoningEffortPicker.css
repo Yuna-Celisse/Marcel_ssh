@@ -3,9 +3,9 @@
   padding: 8px 9px 9px;
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid rgb(63 63 70 / 90%);
+  border: 1px solid color-mix(in srgb, var(--color-edge) 90%, transparent);
   border-radius: 11px;
-  background: #28282a;
+  background: var(--color-zinc-800);
   box-shadow: 0 12px 28px rgb(0 0 0 / 35%);
 }
 
@@ -72,7 +72,7 @@
   justify-content: center;
   gap: 1px;
   overflow: hidden;
-  color: #8c8c93;
+  color: var(--color-zinc-400);
   font-size: 10px;
   line-height: 14px;
   width: 100%;
@@ -83,7 +83,7 @@
 }
 .reasoning-effort-model:hover:not(:disabled),
 .reasoning-effort-model:focus-visible {
-  color: #d4d4d8;
+  color: var(--color-zinc-200);
   outline: none;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -111,14 +111,14 @@
   padding: 0;
   border: 0;
   border-radius: 5px;
-  color: #85858c;
+  color: var(--color-zinc-400);
   background: transparent;
   cursor: pointer;
 }
 .reasoning-effort-reset:hover:not(:disabled),
 .reasoning-effort-reset:focus-visible {
-  color: #d4d4d8;
-  background: rgb(63 63 70 / 80%);
+  color: var(--color-zinc-200);
+  background: color-mix(in srgb, var(--color-state-mid) 80%, transparent);
 }
 .reasoning-effort-reset:disabled {
   cursor: default;
@@ -137,7 +137,7 @@
   height: 24px;
   overflow: hidden;
   border-radius: 999px;
-  background: #52525b;
+  background: var(--color-zinc-600);
   isolation: isolate;
 }
 .reasoning-effort-track::after {
@@ -329,7 +329,7 @@ input[type='range'].reasoning-effort-slider:disabled {
 }
 .reasoning-effort-status {
   margin: 1px 0 0;
-  color: #a1a1aa;
+  color: var(--color-zinc-400);
   font-size: 10px;
   line-height: 13px;
   text-align: center;
@@ -342,7 +342,7 @@ input[type='range'].reasoning-effort-slider:disabled {
 }
 .reasoning-effort-model-channel {
   padding: 5px 5px 2px;
-  color: #71717a;
+  color: var(--color-zinc-500);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -356,18 +356,25 @@ input[type='range'].reasoning-effort-slider:disabled {
   padding: 6px 5px;
   border: 0;
   border-radius: 5px;
-  color: #d4d4d8;
+  color: var(--color-zinc-300);
   background: transparent;
   font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
+/* 悬停 / 键盘焦点 = 中性灰底；已选 = 强调色底 + ✓。两者必须看得出区别，
+ * 否则鼠标扫过列表时会同时出现两行同色高亮，分不清哪个是当前模型。 */
 .reasoning-effort-model-option:hover:not(:disabled),
-.reasoning-effort-model-option:focus-visible,
-.reasoning-effort-model-option.is-active {
-  color: #bfdbfe;
-  background: rgb(79 70 229 / 22%);
+.reasoning-effort-model-option:focus-visible {
+  color: var(--color-zinc-100);
+  background: color-mix(in srgb, var(--color-state-mid) 70%, transparent);
   outline: none;
+}
+.reasoning-effort-model-option.is-active,
+.reasoning-effort-model-option.is-active:hover:not(:disabled),
+.reasoning-effort-model-option.is-active:focus-visible {
+  color: var(--color-indigo-300);
+  background: color-mix(in srgb, var(--color-indigo-600) 22%, transparent);
 }
 .reasoning-effort-model-option:disabled {
   cursor: not-allowed;
@@ -375,13 +382,13 @@ input[type='range'].reasoning-effort-slider:disabled {
 }
 .reasoning-effort-model-empty {
   margin: 7px 0 2px;
-  color: #a1a1aa;
+  color: var(--color-zinc-400);
   font-size: 10px;
   line-height: 15px;
   text-align: center;
 }
 .reasoning-effort-error {
-  color: #f87171;
+  color: var(--color-red-400);
 }
 @media (forced-colors: active) {
   .reasoning-effort-thumb,

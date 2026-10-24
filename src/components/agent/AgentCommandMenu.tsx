@@ -163,7 +163,7 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
 
     return (
       <div
-        className={`absolute bottom-full left-0 mb-2 w-80 max-w-[min(24rem,calc(100vw-2rem))] z-50 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-900/95 backdrop-blur-xl shadow-2xl ${
+        className={`absolute bottom-full left-0 mb-2 w-80 max-w-[min(24rem,calc(100vw-2rem))] z-50 overflow-hidden rounded-xl border border-edge/80 bg-zinc-900/95 backdrop-blur-xl shadow-2xl ${
           presence.phase === 'exit' ? 'animate-slide-down-out' : 'animate-slide-up'
         }`}
         style={{ transformOrigin: 'bottom left' }}
@@ -196,7 +196,7 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
                   onMouseEnter={() => setActiveIndex(itemIndex)}
                   onClick={() => executeEntry(entry)}
                   className={`cursor-pointer px-3 py-2 transition-colors ${
-                    active ? 'bg-indigo-600/15' : 'hover:bg-zinc-800/60'
+                    active ? 'bg-indigo-600/15' : 'hover:bg-state-soft/60'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -227,7 +227,7 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
                   onMouseEnter={() => setActiveIndex(itemIndex)}
                   onClick={() => executeEntry(entry)}
                   className={`cursor-pointer px-3 py-2 transition-colors ${
-                    active ? 'bg-indigo-600/15' : 'hover:bg-zinc-800/60'
+                    active ? 'bg-indigo-600/15' : 'hover:bg-state-soft/60'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -260,7 +260,7 @@ const AgentCommandMenu = forwardRef<AgentCommandMenuHandle, AgentCommandMenuProp
                 onMouseEnter={() => setActiveIndex(itemIndex)}
                 onClick={() => executeEntry(entry)}
                 className={`flex cursor-pointer items-center justify-between gap-2 px-3 py-2 transition-colors ${
-                  active ? 'bg-indigo-600/15' : 'hover:bg-zinc-800/60'
+                  active ? 'bg-indigo-600/15' : 'hover:bg-state-soft/60'
                 }`}
               >
                 <span

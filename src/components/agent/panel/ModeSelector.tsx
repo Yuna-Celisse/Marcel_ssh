@@ -37,7 +37,7 @@ export function ModeSelector({ mode, setMode }: ModeSelectorProps) {
                 ${
                   modeDrawerOpen
                     ? "bg-zinc-700 text-zinc-100"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                    : "text-zinc-400 hover:text-zinc-200 hover:bg-state-mid/50"
                 }
               `}
         title={currentModeInfo.description}
@@ -66,7 +66,7 @@ export function ModeSelector({ mode, setMode }: ModeSelectorProps) {
         <div
           role="listbox"
           onAnimationEnd={modeDrawerPresence.onAnimationEnd}
-          className={`absolute bottom-full left-0 mb-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-700 bg-zinc-800 shadow-2xl py-1 z-30 ${
+          className={`absolute bottom-full left-0 mb-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-edge bg-zinc-800 shadow-2xl py-1 z-30 ${
             modeDrawerPresence.phase === "exit"
               ? "mobile-popover-exit"
               : "mobile-popover-enter"
@@ -88,7 +88,7 @@ export function ModeSelector({ mode, setMode }: ModeSelectorProps) {
                         ${
                           active
                             ? "bg-indigo-600/20 border-l-2 border-indigo-500"
-                            : "hover:bg-zinc-700 border-l-2 border-transparent"
+                            : "hover:bg-state-mid border-l-2 border-transparent"
                         }
                       `}
               >

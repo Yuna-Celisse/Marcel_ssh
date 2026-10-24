@@ -31,7 +31,7 @@ const BUILT_IN_PROTECTED: ReadonlyArray<{ path: string; reason: string }> = [
 ];
 
 const inputClass =
-  'w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500 disabled:opacity-40';
+  'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500 disabled:opacity-40';
 
 /** Full agent command policy for mobile — same settings surface as desktop. */
 export function MobileAgentPolicySection() {
@@ -249,7 +249,7 @@ export function MobileAgentPolicySection() {
                     <button
                       type="button"
                       onClick={() => void clearJevKey()}
-                      className="flex-shrink-0 rounded-lg border border-zinc-700 px-3 py-2.5 text-xs text-zinc-400 active:bg-zinc-700"
+                      className="flex-shrink-0 rounded-lg border border-edge px-3 py-2.5 text-xs text-zinc-400 active:bg-state-mid"
                     >
                       清除
                     </button>
@@ -304,7 +304,7 @@ export function MobileAgentPolicySection() {
                   }
                   rows={6}
                   placeholder="留空使用内置判据。这里填的是「要判断什么」，不要写输出格式——Jev 返回的是类型化选项，不生成文本。"
-                  className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-indigo-500"
+                  className="w-full resize-none rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-indigo-500"
                 />
                 <p className="text-xs text-zinc-500">
                   {agent.jevBaseUrl?.trim()
@@ -329,7 +329,7 @@ export function MobileAgentPolicySection() {
             <button
               type="button"
               onClick={() => setApprovalModelPickerOpen(true)}
-              className="flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none active:bg-zinc-700"
+              className="flex w-full items-center justify-between gap-2 rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none active:bg-state-mid"
             >
               <span className="truncate">
                 {settings.llmRegistry?.slots?.modelApprovalModelId
@@ -364,7 +364,7 @@ export function MobileAgentPolicySection() {
               }}
               rows={6}
               placeholder={DEFAULT_APPROVAL_PROMPT_FALLBACK}
-              className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-indigo-500"
+              className="w-full resize-none rounded-lg border border-edge bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-100 outline-none focus:border-indigo-500"
             />
               </>
             )}
@@ -406,7 +406,7 @@ export function MobileAgentPolicySection() {
                   className={`rounded-xl border px-3 py-2.5 text-left transition-colors duration-100 active:scale-[0.99] ${
                     active
                       ? 'border-indigo-500 bg-indigo-500/10'
-                      : 'border-zinc-700 bg-zinc-800/60'
+                      : 'border-edge bg-zinc-800/60'
                   }`}
                 >
                   <div
@@ -446,7 +446,7 @@ export function MobileAgentPolicySection() {
               type="button"
               onClick={handleAddCommand}
               disabled={!newCommand.trim() || listDisabled}
-              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-zinc-700 disabled:opacity-40"
+              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
             >
               添加
             </button>
@@ -459,7 +459,7 @@ export function MobileAgentPolicySection() {
               {agent.commandList.map((cmd) => (
                 <span
                   key={cmd}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 font-mono text-xs text-zinc-200"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-zinc-800 px-2.5 py-1.5 font-mono text-xs text-zinc-200"
                 >
                   {cmd}
                   <button
@@ -508,7 +508,7 @@ export function MobileAgentPolicySection() {
             type="button"
             onClick={() => void runTest()}
             disabled={!testCommand.trim() || testing}
-            className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-zinc-700 disabled:opacity-40"
+            className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
           >
             {testing ? '测试中' : '测试'}
           </button>
@@ -579,7 +579,7 @@ export function MobileAgentPolicySection() {
               type="button"
               onClick={() => void handleAddProtectedPath()}
               disabled={!draftPath.trim()}
-              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-zinc-700 disabled:opacity-40"
+              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
             >
               添加
             </button>
@@ -652,7 +652,7 @@ export function MobileAgentPolicySection() {
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          className="mt-2 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500"
+          className="mt-2 w-full resize-none rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500"
         />
       </MobileSettingRow>
 
@@ -677,7 +677,7 @@ export function MobileAgentPolicySection() {
               });
               setApprovalModelPickerOpen(false);
             }}
-            className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm active:bg-zinc-800"
+            className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-sm active:bg-state-soft"
           >
             <span className="text-zinc-200">跟随会话模型</span>
             {!settings.llmRegistry?.slots?.modelApprovalModelId && (
@@ -702,7 +702,7 @@ export function MobileAgentPolicySection() {
                     </span>
                   )}
                 </div>
-                <div className="divide-y divide-zinc-800/70">
+                <div className="divide-y divide-edge-subtle/70">
                   {channelModels.map((m) => {
                     const selected = settings.llmRegistry?.slots?.modelApprovalModelId === m.id;
                     return (
@@ -720,7 +720,7 @@ export function MobileAgentPolicySection() {
                           });
                           setApprovalModelPickerOpen(false);
                         }}
-                        className={`flex w-full items-center justify-between gap-2 px-3 py-3 text-left active:bg-zinc-800 ${
+                        className={`flex w-full items-center justify-between gap-2 px-3 py-3 text-left active:bg-state-soft ${
                           channelDisabled ? "opacity-40" : ""
                         }`}
                       >

@@ -80,7 +80,7 @@ function TransferRow({
   const pct = item.total > 0 ? Math.min(100, Math.round((item.written * 100) / item.total)) : 0;
 
   return (
-    <div className="flex flex-col gap-1 px-3 py-2 border-b border-zinc-800/60 last:border-b-0">
+    <div className="flex flex-col gap-1 px-3 py-2 border-b border-edge-subtle/60 last:border-b-0">
       <div className="flex items-center gap-2 min-w-0">
         <KindIcon item={item} />
         {item.source === 'agent' && (
@@ -154,14 +154,14 @@ export function TransferCenterView({
   const hasFinished = list.some((item) => isFinished(item.status));
 
   return (
-    <div className="fixed left-16 bottom-2 z-50 w-[360px] max-h-[60vh] flex flex-col rounded-lg border border-zinc-800 bg-zinc-900 shadow-xl modal-panel-enter">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+    <div className="fixed left-16 bottom-2 z-50 w-[360px] max-h-[60vh] flex flex-col rounded-lg border border-edge-subtle bg-zinc-900 shadow-xl modal-panel-enter">
+      <div className="flex items-center gap-2 border-b border-edge-subtle px-3 py-2">
         <h3 className="flex-1 text-xs font-semibold text-zinc-200">传输中心</h3>
         {hasFinished && (
           <button
             type="button"
             onClick={onClear}
-            className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+            className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-300 hover:bg-state-mid transition-colors"
           >
             清除已完成
           </button>

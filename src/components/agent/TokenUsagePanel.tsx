@@ -167,7 +167,7 @@ export function TokenUsagePanel({
         )}
       </section>
 
-      <div className="border-t border-zinc-700/70" />
+      <div className="border-t border-edge/70" />
 
       {/* ── 本会话累计 ── */}
       <section className="space-y-1.5">
@@ -198,7 +198,7 @@ export function TokenUsagePanel({
               }
             />
             <CacheHitRow totals={totals} />
-            <div className="flex items-baseline justify-between gap-2 border-t border-zinc-700/70 pt-1">
+            <div className="flex items-baseline justify-between gap-2 border-t border-edge/70 pt-1">
               <span className="text-[0.92em] text-zinc-400">合计</span>
               <span
                 className="text-[1em] font-semibold text-zinc-100 tabular-nums"

@@ -29,21 +29,21 @@ function WelcomeStep() {
       <p className="text-zinc-400">小白也能上手的专业级 AI-Native SSH</p>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-4">
           <div className="flex justify-center mb-2">
             <Monitor className="w-7 h-7 text-zinc-300" />
           </div>
           <div className="text-sm font-medium text-zinc-200">智能终端</div>
           <div className="text-xs text-zinc-500 mt-1">多会话管理</div>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-4">
           <div className="flex justify-center mb-2">
             <Bot className="w-7 h-7 text-zinc-300" />
           </div>
           <div className="text-sm font-medium text-zinc-200">AI Agent</div>
           <div className="text-xs text-zinc-500 mt-1">自动执行命令</div>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-4">
           <div className="flex justify-center mb-2">
             <FolderOpen className="w-7 h-7 text-zinc-300" />
           </div>
@@ -81,7 +81,7 @@ function TerminalTutorialStep() {
       <h2 className="text-lg font-semibold text-zinc-100 mb-1">终端操作指南</h2>
       <p className="text-sm text-zinc-500 mb-6">快速掌握基本操作</p>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 divide-y divide-zinc-800 mb-4">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 divide-y divide-edge-subtle mb-4">
         <div className="px-6 py-4">
           <div className="flex items-center gap-6">
             <div className="flex-shrink-0 w-32 text-sm font-medium text-zinc-200">Ctrl+C</div>
@@ -108,7 +108,7 @@ function TerminalTutorialStep() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+      <div className="rounded-xl border border-edge-subtle bg-zinc-900/50 p-6">
         <div className="text-sm text-zinc-300 space-y-2">
           <p>• 点击 + 按钮创建新会话</p>
           <p>• 点击标签页切换会话</p>

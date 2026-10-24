@@ -169,7 +169,7 @@ export default function MobileChatHistorySheet({
             <button
               type="button"
               onClick={handleBack}
-              className="-ml-1 flex-shrink-0 rounded-lg px-2 py-1 text-xs text-indigo-300 active:bg-zinc-800"
+              className="-ml-1 flex-shrink-0 rounded-lg px-2 py-1 text-xs text-indigo-300 active:bg-state-soft"
             >
               ‹ 返回
             </button>
@@ -193,7 +193,7 @@ export default function MobileChatHistorySheet({
                   type="button"
                   disabled={matchIndex <= 0}
                   onClick={() => goMatch(-1)}
-                  className="rounded-lg bg-zinc-800 px-3.5 py-1 text-sm text-zinc-200 active:bg-zinc-700 disabled:opacity-30"
+                  className="rounded-lg bg-zinc-800 px-3.5 py-1 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-30"
                   aria-label="上一条匹配"
                 >
                   ▲
@@ -202,7 +202,7 @@ export default function MobileChatHistorySheet({
                   type="button"
                   disabled={matchIndex >= activeMatchIds.length - 1}
                   onClick={() => goMatch(1)}
-                  className="rounded-lg bg-zinc-800 px-3.5 py-1 text-sm text-zinc-200 active:bg-zinc-700 disabled:opacity-30"
+                  className="rounded-lg bg-zinc-800 px-3.5 py-1 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-30"
                   aria-label="下一条匹配"
                 >
                   ▼
@@ -270,7 +270,7 @@ export default function MobileChatHistorySheet({
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="搜索聊天记录…"
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 pl-9 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg border border-edge bg-zinc-800 py-2 pl-9 pr-9 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none"
               />
               {searchInput && (
                 <button
@@ -322,7 +322,7 @@ export default function MobileChatHistorySheet({
                             <button
                               type="button"
                               onClick={() => handleOpenSearchResult(r)}
-                              className="w-full rounded-lg bg-zinc-800/60 px-3 py-2.5 text-left text-sm text-zinc-300 active:bg-zinc-800"
+                              className="w-full rounded-lg bg-zinc-800/60 px-3 py-2.5 text-left text-sm text-zinc-300 active:bg-state-soft"
                             >
                               <div className="truncate font-medium">
                                 {r.title}
@@ -368,7 +368,7 @@ export default function MobileChatHistorySheet({
                           className={`w-full rounded-lg px-3 py-2.5 text-left text-sm ${
                             expanded
                               ? 'bg-zinc-800 text-zinc-100'
-                              : 'bg-zinc-800/60 text-zinc-300 active:bg-zinc-800'
+                              : 'bg-zinc-800/60 text-zinc-300 active:bg-state-soft'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -398,7 +398,7 @@ export default function MobileChatHistorySheet({
                                       <button
                                         type="button"
                                         onClick={() => openConversation(conv)}
-                                        className="min-w-0 flex-1 px-3 py-2.5 text-left text-sm text-zinc-300 active:bg-zinc-800 rounded-lg flex items-center justify-between gap-2"
+                                        className="min-w-0 flex-1 px-3 py-2.5 text-left text-sm text-zinc-300 active:bg-state-soft rounded-lg flex items-center justify-between gap-2"
                                       >
                                         <div className="min-w-0 flex-1">
                                           <div className="truncate font-medium">
@@ -424,7 +424,7 @@ export default function MobileChatHistorySheet({
                                           e.stopPropagation();
                                           void setConversationPinned(conv.id, !conv.pinned);
                                         }}
-                                        className="mr-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800 active:text-zinc-200"
+                                        className="mr-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft active:text-zinc-200"
                                         aria-label={conv.pinned ? `取消置顶 ${conv.title}` : `置顶 ${conv.title}`}
                                       >
                                         <Pin className="h-3.5 w-3.5" />
@@ -432,7 +432,7 @@ export default function MobileChatHistorySheet({
                                       <button
                                         type="button"
                                         onClick={(e) => handleStartRename(e, conv)}
-                                        className="mr-1.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800 active:text-zinc-200"
+                                        className="mr-1.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft active:text-zinc-200"
                                         aria-label={`重命名 ${conv.title}`}
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
@@ -470,14 +470,14 @@ export default function MobileChatHistorySheet({
               }
             }}
             placeholder="请输入会话名称"
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
+            className="w-full rounded-xl border border-edge bg-zinc-800 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
             autoFocus
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={cancelRename}
-              className="flex-1 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 active:bg-zinc-700"
+              className="flex-1 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-300 active:bg-state-mid"
             >
               取消
             </button>

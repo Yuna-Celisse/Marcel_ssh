@@ -163,11 +163,11 @@ export default function ApprovalDialog({
           底部那条必须 sticky：它是唯一能给出答案的地方，任何长度的正文都不该把
           它推走（背景色与面板同色，滚动时盖住穿过的正文）。 */}
       <div
-        className={`modal-panel-enter relative w-full mx-4 max-h-[85vh] overflow-y-auto rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl ${
+        className={`modal-panel-enter relative w-full mx-4 max-h-[85vh] overflow-y-auto rounded-2xl bg-zinc-800 border border-edge shadow-2xl ${
           diffTool || promptText ? 'max-w-3xl' : 'max-w-md'
         }`}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-zinc-700 bg-zinc-800 rounded-t-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-edge bg-zinc-800 rounded-t-2xl">
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-semibold text-zinc-100">
               需要操作批准
@@ -187,7 +187,7 @@ export default function ApprovalDialog({
               <button
                 type="button"
                 onClick={onMinimize}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-state-mid transition-colors"
                 title="收起为浮动药丸，稍后再处理（不算回答）"
                 aria-label="收起"
               >
@@ -201,7 +201,7 @@ export default function ApprovalDialog({
 
         {/* 顶部上下文横条提示 (Context Banner) */}
         {(sessionName || conversationTitle) && (
-          <div className="mx-4 mt-3 p-2.5 rounded-xl bg-zinc-900/90 border border-zinc-700/80 flex items-center justify-between gap-2">
+          <div className="mx-4 mt-3 p-2.5 rounded-xl bg-zinc-900/90 border border-edge/80 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -294,7 +294,7 @@ export default function ApprovalDialog({
                   {path}
                 </div>
               )}
-              <div className="rounded-lg border border-zinc-700 overflow-hidden bg-zinc-900">
+              <div className="rounded-lg border border-edge overflow-hidden bg-zinc-900">
                 <FileChangeView
                   toolName={diffTool}
                   arguments={toolCall.arguments || {}}
@@ -323,7 +323,7 @@ export default function ApprovalDialog({
                 </div>
               )}
               <span className="text-sm text-zinc-400">派发给子 agent 的完整指令：</span>
-              <pre className="mt-1 p-3 rounded-lg bg-zinc-950 border border-zinc-700 font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap break-words max-h-72 overflow-y-auto">
+              <pre className="mt-1 p-3 rounded-lg bg-zinc-950 border border-edge font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap break-words max-h-72 overflow-y-auto">
                 {promptText}
               </pre>
             </div>
@@ -340,7 +340,7 @@ export default function ApprovalDialog({
                 </div>
               )}
               <span className="text-sm text-zinc-400">参数：</span>
-              <div className="mt-1 rounded-lg bg-zinc-950 border border-zinc-700 overflow-hidden">
+              <div className="mt-1 rounded-lg bg-zinc-950 border border-edge overflow-hidden">
                 <div className="flex items-start gap-2 px-3 py-2">
                   <span className="text-emerald-400 font-mono text-xs select-none leading-relaxed">$</span>
                   <code className="flex-1 min-w-0 font-mono text-xs text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
@@ -348,7 +348,7 @@ export default function ApprovalDialog({
                   </code>
                 </div>
                 {Object.keys(cleanedCmd.extras).length > 0 && (
-                  <pre className="px-3 py-2 border-t border-zinc-700/60 font-mono text-[11px] text-zinc-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                  <pre className="px-3 py-2 border-t border-edge/60 font-mono text-[11px] text-zinc-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                     {JSON.stringify(cleanedCmd.extras, null, 2)}
                   </pre>
                 )}
@@ -375,7 +375,7 @@ export default function ApprovalDialog({
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-10 p-4 border-t border-zinc-700 space-y-3 bg-zinc-800 rounded-b-2xl">
+        <div className="sticky bottom-0 z-10 p-4 border-t border-edge space-y-3 bg-zinc-800 rounded-b-2xl">
           {/* 拒绝理由：可选，但填了模型才有依据调整方向（不然它只会换个写法再来） */}
           <input
             ref={reasonInputRef}
@@ -396,7 +396,7 @@ export default function ApprovalDialog({
             }}
             placeholder="可选：说明拒绝原因，会转达给 Agent"
             aria-label="拒绝原因"
-            className="w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500"
+            className="w-full rounded-lg bg-zinc-900 border border-edge px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500"
           />
           <div className="flex items-center justify-between gap-2">
             {onRejectAndStop ? (

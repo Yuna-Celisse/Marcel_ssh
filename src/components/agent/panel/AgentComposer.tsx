@@ -94,7 +94,7 @@ export function AgentComposer({
       !!input.trim() || attachments.items.length > 0 || attachments.skills.length > 0;
     return (
     <div
-      className="flex-shrink-0 p-3 border-t border-zinc-800 [container-type:inline-size]"
+      className="flex-shrink-0 p-3 border-t border-edge-subtle [container-type:inline-size]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -118,7 +118,7 @@ export function AgentComposer({
         className={`agent-input relative rounded-2xl bg-zinc-800 border transition-colors focus-within:border-indigo-500 ${
           dragOver
             ? "border-indigo-400 ring-1 ring-indigo-500/40"
-            : "border-zinc-700"
+            : "border-edge"
         }`}
       >
         {/* `/` 命令面板：锚定输入框上方，键盘事件由面板消费 */}
@@ -163,7 +163,7 @@ export function AgentComposer({
             type="button"
             onClick={() => void handleAttach()}
             disabled={!canInteract}
-            className="flex-shrink-0 p-1.5 -ml-0.5 rounded-full text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 active:scale-90"
+            className="flex-shrink-0 p-1.5 -ml-0.5 rounded-full text-zinc-400 hover:text-zinc-100 hover:bg-state-mid/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150 active:scale-90"
             title="添加图片或文本文件"
             aria-label="添加图片或文本文件"
           >

@@ -197,7 +197,7 @@ export default function InstallOverlay({
         role="dialog"
         aria-modal="true"
         onAnimationEnd={presence.onAnimationEnd}
-        className={`relative w-full max-w-md mx-4 rounded-2xl bg-zinc-800 border border-zinc-700 shadow-2xl px-6 py-8 flex flex-col items-center text-center ${
+        className={`relative w-full max-w-md mx-4 rounded-2xl bg-zinc-800 border border-edge shadow-2xl px-6 py-8 flex flex-col items-center text-center ${
           exiting ? 'modal-panel-exit' : 'modal-panel-enter'
         }`}
       >

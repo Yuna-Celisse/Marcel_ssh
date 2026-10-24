@@ -112,7 +112,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
     <Modal open={open} onClose={onClose} title="聊天历史记录" size="xl">
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Search bar */}
-        <div className="px-3 pt-1 pb-2 border-b border-zinc-800 flex-shrink-0">
+        <div className="px-3 pt-1 pb-2 border-b border-edge-subtle flex-shrink-0">
           <div className="relative">
             <svg
               className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none"
@@ -132,7 +132,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="搜索聊天记录…"
-              className="w-full rounded-lg bg-zinc-800 border border-zinc-700 pl-9 pr-8 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+              className="w-full rounded-lg bg-zinc-800 border border-edge pl-9 pr-8 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
             />
             {searchInput && (
               <button
@@ -151,7 +151,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left sidebar */}
-          <div className="w-64 flex-shrink-0 bg-zinc-800 border-r border-zinc-700 overflow-y-auto p-2 space-y-1">
+          <div className="w-64 flex-shrink-0 bg-zinc-800 border-r border-edge overflow-y-auto p-2 space-y-1">
             {isSearching ? (
               <>
                 {loadingSearch && (
@@ -173,7 +173,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                           className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                             selectedConvId === r.conversationId
                               ? 'bg-zinc-700 text-zinc-100'
-                              : 'text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                              : 'text-zinc-400 hover:bg-state-mid hover:text-zinc-200'
                           }`}
                           onClick={() => void openSearchResult(r)}
                         >
@@ -207,7 +207,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                           isSelected
                             ? 'bg-zinc-700 text-zinc-100'
-                            : 'text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'
+                            : 'text-zinc-400 hover:bg-state-mid hover:text-zinc-200'
                         }`}
                         onClick={() => {
                           setSelectedConnId(isSelected ? null : conn.id);
@@ -230,8 +230,8 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                                   key={conv.id}
                                   className={`group/conv flex items-center justify-between px-2 py-1.5 rounded-lg text-sm transition-colors ${
                                     selectedConvId === conv.id
-                                      ? 'bg-zinc-700 text-zinc-100 ring-1 ring-zinc-600'
-                                      : 'text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-200'
+                                      ? 'bg-zinc-700 text-zinc-100 ring-1 ring-edge-strong'
+                                      : 'text-zinc-400 hover:bg-state-mid/60 hover:text-zinc-200'
                                   }`}
                                 >
                                   <button
@@ -266,7 +266,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                                       e.stopPropagation();
                                       void setConversationPinned(conv.id, !conv.pinned);
                                     }}
-                                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-600 transition-colors opacity-0 group-hover/conv:opacity-100 flex-shrink-0"
+                                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-strong transition-colors opacity-0 group-hover/conv:opacity-100 flex-shrink-0"
                                     title={conv.pinned ? '取消置顶' : '置顶会话'}
                                     aria-label={conv.pinned ? '取消置顶' : '置顶会话'}
                                   >
@@ -275,7 +275,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                                   <button
                                     type="button"
                                     onClick={(e) => handleRenameInModal(e, conv.id, conv.title)}
-                                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-600 transition-colors opacity-0 group-hover/conv:opacity-100 flex-shrink-0"
+                                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-strong transition-colors opacity-0 group-hover/conv:opacity-100 flex-shrink-0"
                                     title="重命名会话"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -306,7 +306,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
           {/* Right content */}
           <div className="flex-1 flex flex-col bg-zinc-900 overflow-hidden">
             {selectedConv && (
-              <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 flex-shrink-0">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-edge-subtle flex-shrink-0">
                 <div className="min-w-0">
                   <h4 className="text-sm font-semibold text-zinc-100 truncate">{selectedConv.title}</h4>
                   {selectedConn && (

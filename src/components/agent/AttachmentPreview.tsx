@@ -51,7 +51,7 @@ function TextPreview({
   const activePage = Math.min(page, pages - 1);
   const start = pageBoundary(content, activePage * TEXT_PAGE_SIZE);
   const end = pageBoundary(content, (activePage + 1) * TEXT_PAGE_SIZE);
-  const actionClass = `inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:bg-zinc-800 active:bg-zinc-800 disabled:opacity-30 ${mobile ? "h-12 w-12" : "h-9 w-9"}`;
+  const actionClass = `inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-300 hover:bg-state-soft active:bg-state-soft disabled:opacity-30 ${mobile ? "h-12 w-12" : "h-9 w-9"}`;
 
   useLayoutEffect(() => {
     if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
@@ -74,7 +74,7 @@ function TextPreview({
         )}
       </div>
       {pages > 1 && (
-        <div className="flex shrink-0 items-center gap-2 border-t border-zinc-800 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-t border-edge-subtle px-3 py-2">
           <div className="min-w-0 flex-1 text-xs leading-relaxed text-zinc-400">
             <div role="status">
               第 {activePage + 1} / {pages} 段
@@ -179,7 +179,7 @@ function PreviewDialog({
       className="flex min-h-0 flex-1 flex-col"
     >
       <header
-        className="flex shrink-0 items-center gap-3 border-b border-zinc-700 px-4 py-2"
+        className="flex shrink-0 items-center gap-3 border-b border-edge px-4 py-2"
         style={
           mobile
             ? { paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }
@@ -203,7 +203,7 @@ function PreviewDialog({
           type="button"
           onClick={requestClose}
           aria-label="关闭附件预览"
-          className={`inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-700 hover:text-zinc-100 active:bg-zinc-700 ${mobile ? "h-12 w-12" : "h-9 w-9"}`}
+          className={`inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-state-mid hover:text-zinc-100 active:bg-state-mid ${mobile ? "h-12 w-12" : "h-9 w-9"}`}
         >
           <X aria-hidden className="h-5 w-5" />
         </button>

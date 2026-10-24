@@ -9,7 +9,7 @@ type RollbackNoticeBarProps = {
 export function RollbackNoticeBar({ notice, onDismiss, variant = 'rollback' }: RollbackNoticeBarProps) {
   const isError = variant === 'error';
   return (
-    <div className="flex-shrink-0 border-t border-zinc-800 bg-zinc-900/90 backdrop-blur animate-fadeIn">
+    <div className="flex-shrink-0 border-t border-edge-subtle bg-zinc-900/90 backdrop-blur animate-fadeIn">
       <div
         className={`flex items-center justify-between gap-2 px-3 py-2 text-xs ${
           isError ? 'text-red-200' : 'text-amber-200'
@@ -38,7 +38,7 @@ export function RollbackNoticeBar({ notice, onDismiss, variant = 'rollback' }: R
         <button
           type="button"
           onClick={onDismiss}
-          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-soft transition-colors"
           title="关闭"
         >
           <svg

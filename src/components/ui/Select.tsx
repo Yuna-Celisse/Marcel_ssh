@@ -166,7 +166,7 @@ export default function Select<T extends string = string>({
           flex items-center gap-2 px-3 py-2 text-sm cursor-pointer transition-colors
           ${active ? 'bg-zinc-700' : ''}
           ${selected ? 'text-indigo-400' : 'text-zinc-200'}
-          ${opt.disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-zinc-700'}
+          ${opt.disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-state-mid'}
         `}
       >
         {selected ? (
@@ -195,8 +195,8 @@ export default function Select<T extends string = string>({
           w-full flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left
           transition-colors active:scale-[0.98]
           ${disabled
-            ? 'border-zinc-700 bg-zinc-800/50 text-zinc-500 cursor-not-allowed'
-            : 'border-zinc-700 bg-zinc-800 text-zinc-100 hover:border-zinc-600 focus:outline-none focus:border-indigo-500'
+            ? 'border-edge bg-zinc-800/50 text-zinc-500 cursor-not-allowed'
+            : 'border-edge bg-zinc-800 text-zinc-100 hover:border-edge-strong focus:outline-none focus:border-indigo-500'
           }
         `}
       >
@@ -212,7 +212,7 @@ export default function Select<T extends string = string>({
           role="listbox"
           className={`
             absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-auto
-            rounded-lg border border-zinc-700 bg-zinc-800 shadow-2xl
+            rounded-lg border border-edge bg-zinc-800 shadow-2xl
           `}
           style={{ top: '100%' }}
         >

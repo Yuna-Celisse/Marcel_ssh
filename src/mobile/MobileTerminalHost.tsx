@@ -720,7 +720,7 @@ export default function MobileTerminalHost({
         </div>
       )}
       {!showList && panelMode === 'disconnected' && (
-        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-400">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-edge-subtle bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-400">
           <span>会话已断开{activeSession?.configId ? '，可点击重连' : ''}</span>
           <button
             type="button"

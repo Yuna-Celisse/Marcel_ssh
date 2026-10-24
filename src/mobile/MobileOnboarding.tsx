@@ -27,7 +27,7 @@ function WelcomeStep() {
       <p className="mt-1 text-sm text-zinc-400">口袋里的 AI-Native SSH 终端</p>
 
       <div className="mt-8 flex w-full flex-col gap-2">
-        <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3.5 text-left">
+        <div className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-4 py-3.5 text-left">
           <Terminal className="h-6 w-6 flex-shrink-0 text-indigo-400" />
           <div>
             <div className="text-sm font-medium text-zinc-200">智能终端</div>
@@ -36,7 +36,7 @@ function WelcomeStep() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3.5 text-left">
+        <div className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-4 py-3.5 text-left">
           <Bot className="h-6 w-6 flex-shrink-0 text-indigo-400" />
           <div>
             <div className="text-sm font-medium text-zinc-200">AI Agent</div>
@@ -45,7 +45,7 @@ function WelcomeStep() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3.5 text-left">
+        <div className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-4 py-3.5 text-left">
           <Folder className="h-6 w-6 flex-shrink-0 text-indigo-400" />
           <div>
             <div className="text-sm font-medium text-zinc-200">文件管理</div>
@@ -107,7 +107,7 @@ function GuideStep() {
         {TOUCH_GUIDE.map((item) => (
           <div
             key={item.title}
-            className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
+            className="rounded-xl border border-edge-subtle bg-zinc-900 px-4 py-3"
           >
             <div className="text-sm font-medium text-zinc-200">
               {item.title}
@@ -187,7 +187,7 @@ export default function MobileOnboarding({
             <button
               type="button"
               onClick={handleBack}
-              className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 active:bg-zinc-800"
+              className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-400 active:bg-state-soft"
               aria-label="上一步"
             >
               <ChevronLeft className="h-5 w-5" />
@@ -198,7 +198,7 @@ export default function MobileOnboarding({
             <button
               type="button"
               onClick={() => void finish()}
-              className="rounded-lg px-3 py-2 text-xs text-zinc-500 active:bg-zinc-800 active:text-zinc-300"
+              className="rounded-lg px-3 py-2 text-xs text-zinc-500 active:bg-state-soft active:text-zinc-300"
             >
               跳过
             </button>
@@ -216,7 +216,7 @@ export default function MobileOnboarding({
 
         {/* Footer：仅内容步骤显示 dots + 按钮 */}
         <footer
-          className="flex flex-shrink-0 flex-col gap-3 border-t border-zinc-800 px-4 pt-3 pb-3"
+          className="flex flex-shrink-0 flex-col gap-3 border-t border-edge-subtle px-4 pt-3 pb-3"
           style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
         >
           <div className="flex justify-center gap-1.5" aria-hidden>

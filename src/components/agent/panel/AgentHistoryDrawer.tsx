@@ -104,18 +104,18 @@ export function AgentHistoryDrawer({
       />
       <div
         onAnimationEnd={presence.onAnimationEnd}
-        className={`absolute top-0 right-0 h-full w-72 bg-zinc-950 border-l border-zinc-800 z-30 flex flex-col shadow-2xl ${
+        className={`absolute top-0 right-0 h-full w-72 bg-zinc-950 border-l border-edge-subtle z-30 flex flex-col shadow-2xl ${
           presence.phase === "exit"
             ? "animate-slideOutRight"
             : "animate-slideInRight"
         }`}
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-edge-subtle">
           <h3 className="text-sm font-semibold text-zinc-200">历史会话</h3>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-700 transition-colors"
+            className="p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-state-mid transition-colors"
           >
             <svg
               className="w-4 h-4"
@@ -151,8 +151,8 @@ export function AgentHistoryDrawer({
                     key={conv.id}
                     className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm transition-colors ${
                       isActive
-                        ? "bg-zinc-800 text-zinc-100 ring-1 ring-zinc-700/50"
-                        : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                        ? "bg-state-selected text-zinc-100 ring-1 ring-edge/50"
+                        : "text-zinc-400 hover:bg-state-soft/60 hover:text-zinc-200"
                     }`}
                   >
                     {isEditing ? (
@@ -177,7 +177,7 @@ export function AgentHistoryDrawer({
                         <button
                           type="button"
                           onClick={() => void handleSaveRename()}
-                          className="p-1 rounded text-emerald-400 hover:bg-zinc-700 transition-colors flex-shrink-0"
+                          className="p-1 rounded text-emerald-400 hover:bg-state-mid transition-colors flex-shrink-0"
                           title="确认"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -187,7 +187,7 @@ export function AgentHistoryDrawer({
                         <button
                           type="button"
                           onClick={handleCancelRename}
-                          className="p-1 rounded text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors flex-shrink-0"
+                          className="p-1 rounded text-zinc-400 hover:bg-state-mid hover:text-zinc-200 transition-colors flex-shrink-0"
                           title="取消"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -226,7 +226,7 @@ export function AgentHistoryDrawer({
                               console.error('Failed to toggle pin:', getErrorMessage(err));
                             });
                           }}
-                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-mid/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
                           title={conv.pinned ? "取消置顶" : "置顶会话"}
                           aria-label={conv.pinned ? "取消置顶" : "置顶会话"}
                         >
@@ -234,7 +234,7 @@ export function AgentHistoryDrawer({
                         </button>
                         <button
                           onClick={(e) => startRenameConversation(e, conv.id, conv.title)}
-                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-mid/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
                           title="重命名会话"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -248,7 +248,7 @@ export function AgentHistoryDrawer({
                         </button>
                         <button
                           onClick={(e) => handleDeleteConversation(e, conv.id)}
-                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-700/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+                          className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-state-mid/80 transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
                           title="删除会话"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

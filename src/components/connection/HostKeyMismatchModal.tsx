@@ -62,7 +62,7 @@ export default function HostKeyMismatchModal({ open, data, onTrust, onCancel }: 
                 {fingerprintRows.map((row) => (
                   <div
                     key={row.label}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900/50 px-3 py-2"
+                    className="rounded-lg border border-edge bg-zinc-900/50 px-3 py-2"
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-medium text-zinc-400">{row.label}</span>

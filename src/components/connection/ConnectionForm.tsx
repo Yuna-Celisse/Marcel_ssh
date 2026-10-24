@@ -336,7 +336,7 @@ export default function ConnectionForm({
           <select
             value={authMethod}
             onChange={(e) => setAuthMethod(e.target.value)}
-            className="flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+            className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
           >
             <option value="Password">密码</option>
             <option value="PrivateKey">私钥</option>
@@ -396,7 +396,7 @@ export default function ConnectionForm({
                   setKeyId(e.target.value);
                   if (e.target.value) setKeyPath('');
                 }}
-                className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+                className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
               >
                 <option value="">
                   {keys.length > 0 ? '未选择（也可在下方直接填路径）' : '还没有导入私钥'}
@@ -524,11 +524,11 @@ export default function ConnectionForm({
       />
 
       {/* Jump host (ProxyJump) */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40">
+      <div className="rounded-lg border border-edge-subtle bg-zinc-900/40">
         <button
           type="button"
           onClick={() => setUseJump((v) => !v)}
-          className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800/50 rounded-lg transition-colors"
+          className="w-full flex items-center justify-between px-3 py-2.5 text-sm text-zinc-300 hover:bg-state-soft/50 rounded-lg transition-colors"
         >
           <span className="font-medium">跳板机（可选）</span>
           <span
@@ -547,7 +547,7 @@ export default function ConnectionForm({
         </button>
 
         {useJump && (
-          <div className="px-3 pb-3 space-y-3 border-t border-zinc-800 pt-3">
+          <div className="px-3 pb-3 space-y-3 border-t border-edge-subtle pt-3">
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
                 <Input
@@ -600,7 +600,7 @@ export default function ConnectionForm({
                   setJumpPassword('');
                   setJumpPassphrase('');
                 }}
-                className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+                className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
               >
                 <option value="withTarget">和目标相同</option>
                 <option value="Password">密码</option>
@@ -651,7 +651,7 @@ export default function ConnectionForm({
                         setJumpKeyId(e.target.value);
                         if (e.target.value) setJumpKeyPath('');
                       }}
-                      className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+                      className="min-w-0 flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
                     >
                       <option value="">
                         {keys.length > 0

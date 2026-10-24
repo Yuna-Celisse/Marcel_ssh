@@ -225,7 +225,7 @@ export default function MobileCompressSheet({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-zinc-700"
+              className="flex-1 rounded-xl bg-zinc-800 px-4 py-3 text-sm text-zinc-300 active:bg-state-mid"
             >
               {isFinished ? '关闭' : '取消'}
             </button>
@@ -246,7 +246,7 @@ export default function MobileCompressSheet({
       <div className="flex flex-col gap-3 px-4 pb-3">
         <div>
           <label className="mb-1 block text-xs text-zinc-500">源目录</label>
-          <div className="break-all rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2 font-mono text-xs text-zinc-400">
+          <div className="break-all rounded-lg border border-edge/50 bg-zinc-900/60 px-3 py-2 font-mono text-xs text-zinc-400">
             {remoteDir}
           </div>
         </div>
@@ -263,7 +263,7 @@ export default function MobileCompressSheet({
                 className={`rounded-lg px-3 py-2 text-xs ${
                   format === f
                     ? 'bg-indigo-600 text-white'
-                    : 'bg-zinc-800 text-zinc-300 active:bg-zinc-700'
+                    : 'bg-zinc-800 text-zinc-300 active:bg-state-mid'
                 } disabled:opacity-50`}
               >
                 {f}
@@ -288,7 +288,7 @@ export default function MobileCompressSheet({
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2.5 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500 disabled:opacity-50"
+            className="w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500 disabled:opacity-50"
           />
           <p className="mt-1 text-[10px] text-zinc-600">
             默认压缩到源目录的父目录，避免递归包含
@@ -313,7 +313,7 @@ export default function MobileCompressSheet({
         )}
 
         {isRunning && (
-          <div className="flex flex-col gap-2 rounded-lg border border-zinc-700/50 bg-zinc-900/50 p-3">
+          <div className="flex flex-col gap-2 rounded-lg border border-edge/50 bg-zinc-900/50 p-3">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 text-zinc-300">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-400" />

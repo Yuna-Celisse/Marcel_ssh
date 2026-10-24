@@ -147,7 +147,7 @@ export default function MobileSettings({
     <SettingsActionsProvider value={actionsValue}>
       <div className="flex h-full min-h-0 flex-col bg-zinc-950">
         <header
-          className="flex-shrink-0 border-b border-zinc-800 px-3 py-3"
+          className="flex-shrink-0 border-b border-edge-subtle px-3 py-3"
           style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
         >
           {activeCategory ? (
@@ -196,7 +196,7 @@ export default function MobileSettings({
                   key={cat.id}
                   type="button"
                   onClick={() => setActiveCategory(cat.id)}
-                  className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
+                  className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">

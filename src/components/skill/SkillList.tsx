@@ -55,7 +55,7 @@ function SkillCard({
           'group rounded-lg border transition-colors px-2 py-2 ' +
           (skill.enabled
             ? 'bg-indigo-900/20 border-indigo-700/50 hover:border-indigo-700'
-            : 'bg-zinc-900/40 border-zinc-800 hover:border-zinc-700') +
+            : 'bg-zinc-900/40 border-edge-subtle hover:border-edge') +
           (draggable ? ' cursor-grab active:cursor-grabbing' : '') +
           (dragging ? ' opacity-40' : '')
         }
@@ -69,14 +69,14 @@ function SkillCard({
             <div className='flex items-center gap-1.5 min-w-0'>
               <span className='text-sm font-medium text-zinc-200 truncate'>{skill.name}</span>
               {builtin && (
-                <span className='flex-shrink-0 rounded px-1 py-px text-[10px] leading-4 bg-zinc-800 text-zinc-400 border border-zinc-700'>
+                <span className='flex-shrink-0 rounded px-1 py-px text-[10px] leading-4 bg-zinc-800 text-zinc-400 border border-edge'>
                   内置
                 </span>
               )}
               {skill.resources && skill.resources.length > 0 && (
                 <span
                   title={`含 ${skill.resources.length} 个资源文件`}
-                  className='flex-shrink-0 rounded px-1 py-px text-[10px] leading-4 bg-zinc-800 text-zinc-400 border border-zinc-700'
+                  className='flex-shrink-0 rounded px-1 py-px text-[10px] leading-4 bg-zinc-800 text-zinc-400 border border-edge'
                 >
                   {skill.resources.length} 资源
                 </span>
@@ -91,7 +91,7 @@ function SkillCard({
               <button
                 onClick={onEdit}
                 title='编辑'
-                className='flex-shrink-0 p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all'
+                className='flex-shrink-0 p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-state-soft opacity-0 group-hover:opacity-100 transition-all'
               >
                 <svg className='w-3.5 h-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
                   <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2}
@@ -101,7 +101,7 @@ function SkillCard({
               <button
                 onClick={onDelete}
                 title='删除'
-                className='flex-shrink-0 p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 opacity-0 group-hover:opacity-100 transition-all'
+                className='flex-shrink-0 p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-state-soft opacity-0 group-hover:opacity-100 transition-all'
               >
                 <svg className='w-3.5 h-3.5' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
                   <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2}

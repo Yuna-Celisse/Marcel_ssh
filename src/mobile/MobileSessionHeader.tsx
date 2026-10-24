@@ -41,7 +41,7 @@ export default function MobileSessionHeader({
 
   return (
     <header
-      className="relative flex flex-shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2"
+      className="relative flex flex-shrink-0 items-center gap-2 border-b border-edge-subtle bg-zinc-950 px-3 py-2"
       style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
     >
       <div className="min-w-0 flex-1 text-left">
@@ -69,7 +69,7 @@ export default function MobileSessionHeader({
         <button
           type="button"
           onClick={() => onReconnect(session.id)}
-          className="rounded-lg bg-zinc-800 p-2 text-zinc-300 transition-transform duration-100 active:scale-95 active:bg-zinc-700"
+          className="rounded-lg bg-zinc-800 p-2 text-zinc-300 transition-transform duration-100 active:scale-95 active:bg-state-mid"
           aria-label="重连"
         >
           <RefreshCw className="h-4 w-4" />
@@ -79,7 +79,7 @@ export default function MobileSessionHeader({
       <button
         type="button"
         onClick={() => onDisconnect(session.id)}
-        className="rounded-lg bg-zinc-800 p-2 text-zinc-300 transition-transform duration-100 active:scale-95 active:bg-zinc-700"
+        className="rounded-lg bg-zinc-800 p-2 text-zinc-300 transition-transform duration-100 active:scale-95 active:bg-state-mid"
         aria-label="断开"
       >
         <X className="h-4 w-4" />

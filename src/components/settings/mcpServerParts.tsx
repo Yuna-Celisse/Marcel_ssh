@@ -51,7 +51,7 @@ export function CopyButton({
  */
 export function CodeBlock({ code, touch = false }: { code: string; touch?: boolean }) {
   return (
-    <div className="relative rounded-lg bg-zinc-950 border border-zinc-800">
+    <div className="relative rounded-lg bg-zinc-950 border border-edge-subtle">
       <div className="absolute top-2 right-2">
         <CopyButton text={code} size={touch ? 'md' : 'sm'} />
       </div>

@@ -169,7 +169,7 @@ function TurnActions({ footer, onCopyText, onFork, mobile = false }: Props) {
         aria-haspopup="menu"
         aria-label={label}
         title={label}
-        className="flex items-center gap-0.5 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        className="flex items-center gap-0.5 rounded p-1 text-zinc-500 transition-colors hover:bg-state-soft hover:text-zinc-200"
       >
         <span className="relative block h-3.5 w-3.5">
           <svg
@@ -234,7 +234,7 @@ function TurnActions({ footer, onCopyText, onFork, mobile = false }: Props) {
               : '从这里分叉出一个新会话继续：原会话保持不变，随时可以回来'
           }
           data-testid="turn-fork"
-          className={`flex items-center gap-1 rounded p-1 transition-colors hover:bg-zinc-800 disabled:cursor-wait ${
+          className={`flex items-center gap-1 rounded p-1 transition-colors hover:bg-state-soft disabled:cursor-wait ${
             forkStatus === 'failed' ? 'text-red-400' : 'text-zinc-500 hover:text-zinc-200'
           }`}
         >
@@ -287,7 +287,7 @@ function TurnActions({ footer, onCopyText, onFork, mobile = false }: Props) {
                   setSheetOpen(false);
                   void run(option.scope);
                 }}
-                className="flex min-h-12 w-full flex-col items-start justify-center rounded-xl px-3 py-2 text-left active:bg-zinc-700"
+                className="flex min-h-12 w-full flex-col items-start justify-center rounded-xl px-3 py-2 text-left active:bg-state-mid"
               >
                 <span className="text-[15px] text-zinc-100">{option.label}</span>
                 <span className="text-xs text-zinc-500">{option.description}</span>

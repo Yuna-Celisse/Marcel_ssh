@@ -134,7 +134,7 @@ export default function QuestionPanel({
     <div className="p-3">
       <div className="rounded-2xl bg-zinc-800 border border-indigo-500/30 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
           <div className="flex items-center gap-2 min-w-0">
             <svg
               className="w-4 h-4 flex-shrink-0 text-indigo-400"
@@ -171,7 +171,7 @@ export default function QuestionPanel({
               <button
                 type="button"
                 onClick={onMinimize}
-                className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+                className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-state-mid transition-colors"
                 title="最小化为浮动药丸"
                 aria-label="最小化"
               >
@@ -182,7 +182,7 @@ export default function QuestionPanel({
             )}
             <button
               onClick={handleCancel}
-              className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+              className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-state-mid transition-colors"
               title="取消"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,7 +199,7 @@ export default function QuestionPanel({
 
         {/* 上下文横条提示 (Context Banner) */}
         {(sessionName || conversationTitle) && (
-          <div className="mx-4 mt-3 p-2 rounded-lg bg-zinc-900 border border-zinc-700/70 flex items-center justify-between gap-2">
+          <div className="mx-4 mt-3 p-2 rounded-lg bg-zinc-900 border border-edge/70 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
               <svg className="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -245,7 +245,7 @@ export default function QuestionPanel({
                     className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
                       isSelected
                         ? 'border-indigo-500 bg-indigo-600/15 text-indigo-200'
-                        : 'border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700/50'
+                        : 'border-edge bg-zinc-800/50 text-zinc-300 hover:border-edge-strong hover:bg-state-mid/50'
                     }`}
                   >
                     <div className="flex items-center gap-2">
@@ -254,7 +254,7 @@ export default function QuestionPanel({
                           className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors ${
                             isSelected
                               ? 'border-indigo-500 bg-indigo-600'
-                              : 'border-zinc-600'
+                              : 'border-edge-strong'
                           }`}
                         >
                           {isSelected && (
@@ -268,7 +268,7 @@ export default function QuestionPanel({
                           className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${
                             isSelected
                               ? 'border-indigo-500 bg-indigo-600'
-                              : 'border-zinc-600'
+                              : 'border-edge-strong'
                           }`}
                         >
                           {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
@@ -298,7 +298,7 @@ export default function QuestionPanel({
                   ? '补充说明（可选）...'
                   : '输入你的回答...'
               }
-              className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-sm text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-indigo-500 resize-none leading-relaxed"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-edge text-sm text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-indigo-500 resize-none leading-relaxed"
             />
           )}
 
@@ -311,13 +311,13 @@ export default function QuestionPanel({
               onChange={(e) => handleCustomChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="或输入自定义回答..."
-              className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-700 text-sm text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-indigo-500 resize-none leading-relaxed"
+              className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-edge text-sm text-zinc-200 placeholder:text-zinc-500 outline-none focus:border-indigo-500 resize-none leading-relaxed"
             />
           )}
         </div>
 
         {/* Footer navigation */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-700">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-edge">
           <div className="text-xs text-zinc-500">
             <kbd className="px-1 py-0.5 rounded bg-zinc-700 text-zinc-300">Enter</kbd>{' '}
             {isLast ? '提交' : '下一题'}
@@ -326,7 +326,7 @@ export default function QuestionPanel({
             {!isFirst && (
               <button
                 onClick={handlePrev}
-                className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+                className="px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-200 hover:bg-state-mid transition-colors"
               >
                 ← 上一题
               </button>

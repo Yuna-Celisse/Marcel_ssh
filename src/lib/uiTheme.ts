@@ -1,5 +1,10 @@
-import { DEFAULT_TERMINAL_COLORS, TERMINAL_COLOR_PRESETS } from './constants';
-import type { TerminalColors, UiThemeSettings, UiThemeZoneId, UiThemeZones } from './types';
+import { DEFAULT_TERMINAL_COLORS, TERMINAL_COLOR_PRESETS } from "./constants";
+import type {
+  TerminalColors,
+  UiThemeSettings,
+  UiThemeZoneId,
+  UiThemeZones,
+} from "./types";
 
 /*
  * 应用主题（UI theme）唯一来源。
@@ -17,82 +22,278 @@ import type { TerminalColors, UiThemeSettings, UiThemeZoneId, UiThemeZones } fro
  * 消费方：useUiTheme（双端 App 根挂载）、UiThemeEditor（设置页编辑器，双端共用）。
  */
 
+export type UiThemeNeutralSection = "fill" | "state" | "edge" | "text";
+
 export interface UiThemeZoneDef {
   id: UiThemeZoneId;
-  /** 中性槽位直接映射的调色板变量；语义槽位为空（走整条色阶推导）。 */
+  /** 中性槽位直接映射的 CSS 变量；语义槽位为空（走整条色阶推导）。 */
   cssVar?: string;
   label: string;
   hint: string;
   /** 语义槽位：推导整条色阶时写入的 Tailwind 调色板名。 */
   palette?: string;
-  group: 'neutral' | 'semantic';
+  group: "neutral" | "semantic";
+  /** 中性槽位在编辑器里的分组（填充 / 状态 / 边框 / 文字）。 */
+  section?: UiThemeNeutralSection;
 }
 
-/** 中性槽位顺序即 zinc 色阶 950→100 的顺序（编辑器按此渲染）。 */
+export const UI_THEME_NEUTRAL_SECTIONS: {
+  id: UiThemeNeutralSection;
+  label: string;
+  hint: string;
+}[] = [
+  { id: "fill", label: "填充", hint: "背景与卡片的底色" },
+  { id: "state", label: "悬停与按下", hint: "鼠标悬停、按下时的底色" },
+  { id: "edge", label: "边框", hint: "分隔线与控件描边" },
+  { id: "text", label: "文字", hint: "从弱到强的文字色" },
+];
+
+/*
+ * 中性槽位按「用途」而不是按色阶档位拆：Tailwind 里 bg-/border-/hover:bg- 读的是同一个
+ * --color-zinc-N，按档位只有一个旋钮就会「调卡片灰、连分隔线和悬停一起变」。
+ * 填充槽位仍映射 zinc 变量（bg-zinc-N / text-zinc-600 等沿用）；
+ * 状态与边框槽位映射独立的 --color-state-* / --color-edge-*（globals.css @theme 声明，
+ * 源码里 border-zinc-* 与 hover:bg-zinc-* 已全部迁到这些类名）。
+ */
 export const UI_THEME_NEUTRAL_ZONES: UiThemeZoneDef[] = [
-  { id: 'bg', cssVar: '--color-zinc-950', label: '主背景', hint: '页面与对话区的底色', group: 'neutral' },
-  { id: 'surface', cssVar: '--color-zinc-900', label: '面板', hint: '侧栏与底部面板的底色', group: 'neutral' },
-  { id: 'card', cssVar: '--color-zinc-800', label: '卡片', hint: '卡片、输入框、列表项的底色', group: 'neutral' },
-  { id: 'hover', cssVar: '--color-zinc-700', label: '悬停', hint: '悬停高亮、按下态与主边框', group: 'neutral' },
-  { id: 'line', cssVar: '--color-zinc-600', label: '强边框', hint: '更亮的分隔线与深色悬停', group: 'neutral' },
-  { id: 'textMuted', cssVar: '--color-zinc-500', label: '弱文字', hint: '占位符与最弱的说明文字', group: 'neutral' },
-  { id: 'textSecondary', cssVar: '--color-zinc-400', label: '次要文字', hint: '说明文字与图标', group: 'neutral' },
-  { id: 'textBright', cssVar: '--color-zinc-300', label: '次要文字·亮', hint: '较亮的说明文字', group: 'neutral' },
-  { id: 'textBody', cssVar: '--color-zinc-200', label: '正文', hint: '消息与表单的正文颜色', group: 'neutral' },
-  { id: 'textHeading', cssVar: '--color-zinc-100', label: '标题', hint: '标题与强调文字', group: 'neutral' },
+  {
+    id: "bg",
+    cssVar: "--color-zinc-950",
+    label: "外框",
+    hint: "顶栏、导航栏与手机页底",
+    group: "neutral",
+    section: "fill",
+  },
+  {
+    id: "surface",
+    cssVar: "--color-zinc-900",
+    label: "画布",
+    hint: "桌面主区域、侧栏与对话区的底色",
+    group: "neutral",
+    section: "fill",
+  },
+  {
+    id: "card",
+    cssVar: "--color-zinc-800",
+    label: "卡片",
+    hint: "卡片、输入框、列表项的底色",
+    group: "neutral",
+    section: "fill",
+  },
+  {
+    id: "control",
+    cssVar: "--color-zinc-700",
+    label: "控件",
+    hint: "按钮、开关轨道、标签的底色",
+    group: "neutral",
+    section: "fill",
+  },
+  {
+    id: "controlStrong",
+    cssVar: "--color-zinc-600",
+    label: "强控件",
+    hint: "更醒目的控件底与滚动条",
+    group: "neutral",
+    section: "fill",
+  },
+  {
+    id: "hoverSoft",
+    cssVar: "--color-state-soft",
+    label: "悬停·轻",
+    hint: "列表行与透明按钮的悬停、按下",
+    group: "neutral",
+    section: "state",
+  },
+  {
+    id: "hoverMid",
+    cssVar: "--color-state-mid",
+    label: "悬停·中",
+    hint: "按钮与卡片内的悬停、按下",
+    group: "neutral",
+    section: "state",
+  },
+  {
+    id: "hoverStrong",
+    cssVar: "--color-state-strong",
+    label: "悬停·重",
+    hint: "次级按钮的悬停",
+    group: "neutral",
+    section: "state",
+  },
+  {
+    id: "selected",
+    cssVar: "--color-state-selected",
+    label: "选中",
+    hint: "侧栏、标签栏、历史列表里当前选中项的底",
+    group: "neutral",
+    section: "state",
+  },
+  {
+    id: "edgeSubtle",
+    cssVar: "--color-edge-subtle",
+    label: "分隔线",
+    hint: "面板之间、区块之间的淡分隔线",
+    group: "neutral",
+    section: "edge",
+  },
+  {
+    id: "edge",
+    cssVar: "--color-edge",
+    label: "边框",
+    hint: "输入框、卡片、按钮的描边",
+    group: "neutral",
+    section: "edge",
+  },
+  {
+    id: "edgeStrong",
+    cssVar: "--color-edge-strong",
+    label: "强边框",
+    hint: "更醒目的描边与聚焦前的边框",
+    group: "neutral",
+    section: "edge",
+  },
+  {
+    id: "textMuted",
+    cssVar: "--color-zinc-500",
+    label: "弱文字",
+    hint: "占位符与最弱的说明文字",
+    group: "neutral",
+    section: "text",
+  },
+  {
+    id: "textSecondary",
+    cssVar: "--color-zinc-400",
+    label: "次要文字",
+    hint: "说明文字与图标",
+    group: "neutral",
+    section: "text",
+  },
+  {
+    id: "textBright",
+    cssVar: "--color-zinc-300",
+    label: "次要文字·亮",
+    hint: "较亮的说明文字",
+    group: "neutral",
+    section: "text",
+  },
+  {
+    id: "textBody",
+    cssVar: "--color-zinc-200",
+    label: "正文",
+    hint: "消息与表单的正文颜色",
+    group: "neutral",
+    section: "text",
+  },
+  {
+    id: "textHeading",
+    cssVar: "--color-zinc-100",
+    label: "标题",
+    hint: "标题与强调文字",
+    group: "neutral",
+    section: "text",
+  },
 ];
 
 /** 语义槽位：每个槽位推导整条 11 档色阶并写入对应调色板变量。 */
 export const UI_THEME_SEMANTIC_ZONES: UiThemeZoneDef[] = [
-  { id: 'accent', label: '主色', hint: '按钮、选中态、链接的强调色', palette: 'indigo', group: 'semantic' },
-  { id: 'danger', label: '危险', hint: '错误、删除、断开连接', palette: 'red', group: 'semantic' },
-  { id: 'warning', label: '警告', hint: '警示与待注意状态', palette: 'amber', group: 'semantic' },
-  { id: 'success', label: '成功', hint: '成功与在线状态', palette: 'emerald', group: 'semantic' },
-  { id: 'info', label: '信息', hint: '信息提示与次要强调', palette: 'sky', group: 'semantic' },
+  {
+    id: "accent",
+    label: "主色",
+    hint: "按钮、选中态、链接的强调色",
+    palette: "indigo",
+    group: "semantic",
+  },
+  {
+    id: "danger",
+    label: "危险",
+    hint: "错误、删除、断开连接",
+    palette: "red",
+    group: "semantic",
+  },
+  {
+    id: "warning",
+    label: "警告",
+    hint: "警示与待注意状态",
+    palette: "amber",
+    group: "semantic",
+  },
+  {
+    id: "success",
+    label: "成功",
+    hint: "成功与在线状态",
+    palette: "emerald",
+    group: "semantic",
+  },
+  {
+    id: "info",
+    label: "信息",
+    hint: "信息提示与次要强调",
+    palette: "sky",
+    group: "semantic",
+  },
 ];
 
-export const UI_THEME_ALL_ZONES: UiThemeZoneDef[] = [...UI_THEME_NEUTRAL_ZONES, ...UI_THEME_SEMANTIC_ZONES];
+export const UI_THEME_ALL_ZONES: UiThemeZoneDef[] = [
+  ...UI_THEME_NEUTRAL_ZONES,
+  ...UI_THEME_SEMANTIC_ZONES,
+];
 
 /** Tailwind 默认 zinc（hex 近似），即「曜石」预设。默认主题必须与不启用主题时逐像素一致。 */
 const DEFAULT_NEUTRAL = {
-  bg: '#09090b',
-  surface: '#18181b',
-  card: '#27272a',
-  hover: '#3f3f46',
-  line: '#52525b',
-  textMuted: '#71717a',
-  textSecondary: '#a1a1aa',
-  textBright: '#d4d4d8',
-  textBody: '#e4e4e7',
-  textHeading: '#f4f4f5',
+  bg: "#09090b",
+  surface: "#18181b",
+  card: "#27272a",
+  control: "#3f3f46",
+  controlStrong: "#52525b",
+  hoverSoft: "#27272a",
+  hoverMid: "#3f3f46",
+  hoverStrong: "#52525b",
+  selected: "#27272a",
+  edgeSubtle: "#27272a",
+  edge: "#3f3f46",
+  edgeStrong: "#52525b",
+  textMuted: "#71717a",
+  textSecondary: "#a1a1aa",
+  textBright: "#d4d4d8",
+  textBody: "#e4e4e7",
+  textHeading: "#f4f4f5",
 };
 
-const DEFAULT_SEMANTIC: Record<'accent' | 'danger' | 'warning' | 'success' | 'info', string> = {
-  accent: '#6366f1',
-  danger: '#ef4444',
-  warning: '#f59e0b',
-  success: '#10b981',
-  info: '#0ea5e9',
+const DEFAULT_SEMANTIC: Record<
+  "accent" | "danger" | "warning" | "success" | "info",
+  string
+> = {
+  accent: "#6366f1",
+  danger: "#ef4444",
+  warning: "#f59e0b",
+  success: "#10b981",
+  info: "#0ea5e9",
 };
 
-export const DEFAULT_UI_THEME_ZONES: UiThemeZones = { ...DEFAULT_NEUTRAL, ...DEFAULT_SEMANTIC };
+export const DEFAULT_UI_THEME_ZONES: UiThemeZones = {
+  ...DEFAULT_NEUTRAL,
+  ...DEFAULT_SEMANTIC,
+};
 
 export interface UiThemePreset {
   id: string;
   name: string;
   /** 明暗归属：驱动 color-scheme 与 data-marcel-theme。 */
-  scheme: 'dark' | 'light';
+  scheme: "dark" | "light";
   zones: UiThemeZones;
   /** 随预设成套的终端配色：选预设时 terminalColors 一并写入，终端与界面永远是一套。 */
   terminal: TerminalColors;
 }
 
 function terminalPreset(name: string): TerminalColors {
-  return TERMINAL_COLOR_PRESETS.find((p) => p.name === name)?.colors ?? DEFAULT_TERMINAL_COLORS;
+  return (
+    TERMINAL_COLOR_PRESETS.find((p) => p.name === name)?.colors ??
+    DEFAULT_TERMINAL_COLORS
+  );
 }
 
-export const CUSTOM_PRESET_ID = 'custom';
-const DEFAULT_PRESET_ID = 'obsidian';
+export const CUSTOM_PRESET_ID = "custom";
+const DEFAULT_PRESET_ID = "obsidian";
 
 function zones(partial: Partial<UiThemeZones>): UiThemeZones {
   return { ...DEFAULT_UI_THEME_ZONES, ...partial };
@@ -100,68 +301,83 @@ function zones(partial: Partial<UiThemeZones>): UiThemeZones {
 
 export const UI_THEME_PRESETS: UiThemePreset[] = [
   {
-    id: 'obsidian',
-    name: '曜石',
-    scheme: 'dark',
+    id: "obsidian",
+    name: "曜石",
+    scheme: "dark",
     zones: zones(DEFAULT_NEUTRAL),
     terminal: DEFAULT_TERMINAL_COLORS,
   },
   {
-    id: 'daylight',
-    name: '晨雾',
-    scheme: 'light',
+    id: "daylight",
+    name: "晨雾",
+    scheme: "light",
     zones: zones({
       // 浅色不能照搬暗色的层级：暗色里「越高越亮」（chrome 950 < 画布 900 < 卡片 800），
       // 平移到浅色就成了一整片灰蓝（前两版晨雾丑的根因）。浅色的正确层级是反过来的——
       // 画布（surface，桌面主区域/侧栏/对话区）是纯白，外框（bg：顶栏、导航栏、手机页底）
       // 与卡片/输入框是同一档极淡的暖中性灰，边框与悬停再深一小步。
       // 手机上页底（950）灰、分组卡片（900）白，天然就是 iOS 的分组样式。
-      bg: '#f3f3f6',
-      surface: '#ffffff',
-      card: '#f1f1f5',
-      hover: '#e5e5ea',
-      line: '#d1d1d9',
-      textMuted: '#8a8a94',
-      textSecondary: '#62626c',
-      textBright: '#46464f',
-      textBody: '#26262c',
-      textHeading: '#111114',
+      bg: "#f3f3f6",
+      surface: "#ffffff",
+      card: "#f1f1f5",
+      control: "#e5e5ea",
+      controlStrong: "#d1d1d9",
+      hoverSoft: "#efeff3",
+      hoverMid: "#e5e5ea",
+      hoverStrong: "#d9d9e0",
+      // 选中项要压过外框灰（bg/card）一档才看得出，比悬停再深一点
+      selected: "#dfdfe8",
+      edgeSubtle: "#ebebf0",
+      edge: "#dedee5",
+      edgeStrong: "#cdcdd6",
+      textMuted: "#8a8a94",
+      textSecondary: "#62626c",
+      textBright: "#46464f",
+      textBody: "#26262c",
+      textHeading: "#111114",
       // 语义基准色都取色阶里较深的一档：浅色下白底要压得住，文字档靠镜像曲线自动变深
-      accent: '#5558e3',
-      danger: '#dc2626',
-      warning: '#b45309',
-      success: '#059669',
-      info: '#0284c7',
+      accent: "#5558e3",
+      danger: "#dc2626",
+      warning: "#b45309",
+      success: "#059669",
+      info: "#0284c7",
     }),
-    terminal: terminalPreset('亮色'),
+    terminal: terminalPreset("亮色"),
   },
   {
-    id: 'graphite',
-    name: '石墨',
-    scheme: 'dark',
+    id: "graphite",
+    name: "石墨",
+    scheme: "dark",
     zones: zones({
-      bg: '#000000',
-      surface: '#0d0d0d',
-      card: '#1a1a1a',
-      hover: '#2a2a2a',
-      line: '#404040',
-      textMuted: '#808080',
-      textSecondary: '#ababab',
-      textBright: '#d0d0d0',
-      textBody: '#e8e8e8',
-      textHeading: '#ffffff',
-      accent: '#8b9cff',
-      danger: '#ff6b6b',
-      warning: '#ffc53d',
-      success: '#3ddc97',
-      info: '#4dc3ff',
+      bg: "#000000",
+      surface: "#0d0d0d",
+      card: "#1a1a1a",
+      control: "#2a2a2a",
+      controlStrong: "#404040",
+      hoverSoft: "#1a1a1a",
+      hoverMid: "#2a2a2a",
+      hoverStrong: "#404040",
+      selected: "#1a1a1a",
+      edgeSubtle: "#1a1a1a",
+      edge: "#2a2a2a",
+      edgeStrong: "#404040",
+      textMuted: "#808080",
+      textSecondary: "#ababab",
+      textBright: "#d0d0d0",
+      textBody: "#e8e8e8",
+      textHeading: "#ffffff",
+      accent: "#8b9cff",
+      danger: "#ff6b6b",
+      warning: "#ffc53d",
+      success: "#3ddc97",
+      info: "#4dc3ff",
     }),
     terminal: {
-      ...terminalPreset('暗色'),
-      background: '#000000',
-      foreground: '#e8e8e8',
-      cursorAccent: '#000000',
-      selectionBackground: '#8b9cff',
+      ...terminalPreset("暗色"),
+      background: "#000000",
+      foreground: "#e8e8e8",
+      cursorAccent: "#000000",
+      selectionBackground: "#8b9cff",
     },
   },
 ];
@@ -199,18 +415,29 @@ function hexToRgb(hex: string): [number, number, number] | null {
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
   if (m) {
     const n = parseInt(m[1], 16);
-    return [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255];
+    return [
+      ((n >> 16) & 0xff) / 255,
+      ((n >> 8) & 0xff) / 255,
+      (n & 0xff) / 255,
+    ];
   }
   const s = /^#([0-9a-f]{3})$/i.exec(hex.trim());
   if (s) {
     const [r, g, b] = s[1];
-    return [parseInt(r + r, 16) / 255, parseInt(g + g, 16) / 255, parseInt(b + b, 16) / 255];
+    return [
+      parseInt(r + r, 16) / 255,
+      parseInt(g + g, 16) / 255,
+      parseInt(b + b, 16) / 255,
+    ];
   }
   return null;
 }
 
 function rgbToHex([r, g, b]: [number, number, number]): string {
-  const to = (v: number) => Math.round(clamp01(v) * 255).toString(16).padStart(2, '0');
+  const to = (v: number) =>
+    Math.round(clamp01(v) * 255)
+      .toString(16)
+      .padStart(2, "0");
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
@@ -267,15 +494,77 @@ function mixOklch(a: Oklch, b: Oklch, t: number): Oklch {
   };
 }
 
-const SCALE_STEPS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const;
+const SCALE_STEPS = [
+  50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950,
+] as const;
 
 /** 参考色阶（hex 近似）：决定各档的明度曲线与饱和度分布。 */
 const REFERENCE_SCALES: Record<string, string[]> = {
-  indigo: ['#eef2ff', '#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8', '#6366f1', '#4f46e5', '#4338ca', '#3730a3', '#312e81', '#1e1b4b'],
-  red: ['#fef2f2', '#fee2e2', '#fecaca', '#fca5a5', '#f87171', '#ef4444', '#dc2626', '#b91c1c', '#991b1b', '#7f1d1d', '#450a0a'],
-  amber: ['#fffbeb', '#fef3c7', '#fde68a', '#fcd34d', '#fbbf24', '#f59e0b', '#d97706', '#b45309', '#92400e', '#78350f', '#451a03'],
-  emerald: ['#ecfdf5', '#d1fae5', '#a7f3d0', '#6ee7b7', '#34d399', '#10b981', '#059669', '#047857', '#065f46', '#064e3b', '#022c22'],
-  sky: ['#f0f9ff', '#e0f2fe', '#bae6fd', '#7dd3fc', '#38bdf8', '#0ea5e9', '#0284c7', '#0369a1', '#075985', '#0c4a6e', '#082f49'],
+  indigo: [
+    "#eef2ff",
+    "#e0e7ff",
+    "#c7d2fe",
+    "#a5b4fc",
+    "#818cf8",
+    "#6366f1",
+    "#4f46e5",
+    "#4338ca",
+    "#3730a3",
+    "#312e81",
+    "#1e1b4b",
+  ],
+  red: [
+    "#fef2f2",
+    "#fee2e2",
+    "#fecaca",
+    "#fca5a5",
+    "#f87171",
+    "#ef4444",
+    "#dc2626",
+    "#b91c1c",
+    "#991b1b",
+    "#7f1d1d",
+    "#450a0a",
+  ],
+  amber: [
+    "#fffbeb",
+    "#fef3c7",
+    "#fde68a",
+    "#fcd34d",
+    "#fbbf24",
+    "#f59e0b",
+    "#d97706",
+    "#b45309",
+    "#92400e",
+    "#78350f",
+    "#451a03",
+  ],
+  emerald: [
+    "#ecfdf5",
+    "#d1fae5",
+    "#a7f3d0",
+    "#6ee7b7",
+    "#34d399",
+    "#10b981",
+    "#059669",
+    "#047857",
+    "#065f46",
+    "#064e3b",
+    "#022c22",
+  ],
+  sky: [
+    "#f0f9ff",
+    "#e0f2fe",
+    "#bae6fd",
+    "#7dd3fc",
+    "#38bdf8",
+    "#0ea5e9",
+    "#0284c7",
+    "#0369a1",
+    "#075985",
+    "#0c4a6e",
+    "#082f49",
+  ],
 };
 
 /**
@@ -293,10 +582,18 @@ const REFERENCE_SCALES: Record<string, string[]> = {
  *  自身的形状。 */
 const MAX_DL = 0.08;
 
-export function deriveScale(baseHex: string, palette: string, scheme: 'dark' | 'light' = 'dark'): string[] {
+export function deriveScale(
+  baseHex: string,
+  palette: string,
+  scheme: "dark" | "light" = "dark",
+): string[] {
   const ref = REFERENCE_SCALES[palette] ?? REFERENCE_SCALES.indigo;
-  const curve = scheme === 'light' ? [...ref].reverse() : ref;
-  const base = hexToOklch(baseHex) ?? hexToOklch(DEFAULT_SEMANTIC[palette as keyof typeof DEFAULT_SEMANTIC] ?? '#6366f1')!;
+  const curve = scheme === "light" ? [...ref].reverse() : ref;
+  const base =
+    hexToOklch(baseHex) ??
+    hexToOklch(
+      DEFAULT_SEMANTIC[palette as keyof typeof DEFAULT_SEMANTIC] ?? "#6366f1",
+    )!;
   const refOklch = curve.map((hex) => hexToOklch(hex)!);
   const ref500 = refOklch[5];
   const dL = Math.min(MAX_DL, Math.max(-MAX_DL, base.l - ref500.l));
@@ -312,7 +609,10 @@ export function deriveScale(baseHex: string, palette: string, scheme: 'dark' | '
 
 /** 语义槽位 → 调色板名的反查表。 */
 const SEMANTIC_PALETTE: Record<string, string> = Object.fromEntries(
-  UI_THEME_SEMANTIC_ZONES.filter((z) => z.palette).map((z) => [z.id, z.palette!]),
+  UI_THEME_SEMANTIC_ZONES.filter((z) => z.palette).map((z) => [
+    z.id,
+    z.palette!,
+  ]),
 );
 
 /**
@@ -322,13 +622,21 @@ const SEMANTIC_PALETTE: Record<string, string> = Object.fromEntries(
 export function deriveNeutralRamp(zones: UiThemeZones): UiThemeZones {
   const bg = hexToOklch(zones.bg) ?? hexToOklch(DEFAULT_NEUTRAL.bg)!;
   const card = hexToOklch(zones.card) ?? hexToOklch(DEFAULT_NEUTRAL.card)!;
-  const heading = hexToOklch(zones.textHeading) ?? hexToOklch(DEFAULT_NEUTRAL.textHeading)!;
+  const heading =
+    hexToOklch(zones.textHeading) ?? hexToOklch(DEFAULT_NEUTRAL.textHeading)!;
   const mix = (a: Oklch, b: Oklch, t: number) => oklchToHex(mixOklch(a, b, t));
   return {
     ...zones,
     surface: mix(bg, card, 0.5),
-    hover: mix(card, heading, 0.22),
-    line: mix(card, heading, 0.38),
+    control: mix(card, heading, 0.22),
+    controlStrong: mix(card, heading, 0.38),
+    hoverSoft: zones.card,
+    hoverMid: mix(card, heading, 0.22),
+    hoverStrong: mix(card, heading, 0.38),
+    selected: mix(card, heading, 0.12),
+    edgeSubtle: mix(bg, card, 0.8),
+    edge: mix(card, heading, 0.16),
+    edgeStrong: mix(card, heading, 0.34),
     textMuted: mix(card, heading, 0.52),
     textSecondary: mix(card, heading, 0.68),
     textBright: mix(card, heading, 0.82),
@@ -336,34 +644,70 @@ export function deriveNeutralRamp(zones: UiThemeZones): UiThemeZones {
   };
 }
 
+/** 旧存档（中性 10 档）→ 新分区：按旧档位的实际用途补出拆开后的槽位，旧配色逐像素不变。 */
+const LEGACY_ZONE_FALLBACK: Record<string, string> = {
+  control: "hover",
+  controlStrong: "line",
+  hoverSoft: "card",
+  hoverMid: "hover",
+  hoverStrong: "line",
+  selected: "card",
+  edgeSubtle: "card",
+  edge: "hover",
+  edgeStrong: "line",
+};
+
 /** 规范化：补缺失槽位、丢弃非法颜色（合法集合外的值一律回落默认）。
  *  预设 id 不在册（被移除的预设 / 脏数据）时降级为「自定义」——保住用户已有
- *  配色，界面如实显示自定义而不是冒领某个预设；连分区都没给过的才回默认。 */
-export function normalizeUiTheme(raw: Partial<UiThemeSettings> | null | undefined): UiThemeSettings {
+ *  配色，界面如实显示自定义而不是冒领某个预设；连分区都没给过的才回默认。
+ *  在册预设以代码里的定义为准（存档里的分区只是选中时的快照，预设改版后不能盖住新值）。 */
+export function normalizeUiTheme(
+  raw: Partial<UiThemeSettings> | null | undefined,
+): UiThemeSettings {
+  const known =
+    typeof raw?.presetId === "string"
+      ? getUiThemePreset(raw.presetId)
+      : undefined;
+  if (known) return { presetId: known.id, zones: { ...known.zones } };
+
   const source: UiThemeZones = { ...DEFAULT_UI_THEME_ZONES };
   let hasZones = false;
-  if (raw && typeof raw === 'object' && raw.zones && typeof raw.zones === 'object') {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    raw.zones &&
+    typeof raw.zones === "object"
+  ) {
+    const stored = raw.zones as Record<string, unknown>;
+    const valid = (id: string): string | null => {
+      const v = stored[id];
+      return typeof v === "string" && hexToRgb(v) ? v.toLowerCase() : null;
+    };
     for (const def of UI_THEME_ALL_ZONES) {
-      const v = (raw.zones as Record<string, unknown>)[def.id];
-      if (typeof v === 'string' && hexToRgb(v)) {
-        source[def.id] = v.toLowerCase();
+      const v = valid(def.id);
+      if (v) {
+        source[def.id] = v;
         hasZones = true;
       }
     }
+    // 旧存档缺的新槽位：跟着旧档位走，而不是回落到暗色默认（否则自定义的浅色主题会冒出暗色边框）
+    for (const [id, legacyId] of Object.entries(LEGACY_ZONE_FALLBACK)) {
+      if (valid(id)) continue;
+      const fallback = valid(legacyId);
+      if (fallback) source[id as UiThemeZoneId] = fallback;
+    }
   }
   const presetId =
-    typeof raw?.presetId === 'string' && (raw.presetId === CUSTOM_PRESET_ID || getUiThemePreset(raw.presetId))
-      ? raw.presetId
-      : hasZones
-        ? CUSTOM_PRESET_ID
-        : DEFAULT_PRESET_ID;
+    raw?.presetId === CUSTOM_PRESET_ID || hasZones
+      ? CUSTOM_PRESET_ID
+      : DEFAULT_PRESET_ID;
   return { presetId, zones: source };
 }
 
 /** 由分区颜色推断明暗（自定义主题没有预设可查时用）：主背景的 OKLCH 明度 > 0.6 视为浅色。 */
-export function inferScheme(zones: UiThemeZones): 'dark' | 'light' {
+export function inferScheme(zones: UiThemeZones): "dark" | "light" {
   const bg = hexToOklch(zones.bg);
-  return bg && bg.l > 0.6 ? 'light' : 'dark';
+  return bg && bg.l > 0.6 ? "light" : "dark";
 }
 
 /**
@@ -373,18 +717,22 @@ export function inferScheme(zones: UiThemeZones): 'dark' | 'light' {
  * 终端底取「面板」档：它是桌面画布色（深色下与曜石的终端底 #18181b 同源，浅色下是白）。
  */
 export function deriveTerminalColors(zones: UiThemeZones): TerminalColors {
-  const light = inferScheme(zones) === 'light';
-  const base = terminalPreset(light ? '亮色' : '暗色');
+  const light = inferScheme(zones) === "light";
+  const base = terminalPreset(light ? "亮色" : "暗色");
   const background = zones.surface;
   const bgOk = hexToOklch(background);
   const accentOk = hexToOklch(zones.accent);
   // 亮/暗档：深色下往亮推、浅色下往深推，保证 bright* 比普通色更「醒目」
   const bright = (hex: string): string => {
     const c = hexToOklch(hex);
-    return c ? oklchToHex({ ...c, l: clamp01(c.l + (light ? -0.08 : 0.08)) }) : hex;
+    return c
+      ? oklchToHex({ ...c, l: clamp01(c.l + (light ? -0.08 : 0.08)) })
+      : hex;
   };
   const selection =
-    bgOk && accentOk ? oklchToHex(mixOklch(bgOk, accentOk, light ? 0.25 : 1)) : base.selectionBackground;
+    bgOk && accentOk
+      ? oklchToHex(mixOklch(bgOk, accentOk, light ? 0.25 : 1))
+      : base.selectionBackground;
   return {
     ...base,
     background,
@@ -392,7 +740,7 @@ export function deriveTerminalColors(zones: UiThemeZones): TerminalColors {
     cursor: light ? zones.textHeading : zones.textSecondary,
     cursorAccent: background,
     selectionBackground: selection,
-    selectionForeground: light ? zones.textHeading : '#ffffff',
+    selectionForeground: light ? zones.textHeading : "#ffffff",
     red: zones.danger,
     green: zones.success,
     yellow: zones.warning,
@@ -404,9 +752,9 @@ export function deriveTerminalColors(zones: UiThemeZones): TerminalColors {
   };
 }
 
-export function resolveUiThemeScheme(theme: UiThemeSettings): 'dark' | 'light' {
+export function resolveUiThemeScheme(theme: UiThemeSettings): "dark" | "light" {
   if (theme.presetId !== CUSTOM_PRESET_ID) {
-    return getUiThemePreset(theme.presetId)?.scheme ?? 'dark';
+    return getUiThemePreset(theme.presetId)?.scheme ?? "dark";
   }
   return inferScheme(theme.zones);
 }
@@ -415,7 +763,9 @@ export function resolveUiThemeScheme(theme: UiThemeSettings): 'dark' | 'light' {
  * 分区 → 要写到 <html> 上的全部 CSS 变量。
  * 中性槽位一一映射 zinc 变量；语义槽位推导 11 档写满对应调色板变量。
  */
-export function resolveThemeVars(theme: UiThemeSettings): Record<string, string> {
+export function resolveThemeVars(
+  theme: UiThemeSettings,
+): Record<string, string> {
   const vars: Record<string, string> = {};
   const scheme = resolveUiThemeScheme(theme);
   for (const def of UI_THEME_NEUTRAL_ZONES) {
@@ -431,12 +781,12 @@ export function resolveThemeVars(theme: UiThemeSettings): Record<string, string>
   return vars;
 }
 
-const THEME_CACHE_KEY = 'marcel.uiTheme.cache';
+const THEME_CACHE_KEY = "marcel.uiTheme.cache";
 
 /* ── 主题切换过渡 ──
    写变量前临时挂上过渡类（globals.css 里只过渡颜色类属性），写完延时摘除。
    期间连续切换（预览连发）会不断续期，停稳后才摘。 */
-const THEME_TRANSITION_CLASS = 'marcel-theme-transition';
+const THEME_TRANSITION_CLASS = "marcel-theme-transition";
 const THEME_TRANSITION_MS = 600;
 let transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -444,7 +794,7 @@ let transitionTimer: ReturnType<typeof setTimeout> | null = null;
  *  `animate` 控制是否挂过渡类：启动首帧与早期缓存应用传 false（不欢迎开机动画），
  *  运行中的主题切换传 true（深浅切换不产生亮度跳变）。 */
 export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
-  if (typeof document === 'undefined') return;
+  if (typeof document === "undefined") return;
   const root = document.documentElement;
   if (animate) {
     root.classList.add(THEME_TRANSITION_CLASS);
@@ -480,11 +830,15 @@ export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
  * 只信缓存的合法值；设置加载后 useUiTheme 会以真实设置覆盖。
  */
 export function initUiThemeEarly(): void {
-  if (typeof document === 'undefined' || typeof localStorage === 'undefined') return;
+  if (typeof document === "undefined" || typeof localStorage === "undefined")
+    return;
   try {
     const cached = localStorage.getItem(THEME_CACHE_KEY);
     if (!cached) return;
-    applyUiTheme(normalizeUiTheme(JSON.parse(cached) as Partial<UiThemeSettings>), false);
+    applyUiTheme(
+      normalizeUiTheme(JSON.parse(cached) as Partial<UiThemeSettings>),
+      false,
+    );
   } catch {
     // 缓存损坏就忽略，等设置加载。
   }

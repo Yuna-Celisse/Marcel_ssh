@@ -69,7 +69,7 @@ export default function SkillEditModal({ skill, open, onClose }: Props) {
         <div className='flex justify-end gap-2 pt-2'>
           <button
             onClick={handleClose}
-            className='px-4 py-1.5 text-sm rounded-lg bg-zinc-700 text-zinc-200 hover:bg-zinc-600 transition-colors'
+            className='px-4 py-1.5 text-sm rounded-lg bg-zinc-700 text-zinc-200 hover:bg-state-strong transition-colors'
           >
             取消
           </button>

@@ -25,7 +25,7 @@ export default function AssistantModelPicker({ mobile = false }: { mobile?: bool
 
   const hint = choice.source === 'chosen' ? '' : choice.source === 'none' ? '' : '（未单独选）';
   return (
-    <div className="flex min-w-0 flex-shrink-0 items-center gap-2 border-b border-zinc-700/70 px-4 py-2 text-xs text-zinc-400">
+    <div className="flex min-w-0 flex-shrink-0 items-center gap-2 border-b border-edge/70 px-4 py-2 text-xs text-zinc-400">
       <span className="flex-shrink-0">用这个模型整理</span>
       {mobile ? (
         <>
@@ -33,7 +33,7 @@ export default function AssistantModelPicker({ mobile = false }: { mobile?: bool
             type="button"
             disabled={running}
             onClick={() => setSheet(true)}
-            className="flex min-h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-3 text-left text-sm text-zinc-100 active:bg-zinc-700 disabled:opacity-50"
+            className="flex min-h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-edge bg-zinc-800 px-3 text-left text-sm text-zinc-100 active:bg-state-mid disabled:opacity-50"
           >
             <span className="truncate">
               {label || '尚未配置模型'}

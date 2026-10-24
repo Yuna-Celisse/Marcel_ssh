@@ -126,7 +126,7 @@ export function ToolCardFrame({
         aria-expanded={onToggle && !busy ? expanded : undefined}
         aria-disabled={busy || !onToggle || undefined}
         title={typeof preview === 'string' && preview ? `${label} ${preview}` : label}
-        className="group block w-full min-w-0 rounded-md text-left transition-colors duration-150 hover:bg-zinc-800/30 active:bg-zinc-800/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 touch-manipulation motion-reduce:transition-none"
+        className="group block w-full min-w-0 rounded-md text-left transition-colors duration-150 hover:bg-state-soft/30 active:bg-state-soft/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 touch-manipulation motion-reduce:transition-none"
       >
         <div
           className={`tool-card-row flex min-h-7 items-center gap-2 px-1 py-1 min-w-0 [@media(pointer:coarse)]:min-h-8${

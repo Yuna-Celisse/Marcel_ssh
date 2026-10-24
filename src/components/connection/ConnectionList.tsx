@@ -1041,7 +1041,7 @@ export default function ConnectionList() {
                     ${
                       activeConnectionId === conn.id
                         ? 'bg-indigo-900/30 border-indigo-700'
-                        : 'bg-zinc-900/40 border-zinc-800 hover:border-zinc-700'
+                        : 'bg-zinc-900/40 border-edge-subtle hover:border-edge'
                     }
                   `}
                         >

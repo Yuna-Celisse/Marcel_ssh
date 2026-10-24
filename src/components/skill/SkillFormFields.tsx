@@ -21,7 +21,7 @@ const PLACEHOLDER_PROMPT =
   'Commands:\n  -\nWhen to Use:\n  -\nOutput Interpretation:\n  -\nExamples:\n  -';
 
 const inputCls =
-  'w-full rounded-lg bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-100 ' +
+  'w-full rounded-lg bg-zinc-900 border border-edge px-3 py-2 text-sm text-zinc-100 ' +
   'placeholder-zinc-500 focus:outline-none focus:border-indigo-500 resize-none';
 
 export default function SkillFormFields({
