@@ -31,16 +31,16 @@ use super::scope::ScopeContext;
 use super::store::{now_rfc3339, Snapshot};
 
 /// 完整展示的条目总字数预算。超出的只列标题 + id，细节让模型用 `memory_recall` 查。
-pub const FULL_ENTRY_BUDGET_CHARS: usize = 3000;
+pub const FULL_ENTRY_BUDGET_CHARS: usize = 8000;
 /// 只列标题的条目上限；再多的只报个数。
-const INDEX_LINES_MAX: usize = 40;
+const INDEX_LINES_MAX: usize = 100;
 /// 「只列标题」区块的小标题：渲染与事后判断某条是完整带入还是只带了标题共用这一处。
 const INDEX_HEADER: &str = "### 其余记忆（只列标题，细节用 memory_recall 搜）";
 /// 快照多久没被用过就算缓存冷了。各家提示词缓存的存活时间从几分钟到 1 小时不等，
 /// 取最长的：超过它，任何一家的缓存都已经失效，重渲染不会多花一分钱。
 pub const CACHE_WARM: chrono::Duration = chrono::Duration::hours(1);
 /// 排版或模板变了就改这里：旧快照的指纹随之失效、自动重渲染。
-const FORMAT_VERSION: &str = "mem-v1";
+const FORMAT_VERSION: &str = "mem-v2";
 
 /// 渲染结果：整段文本 + 这段里出现过的条目 id（Agent 面板「本会话带了哪些记忆」用）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,9 +142,8 @@ pub fn render_block(
             budget -= n;
             full.push((m, line));
         } else {
-            // 一旦有条目放不下，后面的一律只列标题：免得预算被几条短的「插空」
-            // 吃掉，排序靠前的反而只剩标题。
-            budget = 0;
+            // 这条放不下只降它自己；后面更短的仍按剩余预算继续装，
+            // 免得一条长条目连累它身后所有记忆都只剩标题。
             index.push(m);
         }
     }
@@ -439,7 +438,7 @@ mod tests {
     #[test]
     fn over_budget_items_become_title_only() {
         let long = "x".repeat(500);
-        let items: Vec<MemoryItem> = (0..10)
+        let items: Vec<MemoryItem> = (0..30)
             .map(|i| {
                 item(
                     &format!("m{i}"),
@@ -453,15 +452,64 @@ mod tests {
             .collect();
         let (block, ids) = render_block(&ctx(), &items, now());
         assert!(block.contains("### 其余记忆"));
-        assert_eq!(ids.len(), 10, "放不下的也以标题出现");
+        assert_eq!(ids.len(), 30, "放不下的也以标题出现");
         let full_count = block.matches(&long).count();
-        assert!((1..10).contains(&full_count));
+        assert!((1..30).contains(&full_count));
+    }
+
+    #[test]
+    fn oversized_item_does_not_demote_shorter_ones_behind_it() {
+        // 排在前面的一条大到装不下，它后面的短条目仍应带全文。
+        let big = "b".repeat(FULL_ENTRY_BUDGET_CHARS + 1);
+        let items = vec![
+            item(
+                "big",
+                Scope::User,
+                Kind::Preference,
+                "大条目",
+                &big,
+                "2026-10-19T00:00:00Z",
+            ),
+            item(
+                "small",
+                Scope::Host,
+                Kind::Fact,
+                "短条目",
+                "在 /opt/app",
+                "2026-10-19T00:00:00Z",
+            ),
+        ];
+        let (block, ids) = render_block(&ctx(), &items, now());
+        assert_eq!(ids.len(), 2);
+        assert!(block.contains("- [small] 短条目：在 /opt/app"), "短条目带全文");
+        assert!(!block.contains(&big), "大条目只剩标题");
+        assert!(block.contains("- [big] 大条目（全局）"));
+    }
+
+    #[test]
+    fn title_only_section_caps_at_index_lines_max() {
+        let big = "x".repeat(FULL_ENTRY_BUDGET_CHARS + 1);
+        let items: Vec<MemoryItem> = (0..INDEX_LINES_MAX + 5)
+            .map(|i| {
+                item(
+                    &format!("m{i}"),
+                    Scope::Host,
+                    Kind::Fact,
+                    &format!("t{i}"),
+                    &big,
+                    "2026-10-19T00:00:00Z",
+                )
+            })
+            .collect();
+        let (block, ids) = render_block(&ctx(), &items, now());
+        assert_eq!(ids.len(), INDEX_LINES_MAX);
+        assert!(block.contains("……另有 5 条"));
     }
 
     #[test]
     fn carried_tiers_tell_full_from_title_only() {
         let long = "x".repeat(500);
-        let items: Vec<MemoryItem> = (0..10)
+        let items: Vec<MemoryItem> = (0..30)
             .map(|i| {
                 item(
                     &format!("m{i}"),
@@ -475,7 +523,7 @@ mod tests {
             .collect();
         let (block, ids) = render_block(&ctx(), &items, now());
         let tiers = carried_tiers(&block, &ids);
-        assert_eq!(tiers.len(), 10);
+        assert_eq!(tiers.len(), 30);
         let full = tiers.values().filter(|t| **t == Carried::Full).count();
         assert_eq!(full, block.matches(&long).count());
         assert!(tiers.values().any(|t| *t == Carried::Title));
