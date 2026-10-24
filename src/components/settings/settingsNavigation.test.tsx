@@ -46,7 +46,7 @@ describe('settingsNavigation', () => {
   it('exposes the settings sections needed for cross-category search', () => {
     const allSections = SETTINGS_CATEGORIES.flatMap((category) => category.sections);
 
-    expect(allSections).toContain('settings-appearance');
+    expect(allSections).toContain('settings-theme');
     expect(allSections).toContain('settings-layout');
     expect(allSections).toContain('settings-display');
     expect(allSections).toContain('settings-llm');

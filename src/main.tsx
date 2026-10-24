@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import ErrorBoundary from './components/layout/ErrorBoundary';
 import { collectPlatformHints, getAppPlatform } from './platform';
+import { initUiThemeEarly } from './lib/uiTheme';
 import './styles/globals.css';
 
 async function bootstrap() {
@@ -11,6 +12,9 @@ async function bootstrap() {
   console.info(`[marcel] platform=${platform}`, hints);
 
   document.documentElement.dataset.marcelPlatform = platform;
+
+  // 设置异步加载之前先应用上次的主题（localStorage 缓存），避免浅色用户先看到一帧深色。
+  initUiThemeEarly();
 
   // Window starts visible:false. Desktop App calls appReady; mobile must too.
   // Fire ASAP so a late React mount never leaves an invisible process.

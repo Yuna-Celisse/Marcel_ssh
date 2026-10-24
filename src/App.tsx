@@ -23,6 +23,7 @@ import { initInteractionListener } from '@/stores/interactionStore';
 import { initJobWake } from '@/stores/jobWake';
 import { initAgentQueue } from '@/stores/agentQueueStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiTheme } from '@/hooks/useUiTheme';
 import { useTaskStore } from '@/stores/taskStore';
 import { useSkillStore } from '@/stores/skillStore';
 import { usePluginStore } from '@/stores/pluginStore';
@@ -122,6 +123,8 @@ interface LiveWidthOverride {
 }
 
 export default function App() {
+  // 应用主题：设置变化时把分区颜色写到 <html>（见 lib/uiTheme.ts）。
+  useUiTheme();
   const activeId = useViewStore((s) => s.activeId);
   const setActiveId = useViewStore((s) => s.setActiveId);
   const providers = useViewStore((s) => s.providers);

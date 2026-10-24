@@ -6,6 +6,7 @@ import { DEFAULT_WORKSPACE_LAYOUT, normalizeWorkspaceLayout } from '@/lib/worksp
 import { setNotificationVolume } from '@/lib/notificationSound';
 import { emptyRegistry, emptySlots, defaultNetPolicy, dedupeModelEntries } from '@/lib/llmRegistry';
 import { normalizeUpdateMode } from '@/lib/updateMode';
+import { normalizeUiTheme } from '@/lib/uiTheme';
 
 const DEFAULT_AGENT_MODE_SETTINGS: AgentModeSettings = {
   listMode: 'denylist',
@@ -135,6 +136,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   mobileNotificationSettings: DEFAULT_MOBILE_NOTIFICATION_SETTINGS,
   mobileBackgroundSettings: DEFAULT_MOBILE_BACKGROUND_SETTINGS,
   workspaceLayout: DEFAULT_WORKSPACE_LAYOUT,
+  uiTheme: normalizeUiTheme(undefined),
   customProtectedPaths: [],
   commandTimeoutSecs: 180,
   hasCompletedOnboarding: false,
@@ -263,6 +265,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(fromDisk.memorySettings ?? {}) },
       fileManagerPaths: fromDisk.fileManagerPaths ?? {},
       workspaceLayout: normalizeWorkspaceLayout(fromDisk.workspaceLayout),
+      // 应用主题：缺字段/非法颜色由 normalizeUiTheme 按默认值兜底（兼容旧数据 = 保持原样 + 默认填充）。
+      uiTheme: normalizeUiTheme(fromDisk.uiTheme),
       mobileNotificationSettings: {
         ...DEFAULT_MOBILE_NOTIFICATION_SETTINGS,
         ...(fromDisk.mobileNotificationSettings ?? {}),
@@ -309,6 +313,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         memorySettings: { ...DEFAULT_MEMORY_SETTINGS, ...(fromDisk.memorySettings ?? {}) },
         fileManagerPaths: fromDisk.fileManagerPaths ?? {},
         workspaceLayout: normalizeWorkspaceLayout(fromDisk.workspaceLayout),
+      // 应用主题：缺字段/非法颜色由 normalizeUiTheme 按默认值兜底（兼容旧数据 = 保持原样 + 默认填充）。
+      uiTheme: normalizeUiTheme(fromDisk.uiTheme),
         // 移动端独立设置：旧数据无此字段时用默认值兜底（兼容旧数据 = 保持原样 + 默认值填充）
         mobileNotificationSettings: {
           ...DEFAULT_MOBILE_NOTIFICATION_SETTINGS,

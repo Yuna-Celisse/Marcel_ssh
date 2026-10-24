@@ -1,9 +1,14 @@
 import { create } from "zustand";
+import {
+  applyUiTheme,
+  DEFAULT_UI_THEME_SETTINGS,
+  UI_THEME_PRESETS,
+} from "@/lib/uiTheme";
+import type { UiThemeSettings } from "@/lib/types";
 
 /** Fallback values used only by the debug force-show switch. */
 export const DEBUG_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "ultra"];
 
-const LIGHT_MODE_KEY = "marcel.debug.lightMode";
 const DEBUG_67_MODE_KEY = "marcel.debug.67Mode";
 const DEBUG_67_TOKEN_LIMIT_KEY = "marcel.debug.67TokenLimit";
 const DEBUG_67_SPEED_KEY = "marcel.debug.67Speed";
@@ -51,15 +56,6 @@ function writeNumber(key: string, value: number): void {
   }
 }
 
-function applyLightMode(enabled: boolean): void {
-  if (typeof document === "undefined") return;
-  if (enabled) document.documentElement.dataset.marcelTheme = "light";
-  else if (document.documentElement.dataset.marcelTheme === "light") {
-    delete document.documentElement.dataset.marcelTheme;
-  }
-}
-
-const initialLightMode = readFlag(LIGHT_MODE_KEY);
 const initial67Mode = readFlag(DEBUG_67_MODE_KEY);
 const initial67TokenLimit = readNumber(
   DEBUG_67_TOKEN_LIMIT_KEY,
@@ -74,12 +70,13 @@ const initial67Speed = readNumber(
   DEBUG_67_MAX_SPEED,
 );
 const initial67Thinking = readFlag(DEBUG_67_THINKING_KEY);
-applyLightMode(initialLightMode);
 
 interface DebugState {
   forceReasoningEffortPicker: boolean;
   setForceReasoningEffortPicker: (enabled: boolean) => void;
-  /** Runtime-only experimental theme switch exposed from the debug page. */
+  /** Runtime-only experimental theme switch exposed from the debug page.
+   *  浅色实验已由正式的「应用主题」取代（settings.uiTheme + lib/uiTheme.ts）；
+   *  这里保留运行时开关，走同一个应用器，只在本次运行内生效（不落盘）。 */
   lightMode: boolean;
   setLightMode: (enabled: boolean) => void;
   /** Persisted debug simulation: requests produce only repeated "67" output. */
@@ -97,10 +94,13 @@ export const useDebugStore = create<DebugState>((set) => ({
   forceReasoningEffortPicker: false,
   setForceReasoningEffortPicker: (enabled) =>
     set({ forceReasoningEffortPicker: enabled }),
-  lightMode: initialLightMode,
+  lightMode: false,
   setLightMode: (enabled) => {
-    writeFlag(LIGHT_MODE_KEY, enabled);
-    applyLightMode(enabled);
+    const preset = UI_THEME_PRESETS.find((p) => p.scheme === (enabled ? "light" : "dark"));
+    const theme: UiThemeSettings = preset
+      ? { presetId: preset.id, zones: { ...preset.zones } }
+      : DEFAULT_UI_THEME_SETTINGS;
+    applyUiTheme(theme);
     set({ lightMode: enabled });
   },
   debug67Mode: initial67Mode,

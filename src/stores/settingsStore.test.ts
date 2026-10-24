@@ -395,4 +395,29 @@ describe('settingsStore', () => {
     });
     expect(useSettingsStore.getState().hasJevApiKey).toBe(false);
   });
+
+  it('uiTheme 缺字段补默认、非法颜色丢弃（兼容旧数据 = 保持原样 + 默认填充）', () => {
+    useSettingsStore.getState().hydrateFromBootstrap({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        uiTheme: {
+          presetId: '自定义坏预设',
+          zones: { bg: 'not-a-color', accent: '#ff8800' },
+        } as never,
+      },
+      hasApiKey: false,
+      hasWebSearchApiKey: false,
+      hasDeepseekToolsApiKey: false,
+      hasCustomSearchApiKey: false,
+      hasCustomFetchApiKey: false,
+      hasTavilyFetchApiKey: false,
+      hasJevApiKey: false,
+    });
+    const t = useSettingsStore.getState().settings.uiTheme;
+    // 有合法分区在 → 降级为「自定义」保住用户配色（accent 是合法色）
+    expect(t.presetId).toBe('custom');
+    expect(t.zones.bg).toBe('#09090b');
+    expect(t.zones.accent).toBe('#ff8800');
+    expect(t.zones.card).toBe('#27272a');
+  });
 });

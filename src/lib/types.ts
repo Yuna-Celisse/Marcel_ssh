@@ -960,6 +960,33 @@ export interface MemorySettings {
 /** 更新方式三态（与后端 `UpdateMode` 的线上取值一一对应）。 */
 export type UpdateMode = 'auto' | 'notify' | 'off';
 
+/** 应用主题的分区 id：中性灰阶 10 档 + 语义色 5 档（定义见 lib/uiTheme.ts）。 */
+export type UiThemeZoneId =
+  | 'bg'
+  | 'surface'
+  | 'card'
+  | 'hover'
+  | 'line'
+  | 'textMuted'
+  | 'textSecondary'
+  | 'textBright'
+  | 'textBody'
+  | 'textHeading'
+  | 'accent'
+  | 'danger'
+  | 'warning'
+  | 'success'
+  | 'info';
+
+/** 分区 → 颜色（hex）。语义色存的是基准色（对应色阶 500 档），整条色阶由它推导。 */
+export type UiThemeZones = Record<UiThemeZoneId, string>;
+
+/** 应用主题（后端 `UiThemeSettings`）：预设 id + 当前分区颜色。 */
+export interface UiThemeSettings {
+  presetId: string;
+  zones: UiThemeZones;
+}
+
 export interface AppSettings {
   terminalColors: TerminalColors;
   fontSize: number;
@@ -1001,6 +1028,8 @@ export interface AppSettings {
   /** 移动端后台保活设置（设备本地）。 */
   mobileBackgroundSettings: MobileBackgroundSettings;
   workspaceLayout: WorkspaceLayoutSettings;
+  /** 应用主题（分区颜色映射，双端共用；定义与应用见 lib/uiTheme.ts）。 */
+  uiTheme: UiThemeSettings;
   /** User-defined protected paths. Writes to anything under these paths
    * require explicit user approval, same as built-in `/etc`, `/boot`, etc. */
   customProtectedPaths: string[];

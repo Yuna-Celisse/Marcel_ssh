@@ -726,6 +726,26 @@ impl<'de> Deserialize<'de> for UpdateMode {
     }
 }
 
+/// 应用主题：预设 id + 各分区颜色。分区与色阶推导语义在前端 `lib/uiTheme.ts`，
+/// 后端只持久化；未知分区 id / 非法颜色不会在这里拦（前端 normalize 会丢弃）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UiThemeSettings {
+    /// 当前预设 id（`obsidian` / `daylight` / … / `custom`）。
+    pub preset_id: String,
+    /// 分区 id → hex 颜色。缺分区由前端按默认值补齐。
+    pub zones: HashMap<String, String>,
+}
+
+impl Default for UiThemeSettings {
+    fn default() -> Self {
+        Self {
+            preset_id: "obsidian".to_string(),
+            zones: HashMap::new(),
+        }
+    }
+}
+
 /// Application-wide settings.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -793,6 +813,11 @@ pub struct AppSettings {
     /// Workspace layout intent for left/main/right columns.
     #[serde(default)]
     pub workspace_layout: WorkspaceLayoutSettings,
+    /// 应用主题（分区颜色映射，前端 `lib/uiTheme.ts` 是语义定义的唯一来源）。
+    /// 后端不读它，只负责持久化 —— 缺字段走 `UiThemeSettings::default`，
+    /// 分区内容的合法性由前端 normalize 兜底。
+    #[serde(default)]
+    pub ui_theme: UiThemeSettings,
     /// User-defined protected paths. Writes to anything under these paths
     /// require explicit user approval, same as built-in `/etc`, `/boot`, etc.
     #[serde(default)]
@@ -901,6 +926,7 @@ impl Default for AppSettings {
             mobile_notification_settings: MobileNotificationSettings::default(),
             mobile_background_settings: MobileBackgroundSettings::default(),
             workspace_layout: WorkspaceLayoutSettings::default(),
+            ui_theme: UiThemeSettings::default(),
             custom_protected_paths: vec![],
             command_timeout_secs: default_command_timeout(),
             has_completed_onboarding: false,
@@ -1691,6 +1717,7 @@ mod tests {
         assert_same::<MobileNotificationSettings>("MobileNotificationSettings");
         assert_same::<MobileBackgroundSettings>("MobileBackgroundSettings");
         assert_same::<WorkspaceLayoutSettings>("WorkspaceLayoutSettings");
+        assert_same::<UiThemeSettings>("UiThemeSettings");
         assert_same::<TerminalColors>("TerminalColors");
         // LlmRegistry 含 Vec 嵌套字段（subagent_models 等），靠全量 serde
         // defaults 测试传递覆盖；这里补一条直指失败点的断言。
@@ -2041,5 +2068,35 @@ mod tests {
             "前端默认值与后端权威默认值不一致（前端抄的那份要跟着后端改）：\n  {}",
             mismatches.join("\n  ")
         );
+    }
+}
+
+#[cfg(test)]
+mod ui_theme_tests {
+    use super::*;
+
+    #[test]
+    fn ui_theme_defaults_and_roundtrips() {
+        let s = AppSettings::default();
+        assert_eq!(s.ui_theme.preset_id, "obsidian");
+        assert!(s.ui_theme.zones.is_empty());
+
+        let settings = AppSettings {
+            ui_theme: UiThemeSettings {
+                preset_id: "custom".to_string(),
+                zones: [("bg".to_string(), "#abcdef".to_string())].into_iter().collect(),
+            },
+            ..AppSettings::default()
+        };
+        let json = serde_json::to_string(&settings).expect("serialize");
+        assert!(json.contains("\"uiTheme\""));
+        assert!(json.contains("\"presetId\":\"custom\""));
+        let back: AppSettings = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.ui_theme.preset_id, "custom");
+        assert_eq!(back.ui_theme.zones.get("bg").map(String::as_str), Some("#abcdef"));
+
+        // 旧配置缺字段 → 默认值，不报错
+        let legacy: AppSettings = serde_json::from_str("{\"fontSize\":14}").expect("legacy config");
+        assert_eq!(legacy.ui_theme, UiThemeSettings::default());
     }
 }

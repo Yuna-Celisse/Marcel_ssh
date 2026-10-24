@@ -11,7 +11,7 @@ export interface SettingsCategory {
 export type SettingsSectionSpan = 'half' | 'full';
 
 export const SETTINGS_SECTION_SPAN: Record<string, SettingsSectionSpan> = {
-  'settings-appearance': 'half',
+  'settings-theme': 'half',
   'settings-layout': 'half',
   'settings-display': 'half',
   'settings-llm': 'full',
@@ -35,7 +35,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     id: 'interface',
     label: '界面',
     icon: <Monitor className="w-4 h-4" />,
-    sections: ['settings-appearance', 'settings-layout', 'settings-display'],
+    sections: ['settings-theme', 'settings-layout', 'settings-display'],
   },
   {
     id: 'model',

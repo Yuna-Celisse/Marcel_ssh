@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiTheme } from '@/hooks/useUiTheme';
 import MobileTabBar from './MobileTabBar';
 import MobileTerminalHost from './MobileTerminalHost';
 import MobileAgentHost from './MobileAgentHost';
@@ -27,6 +28,8 @@ import type { MobileSettingsCategoryId } from './mobileSettingsModel';
 import { isMobileSettingsCategoryId } from './mobileSettingsModel';
 
 export default function MobileApp() {
+  // 应用主题：与桌面共用同一套分区颜色 → CSS 变量（见 lib/uiTheme.ts）。
+  useUiTheme();
   const [activeTab, setActiveTab] = useState<MobileTabId>(DEFAULT_MOBILE_TAB);
   // Dismissed-this-session guard so finishing onboarding hides it immediately
   // even before the settings write lands.

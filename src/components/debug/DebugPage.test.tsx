@@ -153,7 +153,8 @@ describe("DebugPage", () => {
 
     act(() => checkbox.click());
     expect(checkbox.checked).toBe(false);
-    expect(document.documentElement.dataset.marcelTheme).toBeUndefined();
+    // 关闭 = 应用默认深色预设（applier 会把 data-marcel-theme 写成 dark）。
+    expect(document.documentElement.dataset.marcelTheme).toBe("dark");
   });
 
   it("toggles the persistent 67 simulation mode", async () => {

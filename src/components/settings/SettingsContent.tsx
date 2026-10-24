@@ -7,7 +7,7 @@ import { ConversationDisplaySection } from './ConversationDisplaySection';
 import { ModelServiceSection } from './ModelServiceSection';
 import { NotificationSection } from './NotificationSection';
 import { MemoryManageSection, MemorySection } from './MemorySection';
-import { TerminalAppearanceSection } from './TerminalAppearanceSection';
+import { ThemeSection } from './ThemeSection';
 import { WorkspaceLayoutSection } from './WorkspaceLayoutSection';
 import { ToolCapabilitiesSection } from './ToolCapabilitiesSection';
 import { TransferSection } from './TransferSection';
@@ -56,7 +56,7 @@ export function SettingsContent({ activeCategory, searchQuery }: SettingsContent
   }
 
   const allSections = [
-    { id: 'settings-appearance', element: <TerminalAppearanceSection /> },
+    { id: 'settings-theme', element: <ThemeSection /> },
     { id: 'settings-layout', element: <WorkspaceLayoutSection /> },
     { id: 'settings-display', element: <ConversationDisplaySection /> },
     { id: 'settings-llm', element: <ModelServiceSection /> },

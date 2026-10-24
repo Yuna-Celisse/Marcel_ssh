@@ -61,17 +61,6 @@ export default function DebugPage({ onBack, onShowServers }: DebugPageProps) {
   const fallbackServers = () =>
     useViewStore.getState().setActiveId("builtin.sessions");
 
-  // The light theme is intentionally a debug-only, runtime switch. Keep it
-  // on the document root so the shell and any currently mounted view update
-  // together when this page is left.
-  useEffect(() => {
-    if (lightMode) {
-      document.documentElement.dataset.marcelTheme = "light";
-    } else if (document.documentElement.dataset.marcelTheme === "light") {
-      delete document.documentElement.dataset.marcelTheme;
-    }
-  }, [lightMode]);
-
   const reloadPlugins = useCallback(async () => {
     if (pluginReloading) return;
     setPluginReloading(true);
