@@ -3,12 +3,6 @@ use crate::agent::tools::{PromptSection, ToolAudience};
 use crate::error::AppError;
 use std::collections::BTreeSet;
 
-/// 用户附加指令的字符上限。与插件 `systemPromptSection` 的
-/// `PLUGIN_SECTION_MAX_CHARS` 对齐：两者都是用户/第三方往系统提示词里塞的
-/// 自由文本，没道理一个有限制一个能无限膨胀。设置页输入框有同样的上限，
-/// 这里兜的是手改 settings.json 的情况。
-const USER_PROMPT_MAX_CHARS: usize = 2000;
-
 /// Build the agent system prompt by composing template fragments.
 ///
 /// `tool_sections` 由已注册工具的声明推导（见 `tools::prompt_section_of`），
@@ -26,22 +20,9 @@ pub(crate) fn build_system_prompt(
     extra_sections: &[String],
     memory_section: &str,
 ) -> Result<String, AppError> {
-    let user_prompt = if user_prompt.chars().count() > USER_PROMPT_MAX_CHARS {
-        log::warn!(
-            "用户附加指令超过 {} 字，本次只取前 {} 字",
-            USER_PROMPT_MAX_CHARS,
-            USER_PROMPT_MAX_CHARS
-        );
-        user_prompt
-            .chars()
-            .take(USER_PROMPT_MAX_CHARS)
-            .collect::<String>()
-    } else {
-        user_prompt.to_string()
-    };
     let vars = AgentPromptVars {
         session_id: session_id.to_string(),
-        user_prompt,
+        user_prompt: user_prompt.to_string(),
         plugin_sections: plugin_sections.to_vec(),
         memory_section: memory_section.to_string(),
     };
@@ -190,14 +171,17 @@ mod tests {
         assert!(prompt.contains("插件扩展指令"));
     }
 
+    /// 用户附加指令**不设字数上限**：写了多长就原样注入多长。
+    ///
+    /// 以前这里会把超过 2000 字的部分切掉（设置页输入框也拦着），但用户写规则
+    /// 清单很容易过线，被静默截断比超长更难受。上下文压力由压缩机制兜，不靠这里
+    /// 悄悄丢用户的字。
     #[test]
-    fn user_prompt_is_capped_at_the_configured_limit() {
-        let long = "字".repeat(USER_PROMPT_MAX_CHARS + 500);
+    fn user_prompt_is_injected_verbatim_without_a_cap() {
+        let long = "字".repeat(20_000);
         let prompt = build(false, &[], &long, &[], false);
-        assert!(!prompt.contains(&"字".repeat(USER_PROMPT_MAX_CHARS + 1)));
-        assert!(prompt.contains(&"字".repeat(USER_PROMPT_MAX_CHARS)));
+        assert!(prompt.contains(&long));
 
-        // 未超限时原样保留。
         let short = "记住用中文回复".to_string();
         let prompt = build(false, &[], &short, &[], false);
         assert!(prompt.contains("记住用中文回复"));
