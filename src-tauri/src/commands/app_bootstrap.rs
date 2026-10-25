@@ -51,37 +51,60 @@ pub struct AppBootstrapData {
 #[tauri::command]
 pub async fn app_get_bootstrap(state: State<'_, AppState>) -> Result<AppBootstrapData, AppError> {
     let settings = state.settings.read().await.clone();
-    let has_api_key = settings
-        .llm_registry
-        .channels
-        .iter()
-        .any(|c| !c.api_key.is_empty())
-        || settings.llm_registry.channels.iter().any(|c| {
-            keychain::get_llm_channel_key(&c.id)
+
+    // 密钥链探测是一次成组的同步系统调用（每渠道一条 + 各功能 Key 若干条），
+    // 整段挪进 spawn_blocking：别在异步运行时上逐条阻塞。渠道维度只探一次
+    // ——`has_api_key` 复用 `channel_key_status` 的结果（旧实现同一段路读两遍）。
+    let (channel_key_status, key_flags) = {
+        let settings = settings.clone();
+        tokio::task::spawn_blocking(move || {
+            let channel_key_status =
+                crate::commands::settings::compute_channel_key_status(&settings);
+            let has_api_key = channel_key_status.iter().any(|s| s.has_key)
+                || keychain::get_llm_api_key().ok().flatten().is_some();
+            let has_web_search_api_key = keychain::get_web_search_api_key().ok().flatten().is_some();
+            let has_deepseek_tools_api_key = keychain::get_deepseek_tools_api_key()
                 .ok()
                 .flatten()
-                .is_some()
+                .is_some();
+            let has_custom_search_api_key = keychain::get_custom_search_api_key()
+                .ok()
+                .flatten()
+                .is_some();
+            let has_custom_fetch_api_key = keychain::get_custom_fetch_api_key()
+                .ok()
+                .flatten()
+                .is_some();
+            let has_tavily_fetch_api_key = keychain::get_tavily_fetch_api_key()
+                .ok()
+                .flatten()
+                .is_some();
+            let has_jev_api_key = keychain::get_jev_api_key().ok().flatten().is_some();
+            (
+                channel_key_status,
+                (
+                    has_api_key,
+                    has_web_search_api_key,
+                    has_deepseek_tools_api_key,
+                    has_custom_search_api_key,
+                    has_custom_fetch_api_key,
+                    has_tavily_fetch_api_key,
+                    has_jev_api_key,
+                ),
+            )
         })
-        || keychain::get_llm_api_key().ok().flatten().is_some();
-    let has_web_search_api_key = keychain::get_web_search_api_key().ok().flatten().is_some();
-    let has_deepseek_tools_api_key = keychain::get_deepseek_tools_api_key()
-        .ok()
-        .flatten()
-        .is_some();
-    let has_custom_search_api_key = keychain::get_custom_search_api_key()
-        .ok()
-        .flatten()
-        .is_some();
-    let has_custom_fetch_api_key = keychain::get_custom_fetch_api_key()
-        .ok()
-        .flatten()
-        .is_some();
-    let has_tavily_fetch_api_key = keychain::get_tavily_fetch_api_key()
-        .ok()
-        .flatten()
-        .is_some();
-    let has_jev_api_key = keychain::get_jev_api_key().ok().flatten().is_some();
-    let channel_key_status = crate::commands::settings::compute_channel_key_status(&settings);
+        .await
+        .map_err(|e| AppError::Other(format!("密钥链探测任务失败: {}", e)))?
+    };
+    let (
+        has_api_key,
+        has_web_search_api_key,
+        has_deepseek_tools_api_key,
+        has_custom_search_api_key,
+        has_custom_fetch_api_key,
+        has_tavily_fetch_api_key,
+        has_jev_api_key,
+    ) = key_flags;
     let settings_warning = state.settings_warning.write().take();
 
     let connections = state.connection_store.read().await.get_all().to_vec();
