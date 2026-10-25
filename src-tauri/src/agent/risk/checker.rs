@@ -1,7 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
-use super::disposition::Assessment;
+use super::disposition::{Assessment, Disposition};
 use super::parser::ParsedSegment;
+use super::rules::RuleConfig;
 
 pub fn looks_like_path(s: &str) -> bool {
     s.starts_with('/') || s.starts_with('~') || s.starts_with("$HOME")
@@ -43,69 +44,80 @@ pub fn analyze_rm_args(args: &[String]) -> (bool, bool, Vec<String>) {
 
 /// `rm -r` 的目标有多危险。
 ///
-/// 分两档而不是一刀切，是因为前缀判断分不清"整棵树"和"树里的一次普通清理"：
+/// 分档而不是一刀切，是因为前缀判断分不清"整棵树"和"树里的一次普通清理"：
 /// `rm -rf /var/log` 和 `rm -rf /var/log/nginx/old` 前缀相同，性质完全不同。
+/// 每一类对应规则表里的一条规则（档位由用户配置决定，见 [`rm_verdict`]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RmTargetClass {
     /// 随便删 —— `/tmp/build`、`/home/user/proj/dist` 这类工作目录。
     Safe,
-    /// 系统树里"也可能是正常清理"的那部分（`/usr`、`/var` 下）。不拒绝，
-    /// 但也绝不静默：强制审批。
+    /// 系统树里"也可能是正常清理"的那部分（`/usr`、`/var` 下）→ `rm_system_tree`。
     SystemTree,
-    /// 根、系统关键目录、家目录本体 —— 删掉等于重装系统，直接拒绝。
+    /// `/home` 本身或某个用户的家目录 → `rm_home`。
+    HomeDir,
+    /// 根、系统关键目录 —— 删掉等于重装系统 → `rm_catastrophic`。
     Catastrophic,
 }
 
-pub fn classify_rm_target(path: &str) -> RmTargetClass {
+/// 目标归类。名单来自规则表（用户可改）；判定顺序固定：整体匹配 → 关键目录 → 系统树 → 家目录。
+pub fn classify_rm_target(path: &str, rules: &RuleConfig) -> RmTargetClass {
     let norm = normalize_path(path);
-    let exact_dangerous = ["/", "/*", "/.*", "~", "$HOME", "~/", "$HOME/"];
-    if exact_dangerous.contains(&norm.as_str()) {
+    if rules.list_has("rm_catastrophic_exact", &norm) {
         return RmTargetClass::Catastrophic;
     }
 
     // `/etc` 这类目录里没有"用户的活儿"，删它只能是出事了。
-    let catastrophic_prefixes = [
-        "/etc", "/bin", "/sbin", "/lib", "/lib64", "/boot", "/sys", "/proc", "/dev", "/root",
-    ];
     let np = Path::new(&norm);
-    if catastrophic_prefixes.iter().any(|p| np.starts_with(p)) {
+    if rules
+        .items("rm_catastrophic_dirs")
+        .any(|p| np.starts_with(p))
+    {
         return RmTargetClass::Catastrophic;
     }
     // `/usr`、`/var` 底下既有系统文件也有构建产物、日志、缓存 —— 交给人判断。
-    if np.starts_with("/usr") || np.starts_with("/var") {
+    if rules
+        .items("rm_system_tree_dirs")
+        .any(|p| np.starts_with(p))
+    {
         return RmTargetClass::SystemTree;
     }
     // /home itself or /home/<single>
     if norm == "/home" {
-        return RmTargetClass::Catastrophic;
+        return RmTargetClass::HomeDir;
     }
     if let Some(rest) = norm.strip_prefix("/home/") {
         if !rest.is_empty() && !rest.contains('/') {
-            return RmTargetClass::Catastrophic;
+            return RmTargetClass::HomeDir;
         }
     }
     RmTargetClass::Safe
 }
 
-/// 递归 `rm` 的全部目标里最严重的那一类，外带第一个命中它的路径。
-fn classify_recursive_rm(parsed: &ParsedSegment) -> (RmTargetClass, Option<String>) {
+/// 递归 `rm` 的全部目标逐个归类、按规则出结论，取最严的一条（同档保留先命中的路径）。
+fn rm_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Assessment {
     if parsed.base_cmd != "rm" {
-        return (RmTargetClass::Safe, None);
+        return Assessment::allow();
     }
     let (recursive, _force, paths) = analyze_rm_args(&parsed.args);
     if !recursive {
-        return (RmTargetClass::Safe, None);
+        return Assessment::allow();
     }
-    let mut worst = RmTargetClass::Safe;
-    let mut hit = None;
+    let mut worst = Assessment::allow();
     for p in &paths {
-        let class = classify_rm_target(p);
-        if class > worst {
-            worst = class;
-            hit = Some(p.clone());
-        }
+        let verdict = match classify_rm_target(p, rules) {
+            RmTargetClass::Catastrophic => {
+                rules.verdict("rm_catastrophic", format!("递归删除危险路径 `{}`", p))
+            }
+            RmTargetClass::HomeDir => rules.verdict("rm_home", format!("递归删除危险路径 `{}`", p)),
+            RmTargetClass::SystemTree => rules.verdict(
+                "rm_system_tree",
+                format!("递归删除系统目录下的 `{}`，范围和影响需要确认", p),
+            ),
+            RmTargetClass::Safe => continue,
+        };
+        worst = worst.worst(verdict);
     }
-    (worst, hit)
+    worst
 }
 
 /// Lightweight path normalizer: collapses `//`, resolves `.` and `..`
@@ -277,72 +289,8 @@ pub(super) fn is_mkfs(base: &str) -> bool {
     base == "mkfs" || base.starts_with("mkfs.")
 }
 
-/// 直接操作磁盘/块设备的命令族。
-///
-/// 它们**不点名设备时也一律强制审批** —— 正常用途就是把数据抹掉，没有"随手跑一下"
-/// 的场景；一旦点名了真实设备则升到直接拒绝（见 [`catastrophic_reason`]）。
-pub const DISK_COMMANDS: &[&str] = &[
-    "dd", "fdisk", "parted", "shred", "mkswap", "wipefs", "sgdisk", "gdisk",
-];
-
-/// 纯读命令。它们**参数**里出现受保护路径不算"要改系统文件"，不必强制审批 ——
-/// `cat /etc/passwd`、`grep x /etc/hosts` 都是日常操作，每次弹窗只会让人关掉审批。
-///
-/// 两个例外不受这份豁免保护：重定向目标（那是写），以及带了 [`WRITE_FLAGS`] 的命令。
-const READ_ONLY_COMMANDS: &[&str] = &[
-    "ls",
-    "cat",
-    "pwd",
-    "whoami",
-    "hostname",
-    "uname",
-    "date",
-    "uptime",
-    "df",
-    "du",
-    "free",
-    "top",
-    "ps",
-    "id",
-    "env",
-    "head",
-    "tail",
-    "wc",
-    "find",
-    "grep",
-    "egrep",
-    "fgrep",
-    "which",
-    "file",
-    "stat",
-    "lsof",
-    "netstat",
-    "ss",
-    "ifconfig",
-    "ip",
-    "dig",
-    "nslookup",
-    "ping",
-    "traceroute",
-    "curl",
-    "wget",
-    "less",
-    "more",
-    "sort",
-    "uniq",
-    "diff",
-    "md5sum",
-    "sha256sum",
-    "readlink",
-    "realpath",
-    "type",
-    "man",
-    "help",
-    "echo",
-    "printf",
-];
-
-/// 会把上面那些"只读"命令变成写操作或执行操作的参数。带了这些就不再享受
+/// 会把「只读命令」变成写操作或执行操作的参数（只读命令名单见规则表的
+/// `read_only_exempt`，磁盘工具名单见 `disk_tools`，都是用户可改的名单）。带了这些就不再享受
 /// 受保护路径的豁免 —— 例如 `find /etc -delete`、`curl -o /etc/hosts ...`。
 const WRITE_FLAGS: &[&str] = &[
     "-delete",
@@ -364,7 +312,10 @@ const WRITE_FLAGS: &[&str] = &[
 /// 会敲 `systemctl status`。
 ///
 /// 判据保守：只认各命令**明确无误的查询形态**，拿不准就照旧抬档。
-pub(super) fn is_read_only_system_query(base: &str, args: &[String]) -> bool {
+pub(super) fn is_read_only_system_query(base: &str, args: &[String], rules: &RuleConfig) -> bool {
+    if !rules.exempt("system_query_exempt") {
+        return false;
+    }
     let non_flag: Vec<&str> = args
         .iter()
         .map(|s| s.as_str())
@@ -404,8 +355,9 @@ pub(super) fn is_read_only_system_query(base: &str, args: &[String]) -> bool {
 
 /// 这条命令是不是"只读"：只有只读命令才能忽略**参数**里的受保护路径
 /// （`cat /etc/passwd` 不算要改系统文件）。重定向目标不受这份豁免保护。
-pub fn is_read_only_command(parsed: &ParsedSegment) -> bool {
-    READ_ONLY_COMMANDS.contains(&parsed.base_cmd.as_str())
+pub fn is_read_only_command(parsed: &ParsedSegment, rules: &RuleConfig) -> bool {
+    rules.exempt("read_only_exempt")
+        && rules.list_has("read_only_commands", &parsed.base_cmd)
         && !parsed
             .args
             .iter()
@@ -418,7 +370,10 @@ pub fn is_read_only_command(parsed: &ParsedSegment) -> bool {
 /// `2>/dev/null`、`curl -o /dev/null`、`> /dev/stdout` 是最常见的写法。把这一族
 /// 算进受保护路径，会让一批**纯只读的诊断命令**在 Auto 模式下也弹窗 —— 这是
 /// 「受保护路径」判定第一次真正对 bash 生效时踩到的坑。
-pub(super) fn is_virtual_device(path: &str) -> bool {
+pub(super) fn is_virtual_device(path: &str, rules: &RuleConfig) -> bool {
+    if !rules.exempt("virtual_device_exempt") {
+        return false;
+    }
     let norm = normalize_path(path);
     let Some(rest) = norm.strip_prefix("/dev/") else {
         return false;
@@ -426,24 +381,27 @@ pub(super) fn is_virtual_device(path: &str) -> bool {
     if rest.is_empty() {
         return false;
     }
-    const VIRTUAL: &[&str] = &[
-        "null", "zero", "full", "random", "urandom", "tty", "console", "stdin", "stdout", "stderr",
-        "ptmx", "core",
-    ];
-    VIRTUAL.contains(&rest)
-        || rest.starts_with("fd/")
-        || rest.starts_with("pts/")
-        || rest.starts_with("shm/")
+    // 名单条目以 `/` 结尾 = 前缀匹配（`fd/` → `/dev/fd/*`），否则整名匹配。
+    rules.items("virtual_devices").any(|v| {
+        if v.ends_with('/') {
+            rest.starts_with(v)
+        } else {
+            rest == v
+        }
+    })
 }
 
 /// `/dev/` 下的真实设备。虚拟设备不算 —— 往 `/dev/null` 写不是灾难。
-fn is_real_device(path: &str) -> bool {
+fn is_real_device(path: &str, rules: &RuleConfig) -> bool {
     let norm = normalize_path(path);
-    norm.starts_with("/dev/") && !is_virtual_device(&norm)
+    norm.starts_with("/dev/") && !is_virtual_device(&norm, rules)
 }
 
 /// `fdisk -l` / `parted --list` 只列分区表，不写盘。
-pub(super) fn is_listing_only(base: &str, args: &[String]) -> bool {
+pub(super) fn is_listing_only(base: &str, args: &[String], rules: &RuleConfig) -> bool {
+    if !rules.exempt("disk_listing_exempt") {
+        return false;
+    }
     if base != "fdisk" && base != "parted" {
         return false;
     }
@@ -454,60 +412,47 @@ pub(super) fn is_listing_only(base: &str, args: &[String]) -> bool {
 }
 
 /// 该段命令会写哪个真实块设备：`dd of=/dev/sda`、`mkfs.ext4 /dev/sdb1`、`wipefs -a /dev/sdc`…
-fn block_device_target(base: &str, args: &[String]) -> Option<String> {
+fn block_device_target(base: &str, args: &[String], rules: &RuleConfig) -> Option<String> {
     if base == "dd" {
         return args
             .iter()
             .filter_map(|a| a.strip_prefix("of="))
-            .find(|v| is_real_device(v))
+            .find(|v| is_real_device(v, rules))
             .map(|v| v.to_string());
     }
-    let is_device_cmd = is_mkfs(base) || DISK_COMMANDS.contains(&base);
-    if !is_device_cmd || is_listing_only(base, args) {
+    let is_device_cmd = is_mkfs(base) || rules.list_has("disk_commands", base);
+    if !is_device_cmd || is_listing_only(base, args, rules) {
         return None;
     }
     // 目标不一定是第一个非选项参数：带值选项的值同样不是 `-` 开头
     // （`mkfs -t ext4 /dev/sda1` 里 `ext4` 会抢在设备前头）。这一族命令只要点名了
     // 真实设备就要拒绝，所以扫**全部**非选项参数，不能停在第一个。
     args.iter()
-        .find(|a| !a.starts_with('-') && is_real_device(a))
+        .find(|a| !a.starts_with('-') && is_real_device(a, rules))
         .cloned()
 }
 
 /// 参数层面的"硬判定"：这一段的参数本身就决定了它该被拒绝或强制审批，
-/// 与命令名声望、用户配置都无关。返回 `None` 表示"这一层没意见"。
+/// 与命令名声望无关。档位全部来自规则表（用户可改）。返回 `None` 表示"这一层没意见"。
 ///
 /// 只放两类情况进来：
-///   - **直接拒绝** —— 百分百不可逆、或一眼就是参数写错了的（递归删到系统关键
+///   - **默认直接拒绝** —— 百分百不可逆、或一眼就是参数写错了的（递归删到系统关键
 ///     目录/家目录本体、把东西直接写进块设备）。
-///   - **强制审批** —— 命令本身合法、只是范围大得需要人看一眼的（`/usr`、`/var`
-///     下的递归删除，磁盘工具作用在镜像文件上）。
+///   - **默认强制审批** —— 命令本身合法、只是范围大得需要人看一眼的（`/usr`、`/var`
+///     下的递归删除）。
 ///
 /// 其余一切（管道进 shell、解析不了、按命令名看起来就不妙）都不在这里处理。
-pub fn hard_verdict(parsed: &ParsedSegment) -> Option<Assessment> {
+pub fn hard_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Option<Assessment> {
     let base = parsed.base_cmd.as_str();
 
-    match classify_recursive_rm(parsed) {
-        (RmTargetClass::Catastrophic, Some(p)) => {
-            return Some(Assessment::denied(format!("递归删除危险路径 `{}`", p)));
-        }
-        (RmTargetClass::SystemTree, Some(p)) => {
-            return Some(Assessment::forced(format!(
-                "递归删除系统目录下的 `{}`，范围和影响需要确认",
-                p
-            )));
-        }
-        _ => {}
+    let mut worst = rm_verdict(parsed, rules);
+    if let Some(dev) = block_device_target(base, &parsed.args, rules) {
+        worst = worst.worst(rules.verdict(
+            "block_device_write",
+            format!("`{}` 直接作用于块设备 `{}`", base, dev),
+        ));
     }
-
-    if let Some(dev) = block_device_target(base, &parsed.args) {
-        return Some(Assessment::denied(format!(
-            "`{}` 直接作用于块设备 `{}`",
-            base, dev
-        )));
-    }
-
-    None
+    (worst.disposition != Disposition::Allow).then_some(worst)
 }
 
 #[cfg(test)]
@@ -574,21 +519,24 @@ mod tests {
 
     #[test]
     fn rm_target_root_and_glob_are_catastrophic() {
-        for p in [
-            "/",
-            "/*",
-            "/.*",
-            "~",
-            "$HOME",
-            "~/",
-            "$HOME/",
-            "/home",
-            "/home/user",
-        ] {
+        for p in ["/", "/*", "/.*", "~", "$HOME", "~/", "$HOME/"] {
             assert_eq!(
-                classify_rm_target(p),
+                classify_rm_target(p, &RuleConfig::default()),
                 RmTargetClass::Catastrophic,
                 "`{}` 应当是灾难级目标",
+                p
+            );
+        }
+    }
+
+    /// `/home` 本身与某个用户的家目录：同样默认拒绝，但在规则表里是独立的一条（`rm_home`）。
+    #[test]
+    fn rm_target_home_dirs_are_their_own_class() {
+        for p in ["/home", "/home/user", "/home/user/"] {
+            assert_eq!(
+                classify_rm_target(p, &RuleConfig::default()),
+                RmTargetClass::HomeDir,
+                "`{}` 应当是家目录级目标",
                 p
             );
         }
@@ -608,7 +556,7 @@ mod tests {
             "/root",
         ] {
             assert_eq!(
-                classify_rm_target(p),
+                classify_rm_target(p, &RuleConfig::default()),
                 RmTargetClass::Catastrophic,
                 "`{}` 应当是灾难级目标",
                 p
@@ -623,7 +571,7 @@ mod tests {
     fn rm_target_system_trees_need_approval_not_denial() {
         for p in ["/usr", "/usr/local/src/myproj", "/var", "/var/log/myapp"] {
             assert_eq!(
-                classify_rm_target(p),
+                classify_rm_target(p, &RuleConfig::default()),
                 RmTargetClass::SystemTree,
                 "`{}` 应当是「需要确认」而不是「直接拒绝」",
                 p
@@ -633,9 +581,13 @@ mod tests {
 
     #[test]
     fn safe_rm_targets() {
-        assert_eq!(classify_rm_target("/tmp/build"), RmTargetClass::Safe);
+        let rules = RuleConfig::default();
         assert_eq!(
-            classify_rm_target("/home/user/project/dist"),
+            classify_rm_target("/tmp/build", &rules),
+            RmTargetClass::Safe
+        );
+        assert_eq!(
+            classify_rm_target("/home/user/project/dist", &rules),
             RmTargetClass::Safe
         );
     }

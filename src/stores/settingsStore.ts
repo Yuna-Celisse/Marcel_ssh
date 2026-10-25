@@ -140,6 +140,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   workspaceLayout: DEFAULT_WORKSPACE_LAYOUT,
   uiTheme: normalizeUiTheme(undefined),
   customProtectedPaths: [],
+  riskRuleOverrides: {},
+  customRiskRules: [],
   commandTimeoutSecs: 180,
   hasCompletedOnboarding: false,
   disabledPlugins: [],

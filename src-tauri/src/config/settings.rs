@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::persist::JsonPersistable;
-use crate::agent::risk::{CustomRiskRule, RiskRuleOverride};
+use crate::agent::risk::{CustomRiskRule, Disposition, RiskRuleOverride};
 use crate::llm::provider::LlmConfig;
 use crate::llm::registry::LlmRegistry;
 
@@ -227,10 +227,44 @@ pub struct AgentModeSettings {
     /// force-approval cases.
     #[serde(default)]
     pub auto_mode_force_approval: bool,
-    /// When true, file modification tools (`edit_file` / `write_file` and their
-    /// `local_*` counterparts) require human confirmation before execution.
-    #[serde(default = "default_true")]
-    pub confirm_edit_file: bool,
+    /// 用户给**某个工具**定的审批档位（键 = 工具名，`local_` 前缀的本机工具与远端
+    /// 同名工具共用一条，见 [`tool_approval_key`]）。没出现在表里 = 不额外审批，
+    /// 工具照自己声明的档位走。
+    ///
+    /// 档位与命令风险规则是同一套四档：请求审批（Agent / Plan 下问一次）、强制审批
+    /// （Auto 开了「强制审批」时也问）、直接拒绝（不执行）。表里写 `Allow` 等同没写。
+    /// 取代旧的 `confirmEditFile` 开关：旧配置读出来时由
+    /// [`AppSettings::migrate_tool_approval_from_legacy`] 折算，默认是编辑与写入文件
+    /// 都「请求审批」，行为与旧开关打开时逐字一致。
+    #[serde(
+        default = "default_tool_approval_levels",
+        deserialize_with = "crate::agent::risk::lenient_level_map"
+    )]
+    pub tool_approval_levels: BTreeMap<String, Disposition>,
+}
+
+/// 默认要审批的工具：修改文件的两个（编辑、写入），档位「请求审批」。
+fn default_tool_approval_levels() -> BTreeMap<String, Disposition> {
+    ["edit_file", "write_file"]
+        .into_iter()
+        .map(|name| (name.to_string(), Disposition::Approval))
+        .collect()
+}
+
+/// 工具审批档位表的键：本机工具（`local_edit_file`）与远端同名工具（`edit_file`）
+/// 是同一件事的两个入口，用户只需要回答一次，所以共用一条。
+pub fn tool_approval_key(tool_name: &str) -> &str {
+    tool_name.strip_prefix("local_").unwrap_or(tool_name)
+}
+
+impl AgentModeSettings {
+    /// 用户给这个工具定的审批档位；`None` = 没定（不额外审批）。
+    pub fn tool_approval_level(&self, tool_name: &str) -> Option<Disposition> {
+        self.tool_approval_levels
+            .get(tool_approval_key(tool_name))
+            .copied()
+            .filter(|level| *level != Disposition::Allow)
+    }
 }
 
 fn default_max_tool_rounds() -> usize {
@@ -268,7 +302,7 @@ impl Default for AgentModeSettings {
             max_tool_rounds: default_max_tool_rounds(),
             context_window: 0,
             auto_mode_force_approval: false,
-            confirm_edit_file: default_true(),
+            tool_approval_levels: default_tool_approval_levels(),
         }
     }
 }
@@ -1000,6 +1034,28 @@ impl AppSettings {
     }
 }
 
+impl AppSettings {
+    /// 旧的「文件修改审批」开关 `confirmEditFile` → 按工具的审批档位表。
+    ///
+    /// 只有配置里**没有** `toolApprovalLevels` 键、且旧开关明确是关着的，才需要动手：
+    /// 表的默认值（编辑 / 写入文件都请求审批）正好对应旧开关打开，开关关着则清空。
+    /// 带原文判断是因为 serde 的默认值会把「缺失」和「显式写了默认值」压成同一个。
+    pub fn migrate_tool_approval_from_legacy(&mut self, raw: &str) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+            return;
+        };
+        let Some(agent) = value.get("agentModeSettings") else {
+            return;
+        };
+        if agent.get("toolApprovalLevels").is_some() {
+            return;
+        }
+        if agent.get("confirmEditFile").and_then(|v| v.as_bool()) == Some(false) {
+            self.agent_mode_settings.tool_approval_levels.clear();
+        }
+    }
+}
+
 impl JsonPersistable for AppSettings {
     fn default_filename() -> &'static str {
         "settings.json"
@@ -1022,6 +1078,7 @@ impl JsonPersistable for AppSettings {
         let mut parsed: Self = serde_json::from_str(&raw)
             .map_err(|e| crate::error::AppError::Config(format!("解析配置文件失败: {}", e)))?;
         parsed.migrate_update_mode_from_legacy(&raw);
+        parsed.migrate_tool_approval_from_legacy(&raw);
         Ok(parsed)
     }
 }
@@ -1139,6 +1196,51 @@ mod tests {
         // 旧字段原样保留，不被新字段挤掉。
         assert!(s.enable_model_command_approval);
         assert_eq!(s.model_approval_prompt, "我的老提示词");
+    }
+
+    /// 旧开关 `confirmEditFile` 折算成按工具的档位表：开着（或缺失）= 默认的编辑 / 写入文件
+    /// 都「请求审批」，关着 = 空表；新配置里已有档位表时不再理会旧开关。
+    #[test]
+    fn legacy_confirm_edit_file_migrates_to_tool_levels() {
+        let load = |agent_json: &str| {
+            let raw = format!(r#"{{"agentModeSettings": {agent_json}}}"#);
+            let mut s: AppSettings = serde_json::from_str(&raw).expect("解析");
+            s.migrate_tool_approval_from_legacy(&raw);
+            s.agent_mode_settings.tool_approval_levels
+        };
+        let default_levels = AgentModeSettings::default().tool_approval_levels;
+        assert_eq!(default_levels.len(), 2, "默认是编辑、写入文件各一条");
+
+        assert_eq!(load(r#"{"confirmEditFile": true}"#), default_levels);
+        assert_eq!(load(r#"{}"#), default_levels, "缺字段 = 默认");
+        assert!(
+            load(r#"{"confirmEditFile": false}"#).is_empty(),
+            "旧开关关着 → 不再审批文件修改"
+        );
+        assert_eq!(
+            load(r#"{"confirmEditFile": false, "toolApprovalLevels": {"read_file": "Approval"}}"#)
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!["read_file"],
+            "新表存在时以新表为准"
+        );
+    }
+
+    /// 档位表里读不懂的档位（更高版本写入）按强制审批处理，而不是让整份配置解析失败。
+    #[test]
+    fn unknown_tool_level_is_parsed_as_force_approval() {
+        let s: AgentModeSettings = serde_json::from_str(
+            r#"{"toolApprovalLevels": {"edit_file": "Deny", "write_file": "SuperDeny"}}"#,
+        )
+        .expect("不许整份失败");
+        assert_eq!(
+            s.tool_approval_levels.get("edit_file"),
+            Some(&Disposition::Deny)
+        );
+        assert_eq!(
+            s.tool_approval_levels.get("write_file"),
+            Some(&Disposition::ForceApproval)
+        );
     }
 
     /// 新键的序列化取值必须稳定——前端 TS 映射与它逐字对齐。

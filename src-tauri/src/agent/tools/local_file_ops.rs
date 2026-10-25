@@ -23,7 +23,7 @@
 //!   `local_edit_file` / `local_write_file` 的「写前必须已读」检查才有数据。不声明
 //!   的话模型读一万遍也记不上账，每次本机编辑都会先被拦下。
 //! - `local_write_file` / `local_edit_file` 分别声明 `overwrites_path` / `edits_path`：
-//!   写前必须已读、同受文件修改审批开关（`confirm_edit_file`）约束、审批前都要
+//!   写前必须已读、审批档位与远端同名工具共用一条（设置页「需要审批的工具」）、审批前都要
 //!   预演 —— 这些判定与机器无关，照常生效。
 //! - `local_list_directory` 保持 `NONE`：列目录不构成「读过这个文件」。
 //!

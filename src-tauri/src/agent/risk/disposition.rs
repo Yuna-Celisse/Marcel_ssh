@@ -50,6 +50,18 @@ pub struct Assessment {
     pub disposition: Disposition,
     /// `Allow` 时为 `None`。
     pub reason: Option<String>,
+    /// 决定这个档位的那条规则（`rules::RULES` 里的 id，或自定义规则的 id）。
+    pub rule_id: Option<String>,
+    /// 这条命令命中的**全部**规则（不止决定档位的那条），设置页「命令测试」据此展示。
+    pub hits: Vec<RuleHit>,
+}
+
+/// 命中的一条规则及其当时的档位。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleHit {
+    pub rule_id: String,
+    pub level: Disposition,
 }
 
 impl Assessment {
@@ -57,36 +69,59 @@ impl Assessment {
         Self {
             disposition: Disposition::Allow,
             reason: None,
+            rule_id: None,
+            hits: Vec::new(),
+        }
+    }
+
+    /// 按档位造一个带理由的结论（`Allow` 不带理由）。
+    pub fn at(level: Disposition, reason: impl Into<String>) -> Self {
+        if level == Disposition::Allow {
+            return Self::allow();
+        }
+        Self {
+            disposition: level,
+            reason: Some(reason.into()),
+            rule_id: None,
+            hits: Vec::new(),
         }
     }
 
     pub fn approval(reason: impl Into<String>) -> Self {
-        Self {
-            disposition: Disposition::Approval,
-            reason: Some(reason.into()),
-        }
+        Self::at(Disposition::Approval, reason)
     }
 
     pub fn forced(reason: impl Into<String>) -> Self {
-        Self {
-            disposition: Disposition::ForceApproval,
-            reason: Some(reason.into()),
-        }
+        Self::at(Disposition::ForceApproval, reason)
     }
 
     pub fn denied(reason: impl Into<String>) -> Self {
-        Self {
-            disposition: Disposition::Deny,
-            reason: Some(reason.into()),
-        }
+        Self::at(Disposition::Deny, reason)
+    }
+
+    /// 标明这个结论来自哪条规则。
+    pub fn with_rule(mut self, rule_id: &str) -> Self {
+        self.rule_id = Some(rule_id.to_string());
+        self.hits = vec![RuleHit {
+            rule_id: rule_id.to_string(),
+            level: self.disposition,
+        }];
+        self
     }
 
     /// 取更严的那一个；同级保留先来的（先命中的理由更贴近原因）。
+    /// 两边命中的规则合并到结果里（同一条规则只留一次）。
     pub fn worst(self, other: Self) -> Self {
-        if other.disposition > self.disposition {
-            other
+        let (mut win, lose) = if other.disposition > self.disposition {
+            (other, self)
         } else {
-            self
+            (self, other)
+        };
+        for hit in lose.hits {
+            if !win.hits.iter().any(|h| h.rule_id == hit.rule_id) {
+                win.hits.push(hit);
+            }
         }
+        win
     }
 }

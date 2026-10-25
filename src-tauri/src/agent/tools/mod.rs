@@ -835,33 +835,9 @@ pub enum PathWrite {
     Overwrite,
 }
 
-/// `AgentModeSettings` 里的细粒度审批开关。
-///
-/// 与 `confirm_each_command`（按风险档位全局生效）不同，这类开关只约束
-/// 声明了它的那些工具。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApprovalSwitch {
-    /// `confirm_edit_file`：修改文件（编辑或写入）前必须人工确认。
-    ///
-    /// 名字沿用设置字段（`confirm_edit_file` / 前端 `confirmEditFile`）以免破坏
-    /// 已落盘的配置，但它**覆盖整个文件修改族**：`edit_file` / `local_edit_file`
-    /// 与 `write_file` / `local_write_file`。曾经只有编辑类声明它，写入类靠
-    /// 「每条都手动确认」兜底，导致两族行为无法单独配置 —— 现在统一到这一个开关。
-    ModifyFile,
-}
-
-impl ApprovalSwitch {
-    pub fn is_on(self, settings: &crate::config::settings::AgentModeSettings) -> bool {
-        match self {
-            Self::ModifyFile => settings.confirm_edit_file,
-        }
-    }
-}
-
 /// 工具的参数语义 —— 让 dispatcher 不必靠工具名硬编码就能正确处理它。
 ///
-/// 这些字段回答的是「这个工具的参数里，哪个键是命令、哪个是路径、它会不会写路径、
-/// 受哪个审批开关约束」。dispatcher 只认这些声明，不再出现
+/// 这些字段回答的是「这个工具的参数里，哪个键是命令、哪个是路径、它会不会写路径」。dispatcher 只认这些声明，不再出现
 /// `if tc.name == "bash"` / `if tc.name == "edit_file"` 这类判断：
 /// 新增一个「执行命令」或「改远端文件」的工具时，填好这里的声明就自动获得
 /// 动态风险、读前检查、受保护路径提权、审批摘要等全部通用处理。
@@ -876,8 +852,6 @@ pub struct ToolSemantics {
     pub path_arg: Option<&'static str>,
     /// 该工具会写 `path_arg` 指向的路径，以及写前检查的强度。
     pub path_write: PathWrite,
-    /// 受哪个细粒度审批开关约束。
-    pub approval_switch: Option<ApprovalSwitch>,
     /// 弹审批前先预演一次（文件修改族：编辑与写入）：预演就会失败的调用不弹窗。
     pub preview_before_approval: bool,
 }
@@ -888,7 +862,6 @@ impl ToolSemantics {
         command_arg: None,
         path_arg: None,
         path_write: PathWrite::None,
-        approval_switch: None,
         preview_before_approval: false,
     };
 
@@ -908,13 +881,11 @@ impl ToolSemantics {
         }
     }
 
-    /// 编辑类工具（`edit_file`）：改写既有文件，受文件修改审批开关约束，
-    /// 弹窗前先预演。
+    /// 编辑类工具（`edit_file`）：改写既有文件，弹窗前先预演。
     pub const fn edits_path(key: &'static str) -> Self {
         Self {
             path_arg: Some(key),
             path_write: PathWrite::Edit,
-            approval_switch: Some(ApprovalSwitch::ModifyFile),
             preview_before_approval: true,
             command_arg: None,
         }
@@ -922,13 +893,12 @@ impl ToolSemantics {
 
     /// 写入类工具（`write_file`）：可新建可覆盖，覆盖前要求已读过。
     ///
-    /// 与编辑类共用同一个审批开关与预演：用户只需要回答一次「Agent 能不能改我的
-    /// 文件」，而不是记住「编辑有独立开关、写入却受每条命令确认管」。
+    /// 与编辑类共用同一套预演；要不要审批由设置页「需要审批的工具」按工具名定档位
+    /// （默认两者都「请求审批」）。
     pub const fn overwrites_path(key: &'static str) -> Self {
         Self {
             path_arg: Some(key),
             path_write: PathWrite::Overwrite,
-            approval_switch: Some(ApprovalSwitch::ModifyFile),
             preview_before_approval: true,
             command_arg: None,
         }
@@ -1969,7 +1939,7 @@ mod tests {
     /// 参数语义声明的契约。
     ///
     /// dispatcher 不再按工具名硬编码，而是读这些声明来决定：风险怎么算、写前
-    /// 要不要检查、受保护路径要不要提权、受哪个审批开关约束、弹窗前要不要预演。
+    /// 要不要检查、受保护路径要不要提权、弹窗前要不要预演。
     /// 所以「哪个工具属于哪一类」必须在这里被钉住 —— 新增同类工具时应当是有意
     /// 为之，而不是被静默继承。
     #[test]
@@ -2009,13 +1979,8 @@ mod tests {
         // 写前检查的强度不同：改既有文件必须已读；覆盖才查存在性。
         assert_eq!(sem("edit_file").path_write, PathWrite::Edit);
         assert_eq!(sem("write_file").path_write, PathWrite::Overwrite);
-        // 但审批开关统一：编辑与写入都归 `confirm_edit_file` 管，并且都要预演。
+        // 但都要预演（审批面板要展示 diff）。
         for name in ["edit_file", "write_file"] {
-            assert_eq!(
-                sem(name).approval_switch,
-                Some(ApprovalSwitch::ModifyFile),
-                "{name} 必须与另一族共用文件修改审批开关"
-            );
             assert!(
                 sem(name).preview_before_approval,
                 "{name} 的审批面板要展示 diff（preview_write 产出）"
@@ -2035,11 +2000,6 @@ mod tests {
             assert_eq!(sem("local_edit_file").path_arg, Some("path"));
             assert_eq!(sem("local_edit_file").path_write, PathWrite::Edit);
             for name in ["local_edit_file", "local_write_file"] {
-                assert_eq!(
-                    sem(name).approval_switch,
-                    Some(ApprovalSwitch::ModifyFile),
-                    "{name} 与远端同族一样受文件修改审批开关约束"
-                );
                 assert!(
                     sem(name).preview_before_approval,
                     "{name} 的审批面板要展示本机预览（preview_write 产出）"
@@ -2051,7 +2011,7 @@ mod tests {
             );
         }
 
-        // 所有文件修改类工具都走同一份「审批开关 + 预演」声明。
+        // 所有文件修改类工具都走同一份预演声明。
         let previewing: Vec<&str> = builtin_tool_specs()
             .iter()
             .filter(|s| s.semantics.preview_before_approval)
@@ -2078,7 +2038,6 @@ mod tests {
             .filter(|s| {
                 s.semantics.command_arg.is_some()
                     || s.semantics.path_arg.is_some()
-                    || s.semantics.approval_switch.is_some()
                     || s.semantics.preview_before_approval
             })
             .map(|s| s.name)

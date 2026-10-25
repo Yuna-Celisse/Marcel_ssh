@@ -5,7 +5,9 @@ use crate::agent::jev_approval::JevApprover;
 use crate::agent::model_approval::{
     ApprovalJudgement, CommandApprover, ModelApprovalDecision, ModelApprover,
 };
-use crate::agent::risk::{split_command_chain, Disposition, RiskAssessor, SecurityPolicy};
+use crate::agent::risk::{
+    split_command_chain, Disposition, RiskAssessor, RuleHit, SecurityPolicy,
+};
 use crate::agent::task::AgentMode;
 use crate::agent::tools::sftp_probe::remote_file_exists;
 use crate::agent::tools::{
@@ -380,7 +382,7 @@ impl ToolDispatcher {
             return DispatchResult::unknown(&tc.name);
         };
         // 参数语义来自内置工具声明表（`tools/mod.rs` 的 BUILTIN_TOOLS_*）：
-        // 哪个参数键是命令、哪个是路径、会不会写路径、受哪个审批开关约束。
+        // 哪个参数键是命令、哪个是路径、会不会写路径。
         // 动态工具（skill / 插件 / MCP）没有条目 → 走通用路径。
         let semantics = self.registry.semantics(&tc.name);
         // 命令文本有两个来源：内置工具从声明的参数键里取；动态工具（插件
@@ -454,10 +456,7 @@ impl ToolDispatcher {
             effective_disposition,
             requires_default_approval,
             &self.agent_settings,
-            semantics
-                .and_then(|s| s.approval_switch)
-                .map(|switch| switch.is_on(&self.agent_settings))
-                .unwrap_or(false),
+            self.agent_settings.tool_approval_level(&tc.name).is_some(),
         );
 
         // 2. 模型审批（命令类工具；详见 `run_model_approval`）。
@@ -572,11 +571,28 @@ impl ToolDispatcher {
                 ctx.policy.as_deref(),
             )
         });
-        let effective_disposition = resolve_disposition(
+        // 写到受保护路径时的档位来自规则表（默认强制审批，用户可改档/关闭）。
+        let protected_level = (path_write != PathWrite::None && hits_protected_path).then(|| {
+            ctx.policy
+                .as_ref()
+                .map(|policy| policy.protected_path_level())
+                .unwrap_or(Disposition::ForceApproval)
+        });
+        let mut effective_disposition = resolve_disposition(
             command_decision.as_ref().map(|d| d.disposition),
             tool.disposition(),
-            path_write != PathWrite::None && hits_protected_path,
+            protected_level == Some(Disposition::ForceApproval),
         );
+        if let Some(level) = protected_level {
+            effective_disposition = effective_disposition.max(level);
+        }
+        // 用户给这个工具定的档位（设置页「需要审批的工具」）：与前面几个来源取最严。
+        // 「请求审批」不抬高档位（它只让 Agent / Plan 下多问一次，见
+        // `needs_human_confirmation` 的 `tool_level_asks`）；「强制审批」「直接拒绝」
+        // 要进档位，Auto 的强制审批开关与 Deny 的短路才认得到它。
+        if let Some(level) = self.agent_settings.tool_approval_level(&tc.name) {
+            effective_disposition = effective_disposition.max(level);
+        }
 
         // 直接拒绝：不执行、不弹窗，把原因回给模型（它得知道踩的是哪一步才改得回来）。
         //
@@ -588,7 +604,7 @@ impl ToolDispatcher {
             let reason = command_decision
                 .as_ref()
                 .filter(|d| d.disposition == Disposition::Deny)
-                .map(|d| d.reason.clone())
+                .map(|d| d.reason_with_rule())
                 .unwrap_or_else(|| {
                     format!(
                         "工具 `{}` 的处置档位是「直接拒绝」，未执行。请不要原样重试，改用其他方式完成目标。",
@@ -925,7 +941,7 @@ impl ToolDispatcher {
             );
             let approval_reasons = merge_approval_reasons(
                 model_reasons,
-                command_decision.map(|d| d.reason.clone()),
+                command_decision.map(|d| d.reason_with_rule()),
             );
             let answer = self
                 .approval
@@ -948,6 +964,10 @@ impl ToolDispatcher {
                     effective_disposition,
                     approval_reasons.as_deref(),
                     approval_metadata,
+                    // 命中的风险规则：审批弹窗据此告诉用户"是哪几条规则要你点头"，并给出调整入口。
+                    command_decision
+                        .map(|d| d.hits.iter().map(|h| h.rule_id.clone()).collect())
+                        .unwrap_or_default(),
                 )
                 .await;
             set_task_status(
@@ -1010,6 +1030,23 @@ pub(crate) struct CommandDecision {
     /// 一句话说明为什么是这个档位（拒绝时回给模型，其余情况显示在审批弹窗/设置页）。
     pub reason: String,
     pub requires_confirmation: bool,
+    /// 决定这个档位的风险规则（规则表 id，或自定义规则 id）；档位来自命令名单时为 `None`。
+    pub rule_id: Option<String>,
+    /// 同上，给人看的名字。
+    pub rule_title: Option<String>,
+    /// 这条命令命中的全部风险规则，设置页「命令测试」展示用。
+    pub hits: Vec<RuleHit>,
+}
+
+impl CommandDecision {
+    /// 理由 + 命中规则的名字：审批弹窗与回给模型的拒绝说明用它，
+    /// 用户（和模型）才知道该去哪条规则调整。
+    pub(crate) fn reason_with_rule(&self) -> String {
+        match &self.rule_title {
+            Some(title) if !self.reason.is_empty() => format!("{}（规则：{}）", self.reason, title),
+            _ => self.reason.clone(),
+        }
+    }
 }
 
 /// 一次工具调用的最终处置档位 —— **三个来源按严取一**。
@@ -1087,7 +1124,15 @@ pub(crate) fn decide_command(
     settings: &AgentModeSettings,
     policy: Option<&SecurityPolicy>,
 ) -> CommandDecision {
-    let assessment = RiskAssessor::from_optional(policy).assess_command(cmd);
+    let assessor = RiskAssessor::from_optional(policy);
+    let assessment = assessor.assess_command(cmd);
+    // 命中规则的名字：规则表或自定义规则里查得到才有（档位来自命令名单时没有）。
+    let rule_title = assessment
+        .rule_id
+        .as_deref()
+        .and_then(|id| assessor.policy().rules.title_of(id));
+    let rule_id = assessment.rule_id.clone();
+    let hits = assessment.hits.clone();
     // Plan 默认折成 Auto（见 `effective_approval_mode`）：命令名单这一层不参与，
     // 与真实执行时走的是同一个判定，不能只有 dispatcher 那边折。
     let mode = &effective_approval_mode(mode, settings);
@@ -1099,12 +1144,18 @@ pub(crate) fn decide_command(
                 .reason
                 .unwrap_or_else(|| "判定为灾难性操作".to_string()),
             requires_confirmation: false,
+            rule_id,
+            rule_title,
+            hits,
         },
         // 强制审批不看模式、不看名单：命中了就是要人点头。
         Disposition::ForceApproval => CommandDecision {
             disposition: Disposition::ForceApproval,
             reason: assessment.reason.unwrap_or_default(),
             requires_confirmation: true,
+            rule_id,
+            rule_title,
+            hits,
         },
         _ => {
             // 基础定档自己抬到「请求审批」的（sudo 包装保底，见 `base_assessment`）
@@ -1118,6 +1169,8 @@ pub(crate) fn decide_command(
                         || command_list_requires_confirm(cmd, settings)
                 }
             };
+            // 档位来自风险规则（sudo 保底等）时带上规则名；来自命令名单时没有规则。
+            let from_rule = needs_confirm && assessment.reason.is_some();
             CommandDecision {
                 disposition: if needs_confirm {
                     Disposition::Approval
@@ -1132,6 +1185,9 @@ pub(crate) fn decide_command(
                     "按当前命令名单判定为可直接执行".to_string()
                 },
                 requires_confirmation: needs_confirm,
+                rule_id: if from_rule { rule_id } else { None },
+                rule_title: if from_rule { rule_title } else { None },
+                hits,
             }
         }
     }
@@ -1181,7 +1237,7 @@ pub(crate) fn needs_human_confirmation(
     effective_disposition: Disposition,
     requires_default_approval: bool,
     settings: &AgentModeSettings,
-    approval_switch_on: bool,
+    tool_level_asks: bool,
 ) -> bool {
     // 折叠前先记下它是不是**真正的** Auto：Plan 默认也会折成 Auto，但那是
     // 「Plan 没开审批」的实现细节，不该连带继承 Auto 的专用开关。
@@ -1203,7 +1259,7 @@ pub(crate) fn needs_human_confirmation(
                         Disposition::Approval => settings.confirm_each_command,
                         Disposition::ForceApproval | Disposition::Deny => true,
                     }
-                    || approval_switch_on
+                    || tool_level_asks
             }
         },
         // Auto 默认一次都不问；只有用户显式打开「强制审批仍要人工」且这一发确实是
@@ -1295,6 +1351,7 @@ fn command_list_requires_confirm(cmd: &str, settings: &AgentModeSettings) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn default_settings() -> AgentModeSettings {
         AgentModeSettings {
@@ -1313,7 +1370,7 @@ mod tests {
             system_prompt: String::new(),
             max_tool_rounds: 500,
             context_window: 0,
-            confirm_edit_file: false,
+            tool_approval_levels: BTreeMap::new(),
             auto_mode_force_approval: false,
         }
     }
@@ -1696,15 +1753,14 @@ mod tests {
         }
     }
 
-    /// 文件修改审批开关独立于「每条都手动确认」：关掉逐条确认后，
-    /// `edit_file` 与 `write_file` 仍由同一个开关决定弹不弹窗；Auto 依旧一次不问。
+    /// 「需要审批的工具」独立于「每条都手动确认」：关掉逐条确认后，被用户点名的工具
+    /// 仍按自己的档位弹窗；Auto 依旧一次不问（强制审批档另有 Auto 的专用开关）。
     #[test]
-    fn file_modification_switch_gates_edit_and_write_alike() {
+    fn tool_level_asks_independently_of_confirm_each_command() {
         let mut s = default_settings();
         s.confirm_each_command = false;
-        s.confirm_edit_file = false;
 
-        // 开关关着：写入类工具（Disposition::Approval）在 Agent 下静默。
+        // 没点名：写入类工具（Disposition::Approval）在 Agent 下静默。
         assert!(!needs_human_confirmation(
             &AgentMode::Agent,
             None,
@@ -1714,8 +1770,7 @@ mod tests {
             false
         ));
 
-        s.confirm_edit_file = true;
-        // 开关打开：编辑与写入共用同一判定（两者声明的是同一个 ApprovalSwitch）。
+        // 点名了：Agent 下问一次。
         assert!(needs_human_confirmation(
             &AgentMode::Agent,
             None,
@@ -1725,7 +1780,7 @@ mod tests {
             true
         ));
 
-        // Auto 不看任何开关。
+        // Auto 不看这一项。
         assert!(!needs_human_confirmation(
             &AgentMode::Auto,
             None,
@@ -1734,6 +1789,65 @@ mod tests {
             &s,
             true
         ));
+    }
+
+    /// 档位表的查表规则：本机工具与远端同名工具共用一条；`Allow` 等于没写；
+    /// 默认就是编辑、写入文件各「请求审批」。
+    #[test]
+    fn tool_approval_level_lookup() {
+        let mut s = default_settings();
+        assert_eq!(s.tool_approval_level("edit_file"), None, "测试夹具是空表");
+
+        let d = AgentModeSettings::default();
+        assert_eq!(d.tool_approval_level("edit_file"), Some(Disposition::Approval));
+        assert_eq!(
+            d.tool_approval_level("local_write_file"),
+            Some(Disposition::Approval),
+            "本机族与远端同名工具共用一条"
+        );
+        assert_eq!(d.tool_approval_level("read_file"), None);
+
+        s.tool_approval_levels
+            .insert("edit_file".into(), Disposition::Deny);
+        s.tool_approval_levels
+            .insert("write_file".into(), Disposition::Allow);
+        assert_eq!(s.tool_approval_level("local_edit_file"), Some(Disposition::Deny));
+        assert_eq!(s.tool_approval_level("write_file"), None, "Allow 等于没写");
+    }
+
+    /// 用户在规则表里调低「直接拒绝」档的规则后，命令进入审批流程，而不是被短路拒绝；
+    /// 决定档位的规则名要带在结论里（审批弹窗与回给模型的说明据此告诉用户去哪条规则调整）。
+    #[test]
+    fn rule_table_overrides_reach_the_command_decision() {
+        use crate::agent::risk::{RiskRuleOverride, RuleConfig};
+        let mut s = default_settings();
+        s.confirm_each_command = false;
+
+        let d = decide_command("pkill -f myapp", &AgentMode::Agent, &s, None);
+        assert_eq!(d.disposition, Disposition::Deny);
+        assert_eq!(d.rule_id.as_deref(), Some("name_based_kill"));
+        assert!(
+            d.reason_with_rule().contains("规则：按名字批量杀进程"),
+            "{}",
+            d.reason_with_rule()
+        );
+
+        let policy = SecurityPolicy::default().with_rules(RuleConfig::new(
+            [(
+                "name_based_kill".to_string(),
+                RiskRuleOverride {
+                    level: Some(Disposition::ForceApproval),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+            vec![],
+        ));
+        let d = decide_command("pkill -f myapp", &AgentMode::Agent, &s, Some(&policy));
+        assert_eq!(d.disposition, Disposition::ForceApproval);
+        assert!(d.requires_confirmation, "调低后应进入人工审批，而不是直接拒绝");
+        assert!(d.hits.iter().any(|h| h.rule_id == "name_based_kill"));
     }
 
     /// 受保护路径 → 强制审批，而且**用户自定义的那份也算**（档位不看模式；
@@ -2053,7 +2167,7 @@ mod tests {
             system_prompt: String::new(),
             max_tool_rounds: 80,
             context_window: 0,
-            confirm_edit_file: false,
+            tool_approval_levels: BTreeMap::new(),
             auto_mode_force_approval: false,
         };
         assert!(!command_list_requires_confirm("ls -la", &s));
@@ -2081,7 +2195,7 @@ mod tests {
             system_prompt: String::new(),
             max_tool_rounds: 80,
             context_window: 0,
-            confirm_edit_file: false,
+            tool_approval_levels: BTreeMap::new(),
             auto_mode_force_approval: false,
         };
         assert!(command_list_requires_confirm("rm -rf /tmp", &s));
@@ -2119,7 +2233,7 @@ mod tests {
             system_prompt: String::new(),
             max_tool_rounds: 80,
             context_window: 0,
-            confirm_edit_file: false,
+            tool_approval_levels: BTreeMap::new(),
             auto_mode_force_approval: false,
         };
         assert!(command_list_requires_confirm("echo hello", &s));

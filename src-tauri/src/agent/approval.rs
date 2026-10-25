@@ -36,6 +36,7 @@ impl ApprovalManager {
         risk: Disposition,
         model_reasons: Option<&[String]>,
         metadata: Option<serde_json::Value>,
+        rule_ids: Vec<String>,
     ) -> ApprovalAnswer {
         self.interaction_mgr
             .request_approval(
@@ -49,6 +50,7 @@ impl ApprovalManager {
                 risk,
                 model_reasons,
                 metadata,
+                rule_ids,
             )
             .await
     }

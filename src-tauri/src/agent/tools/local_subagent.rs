@@ -128,7 +128,7 @@ fn needs_explicit_dispatch_approval(
             // `command_decision` 恒为 `None`。
             None,
             disposition,
-            // 本工具没有 `requires_approval_by_default` / `approval_switch`。
+            // 本工具没有 `requires_approval_by_default`。
             false,
             settings,
             false,
@@ -423,6 +423,7 @@ impl AgentTool for LocalSubagentTool {
                             .to_string(),
                     ]),
                     None,
+                    Vec::new(),
                 )
                 .await;
             set_task_status(&state, &parent_task_id, AgentStatus::Executing);

@@ -6,20 +6,31 @@
 //!
 //! 档位只有四档，而且**没有"严重度"这个概念**：算出一个没人拿来做决定的等级没有意义。
 //! 判定规则全部在 [`policy::RiskAssessor::assess_command`]，那是唯一入口。
+//!
+//! 规则本身（有哪些、说明、默认档位、依赖哪些名单）全部登记在 [`rules`]：它是**唯一来源**，
+//! 设置页逐条展示、用户可改档/关闭/编辑名单/加自己的规则。检测代码命中后一律经
+//! [`RuleConfig::verdict`] 出结论，不许再写一条用户看不见的规则。
 
 mod checker;
 mod disposition;
 mod model;
 mod parser;
 mod policy;
+mod rules;
 mod windows;
 
-pub use disposition::{Assessment, Disposition};
+pub use disposition::{Assessment, Disposition, RuleHit};
 pub use policy::{RiskAssessor, SecurityPolicy};
+pub use rules::{
+    lenient_level_map, rule_def, CustomRiskRule, ListDef, RiskRuleOverride, RuleConfig, RuleDef,
+    RuleKind, RuleScope, RULES,
+};
 
 /// 外部（tool_dispatcher / 工具实现）真正需要的那几个小工具。
 pub use checker::normalize_path;
 pub use parser::split_command_chain;
 
+#[cfg(test)]
+mod rule_tests;
 #[cfg(test)]
 mod tests;

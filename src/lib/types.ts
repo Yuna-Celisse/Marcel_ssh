@@ -1045,6 +1045,10 @@ export interface AppSettings {
   /** User-defined protected paths. Writes to anything under these paths
    * require explicit user approval, same as built-in `/etc`, `/boot`, etc. */
   customProtectedPaths: string[];
+  /** 用户对内置命令风险规则的改动（只存与默认不同的项）。规则目录见 `agentListRiskRules`。 */
+  riskRuleOverrides: Record<string, RiskRuleOverride>;
+  /** 用户自己加的命令风险规则。 */
+  customRiskRules: CustomRiskRule[];
   /** Command execution timeout in seconds for Agent tools. */
   commandTimeoutSecs: number;
   /** Whether the user has completed the onboarding wizard. */
@@ -1425,6 +1429,27 @@ export interface CommandCheckResult {
   requiresConfirmation: boolean;
   disposition: Disposition;
   reason: string;
+}
+
+/** 用户对一条内置风险规则的改动，三项都可缺省（缺省 = 用默认）。 */
+export interface RiskRuleOverride {
+  /** false = 关闭这条规则（豁免则是不再豁免）。 */
+  enabled?: boolean;
+  level?: Disposition;
+  /** 名单参数：key → 完整条目表（整体替换默认，不是增量）。 */
+  lists?: Record<string, string[]>;
+}
+
+/** 用户自定义的风险规则：命令名（可再限定参数关键字）→ 档位。 */
+export interface CustomRiskRule {
+  id: string;
+  name: string;
+  /** 基础命令名（不含路径）；`sudo` 同时匹配经 sudo 提权的命令。 */
+  command: string;
+  /** 可选：任一参数包含这段文字才算命中。 */
+  argContains: string;
+  level: Disposition;
+  enabled: boolean;
 }
 
 // Plan / Todolist types

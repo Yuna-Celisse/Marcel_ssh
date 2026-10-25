@@ -13,8 +13,10 @@
 //!
 //! - **纯文本、与 `assess_command` 同层**：不看会话、不看平台。远端 Linux 上恰好写了
 //!   这些词也照样判 —— 本层只会取严，知道对面是谁并不改变结论。
-//! - **只抬不降**：本层只产出 [`Disposition::ForceApproval`]（覆盖命令名单：Agent 下
+//! - **只抬不降**：本层默认只产出 [`Disposition::ForceApproval`]（覆盖命令名单：Agent 下
 //!   必须人点一次），由调用方与其它判定取最严者；已有档位（含 `Deny`）一律不动。
+//!   这里每一条规则都登记在规则表（`rules.rs` 的 `win_*`），档位与开关由用户在设置页调整 ——
+//!   下面写的"强制审批"都指**默认**档位。
 //! - **宁窄不宽**：误报的代价是把用户的正常清理也拦下来，所以每条规则都要求
 //!   「命令名 + 明确的破坏性参数 + 明确的目标」同时成立。只列出/读取的形态
 //!   （`Get-ChildItem` / `Get-Content` / `dir` / `type`）、`reg query` / `reg add`、
@@ -58,22 +60,30 @@
 //!   不塞进这张小表。
 //! - **`reg` 的其它子命令与 `HKCU`**：只有删**系统 hive**（HKLM / HKU）算灾难。
 
-use super::disposition::Assessment;
+use super::disposition::{Assessment, Disposition};
 use super::parser::{split_command_chain, ParsedSegment};
+use super::rules::RuleConfig;
 
 /// 包装器递归的最大深度：`pwsh -Command "cmd /c …"` 这一层到底。
 const MAX_WRAPPER_DEPTH: u8 = 2;
 
-/// 一个 shell 段的 Windows 判定：命中返回强制审批，`None` = 这一层没意见。
+/// 一个 shell 段的 Windows 判定：命中返回规则表里该规则的档位（默认强制审批），
+/// `None` = 这一层没意见（含规则被用户关闭或调成放行）。
 ///
 /// 与 [`super::checker::hard_verdict`] / [`super::model::base_assessment`] 同层同形：
 /// 入参是一个**已切好的 shell 段**，调用方负责取最严者（见 `policy.rs` 的接线）。
-pub(super) fn windows_verdict(parsed: &ParsedSegment) -> Option<Assessment> {
-    verdict_for_line(&parsed.raw, 0)
+pub(super) fn windows_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Option<Assessment> {
+    verdict_for_line(&parsed.raw, 0, rules)
+}
+
+/// 按规则表出结论：规则关闭、或被调成「放行」时返回 `None`（这一层没意见）。
+fn win(rules: &RuleConfig, id: &str, reason: String) -> Option<Assessment> {
+    let verdict = rules.verdict(id, reason);
+    (verdict.disposition != Disposition::Allow).then_some(verdict)
 }
 
 /// 单行命令的判定（顶层与包装器内层共用）。
-fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
+fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessment> {
     // `split_command_chain` 是按字节摊成 char 的（`bytes[i] as char`，见 [`super::parser`]）。
     // 档位判定不受影响（本层比的目标都是 ASCII 结构），但**理由串**会变成乱码 ——
     // 那是审批弹窗上唯一的解释，取词之前先还原。
@@ -90,12 +100,17 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
     // `pwsh -Command "…"` / `cmd /c …`：外层的命令名没有信息量，看内层。
     if let Some(inner) = wrapped_command(&cmd, args) {
         if depth < MAX_WRAPPER_DEPTH {
-            if let Some(inner_verdict) = verdict_in_wrapped(&inner, depth + 1) {
-                return Some(Assessment::forced(format!(
-                    "命令经 `{}` 包装执行：{}",
-                    head,
-                    inner_verdict.reason.unwrap_or_default()
-                )));
+            if let Some(inner_verdict) = verdict_in_wrapped(&inner, depth + 1, rules) {
+                // 档位与规则沿用内层命中的那一条（包装不改变它做的事），只在理由前
+                // 加一句"是经谁包装的"。
+                return Some(Assessment {
+                    reason: Some(format!(
+                        "命令经 `{}` 包装执行：{}",
+                        head,
+                        inner_verdict.reason.clone().unwrap_or_default()
+                    )),
+                    ..inner_verdict
+                });
             }
         }
         // 内层没命中就是本层没意见（外层那段照常由别的判定管）—— 不往下猜。
@@ -116,10 +131,14 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
             } else {
                 "会格式化磁盘/分区，目标卷上的数据全部丢失且无法恢复"
             };
-            Some(Assessment::forced(format!(
-                "`{}` {} —— 请先确认要操作的是哪个盘符/分区/磁盘编号",
-                head, what
-            )))
+            win(
+                rules,
+                "win_disk_format",
+                format!(
+                    "`{}` {} —— 请先确认要操作的是哪个盘符/分区/磁盘编号",
+                    head, what
+                ),
+            )
         }
 
         // ──────────── 启动配置 ────────────
@@ -130,10 +149,14 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
             if bcdedit_is_display(args) {
                 return None;
             }
-            Some(Assessment::forced(format!(
-                "`{}` 会改写启动配置（BCD），改错会让系统无法启动 —— 请确认要改的启动项与取值",
-                head
-            )))
+            win(
+                rules,
+                "win_boot_config",
+                format!(
+                    "`{}` 会改写启动配置（BCD），改错会让系统无法启动 —— 请确认要改的启动项与取值",
+                    head
+                ),
+            )
         }
         // 裸跑与 `/?` / `/scanos` 都不写盘；`/fixmbr` / `/fixboot` / `/rebuildbcd` 才动
         // 引导记录与 BCD。
@@ -141,10 +164,10 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
             if !has_flag(args, BOOTREC_WRITE_FLAGS) {
                 return None;
             }
-            Some(Assessment::forced(format!(
+            win(rules, "win_boot_config", format!(
                 "`{}` 会重写引导记录或重建启动配置（/fixmbr、/fixboot、/rebuildbcd），写错会让系统无法启动",
                 head
-            )))
+            ))
         }
 
         // ──────────── 递归删除 ────────────
@@ -163,10 +186,14 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
             }
             let (target, what) =
                 target_args(args).find_map(|t| catastrophic_target(t).map(|what| (t, what)))?;
-            Some(Assessment::forced(format!(
+            win(
+                rules,
+                "win_recursive_delete",
+                format!(
                 "`{}` 递归删除 `{}`（{}）—— 命令删除不进回收站、无法恢复，影响范围远超当前工作目录",
                 head, target, what
-            )))
+            ),
+            )
         }
 
         // ──────────── 注册表 ────────────
@@ -179,28 +206,36 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
                 return None;
             }
             let hive = args.iter().skip(1).find(|a| is_system_hive(a, true))?;
-            Some(Assessment::forced(format!(
+            win(rules, "win_registry_delete", format!(
                 "`{} delete {}` 会删除系统注册表 hive（HKLM/HKU）下的键 —— 影响整台机器而不只是当前用户，删错可能让系统或软件起不来",
                 head, hive
-            )))
+            ))
         }
 
         // ──────────── 关机 / 重启 ────────────
         //
         // 本机执行时这就是用户自己的电脑：没保存的东西会丢。关机/重启没有"看错了"的
         // 余地，只有明确带重启/关机参数才拦（`shutdown /?`、`-a` 不拦）。
-        "stop-computer" | "restart-computer" => Some(Assessment::forced(format!(
-            "`{}` 会立刻关机/重启这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
-            head
-        ))),
+        "stop-computer" | "restart-computer" => win(
+            rules,
+            "win_power",
+            format!(
+                "`{}` 会立刻关机/重启这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
+                head
+            ),
+        ),
         "shutdown" => {
             let flag = args
                 .iter()
                 .find(|a| matches_flag(a, SHUTDOWN_POWER_FLAGS))?;
-            Some(Assessment::forced(format!(
+            win(
+                rules,
+                "win_power",
+                format!(
                 "`{} {}` 会重启/关机这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
                 head, flag
-            )))
+            ),
+            )
         }
 
         // ──────────── 账号与提权 ────────────
@@ -221,24 +256,28 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
                 .map(|s| s.to_ascii_lowercase())
                 .unwrap_or_default();
             if first == "user" {
-                return Some(Assessment::forced(format!(
+                return win(rules, "win_accounts", format!(
                     "`{} user … /add` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
                     head
-                )));
+                ));
             }
             if first == "localgroup" && second == "administrators" {
-                return Some(Assessment::forced(format!(
+                return win(rules, "win_accounts", format!(
                     "`{} localgroup administrators … /add` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
                     head
-                )));
+                ));
             }
             None
         }
         // PowerShell 的原生等价形态（`net user` / `net localgroup administrators`）。
-        "new-localuser" => Some(Assessment::forced(format!(
-            "`{}` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
-            head
-        ))),
+        "new-localuser" => win(
+            rules,
+            "win_accounts",
+            format!(
+                "`{}` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
+                head
+            ),
+        ),
         "add-localgroupmember" => {
             // 只有加进 Administrators 才是提权；加进普通组不抬档。
             let admin = args
@@ -247,10 +286,14 @@ fn verdict_for_line(line: &str, depth: u8) -> Option<Assessment> {
             if !admin {
                 return None;
             }
-            Some(Assessment::forced(format!(
-                "`{}` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
-                head
-            )))
+            win(
+                rules,
+                "win_accounts",
+                format!(
+                    "`{}` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
+                    head
+                ),
+            )
         }
 
         _ => None,
@@ -820,14 +863,16 @@ fn split_parameter(arg: &str) -> (String, Option<String>) {
 
 /// 内层命令文本的判定：按链式分隔符再切一次（`cmd /c "a & format C:"` 里的 `&`
 /// 在内层是分隔符），逐段判。
-fn verdict_in_wrapped(inner: &str, depth: u8) -> Option<Assessment> {
+fn verdict_in_wrapped(inner: &str, depth: u8, rules: &RuleConfig) -> Option<Assessment> {
     let segments = match split_command_chain(inner) {
         Ok(s) if !s.is_empty() => s,
         // 内层含 `$( )` / 反引号等切不动的写法：当一段整体看，看不懂就不猜
         // （本层不因此拒绝 —— `Deny` 不归它管）。
         _ => vec![inner.to_string()],
     };
-    segments.iter().find_map(|s| verdict_for_line(s, depth))
+    segments
+        .iter()
+        .find_map(|s| verdict_for_line(s, depth, rules))
 }
 
 #[cfg(test)]
@@ -900,7 +945,7 @@ mod tests {
                 .unwrap();
         assert_eq!(parsed.args.last().unwrap(), "C:Windows");
         assert!(
-            windows_verdict(&parsed).is_some(),
+            windows_verdict(&parsed, &RuleConfig::default()).is_some(),
             "raw 里的路径仍在，判定不受影响"
         );
     }

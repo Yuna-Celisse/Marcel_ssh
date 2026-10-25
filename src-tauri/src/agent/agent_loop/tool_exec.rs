@@ -298,9 +298,8 @@ async fn execute_single_tool(
 ) -> SingleToolExecution {
     let tool_ctx = {
         let settings = state.settings.read().await;
-        let policy = std::sync::Arc::new(crate::agent::risk::SecurityPolicy::from_user_settings(
-            &settings.custom_protected_paths,
-            settings.command_timeout_secs,
+        let policy = std::sync::Arc::new(crate::agent::risk::SecurityPolicy::from_app_settings(
+            &settings,
         ));
         let ctx = ToolContext::new(
             ssh.clone(),

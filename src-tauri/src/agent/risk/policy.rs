@@ -11,28 +11,30 @@ use super::checker::{
 use super::disposition::Assessment;
 use super::model::base_assessment;
 use super::parser::{parse_segment, split_command_chain, ParseError, ParsedSegment};
+use super::rules::RuleConfig;
 use super::windows::windows_verdict;
 
-/// 命令风险评估的策略输入 —— 只有用户真的能配的东西，其余一律写在代码里。
+/// 命令风险评估的策略输入 —— 用户真的能配的东西都在这里，其余一律写在代码里。
 ///
-/// 这里曾经还有 `max_commands_per_task`、`task_timeout_secs`、`blocked_patterns`、
-/// `blocked_base_commands`、`auto_approve_level` 五个字段：前两个和最后一个全仓
-/// 无人读取（真正生效的同类限制在 `AgentModeSettings` / `AppSettings` 上），后两个
-/// 是写死的"危险命令/模式"名单 —— 按名字整类拒会误伤（`fdisk -l` 是只读、
-/// `mkfs.ext4 disk.img` 是常规操作），现在改由参数判定，名单本身也就不需要了。
+/// 判定规则本身（哪些命令、哪些目录、各是什么档位）在 [`RuleConfig`]：规则表是
+/// 唯一来源，用户的改动只以差异的形式带进来。这里曾经还有 `max_commands_per_task`、
+/// `task_timeout_secs`、`blocked_patterns`、`blocked_base_commands`、`auto_approve_level`
+/// 五个字段，要么无人读取，要么是写死的"危险命令名单"（按名字整类拒会误伤），早已移除。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityPolicy {
     /// 命令执行超时（秒）。由 `AppSettings::command_timeout_secs` 注入。
     pub command_timeout_secs: u64,
-    /// 系统自带的受保护目录。用户不能改这一份，只能往上面叠。
-    pub protected_paths: Vec<String>,
-    /// 用户在设置里加的保护目录（桌面 / 移动端都有入口）。
+    /// 用户在设置里加的保护目录（桌面 / 移动端都有入口）。与规则表里
+    /// `protected_paths` 的内置目录合起来生效。
     #[serde(default)]
     pub custom_protected_paths: Vec<String>,
+    /// 规则表的用户覆盖项（改档、开关、名单、自定义规则）。
+    #[serde(default)]
+    pub rules: RuleConfig,
 }
 
 impl SecurityPolicy {
-    /// 路径是否落在受保护目录下（内置 + 用户自定义）。
+    /// 路径是否落在受保护目录下（规则表里的内置目录 + 用户自定义）。
     ///
     /// **这是"路径是否受保护"的唯一判定入口。** 曾经有一份只认内置目录的副本，
     /// 结果用户在设置里加的保护目录对命令行参数完全无效 —— 别再造第二份。
@@ -41,16 +43,33 @@ impl SecurityPolicy {
     /// `/dev` 那一条本意是护住块设备，而 `2>/dev/null`、`curl -o /dev/null` 是
     /// 最常见的丢弃输出写法。把它们算进来，会让一整类只读诊断命令在 Auto 模式下
     /// 也弹窗（`ss -tlnp 2>/dev/null | grep 10030` 这种）。
+    ///
+    /// 「受保护路径」规则被用户关掉时恒为 `false`；命中后该给什么档位见
+    /// [`Self::protected_path_level`]。
     pub fn is_protected_path(&self, path: &str) -> bool {
+        if !self.rules.enabled("protected_paths") {
+            return false;
+        }
         let norm = normalize_path(path);
-        if is_virtual_device(&norm) {
+        if is_virtual_device(&norm, &self.rules) {
             return false;
         }
         let np = Path::new(&norm);
-        self.protected_paths
-            .iter()
-            .chain(self.custom_protected_paths.iter())
+        self.rules
+            .items("protected_paths")
+            .chain(self.custom_protected_paths.iter().map(String::as_str))
             .any(|prot| np.starts_with(prot))
+    }
+
+    /// 写到受保护路径时的档位（规则表里 `protected_paths` 的当前档位；`Allow` = 无意见）。
+    ///
+    /// 文件写入类工具（不经命令文本评估）用它定档，和 bash 命令命中同一条规则、同一个档位。
+    pub fn protected_path_level(&self) -> Disposition {
+        if self.rules.enabled("protected_paths") {
+            self.rules.level("protected_paths")
+        } else {
+            Disposition::Allow
+        }
     }
 
     /// Build a policy from the user's persisted settings, layering
@@ -61,20 +80,34 @@ impl SecurityPolicy {
         p.command_timeout_secs = command_timeout_secs;
         p
     }
+
+    /// 从用户设置构造完整策略（自定义保护路径 + 超时 + 规则表覆盖项）。
+    ///
+    /// 执行工具时与设置页「命令测试」都走它 —— 两处各拼一份，迟早漂移。
+    pub fn from_app_settings(settings: &crate::config::settings::AppSettings) -> Self {
+        Self::from_user_settings(
+            &settings.custom_protected_paths,
+            settings.command_timeout_secs,
+        )
+        .with_rules(RuleConfig::new(
+            settings.risk_rule_overrides.clone(),
+            settings.custom_risk_rules.clone(),
+        ))
+    }
+
+    /// 带上规则表的用户覆盖项。
+    pub fn with_rules(mut self, rules: RuleConfig) -> Self {
+        self.rules = rules;
+        self
+    }
 }
 
 impl Default for SecurityPolicy {
     fn default() -> Self {
         Self {
             command_timeout_secs: 180,
-            protected_paths: vec![
-                "/etc".into(),
-                "/boot".into(),
-                "/sys".into(),
-                "/proc".into(),
-                "/dev".into(),
-            ],
             custom_protected_paths: vec![],
+            rules: RuleConfig::default(),
         }
     }
 }
@@ -118,24 +151,32 @@ impl RiskAssessor {
     /// **解析不了的命令直接拒绝，把原因回给模型让它改写重发**（见
     /// [`Self::unparsable`]）。看不懂的写法不猜 —— 也**不能**放行。
     pub fn assess_command(&self, cmd: &str) -> Assessment {
+        let rules = &self.policy.rules;
         let trimmed = cmd.trim();
         if trimmed.is_empty() {
             return Assessment::allow();
         }
 
+        let mut worst = Assessment::allow();
+
         // fork bomb 按**原文**查，先于解析：它藏在引号或包装里也要拦住。
         // 这是唯一一个不需要解析成功就能给出的拒绝。
+        //
+        // 档位是规则表说了算：被用户调低到「拒绝」以下时不能就此收工 —— 后面的
+        // 逐段分析照常做，调低的只是这一条规则自己。
         if is_fork_bomb(trimmed) {
-            return Assessment::denied("检测到 fork bomb");
+            worst = worst.worst(rules.verdict("fork_bomb", "检测到 fork bomb"));
+            if worst.disposition == Disposition::Deny {
+                return worst;
+            }
         }
 
         let segments = match split_command_chain(trimmed) {
             Ok(s) => s,
-            Err(e) => return Self::unparsable(&e, trimmed),
+            Err(e) => return worst.worst(self.unparsable(&e, trimmed)),
         };
         let has_pipe = contains_top_level_pipe(trimmed);
 
-        let mut worst = Assessment::allow();
         for seg in &segments {
             let parsed = match parse_segment(seg) {
                 Ok(p) => p,
@@ -146,26 +187,27 @@ impl RiskAssessor {
                 // `split_and_tokenize_agree_on_what_is_parseable` 钉住这个前提）。
                 // 留着是因为"切不出来"的默认动作不该是放行：以前这里是 `continue`，
                 // 等于把看不懂的那一段跳过让它照跑 —— 安全闸门要往「不放行」倒。
-                Err(e) => return Self::unparsable(&e, trimmed),
+                Err(e) => return worst.worst(self.unparsable(&e, trimmed)),
             };
 
-            if let Some(verdict) = hard_verdict(&parsed) {
+            if let Some(verdict) = hard_verdict(&parsed, rules) {
                 if verdict.disposition == Disposition::Deny {
                     log::warn!(
                         "命令被拒绝执行（灾难模式）：{:?} —— {}",
                         verdict.reason,
                         trimmed
                     );
-                    return verdict;
+                    return worst.worst(verdict);
                 }
                 worst = worst.worst(verdict);
             }
 
             // `curl … | sh` 这类"下什么就跑什么"：内容在命令文本之外，静态检查
-            // 无从看起。不弹窗 —— 这类写法有等价且可检查的替代（先下载成文件再
+            // 无从看起。默认不弹窗 —— 这类写法有等价且可检查的替代（先下载成文件再
             // 执行），直接拒绝并把替代写法回给模型，用户零打扰。
             if has_pipe && is_bare_shell(&parsed) {
-                worst = worst.worst(Assessment::denied(
+                worst = worst.worst(rules.verdict(
+                    "pipe_to_shell",
                     "命令把内容直接管道给 shell 解释器执行，内容无法静态检查 —— 请先下载到文件（如 `curl -o`）确认后再执行",
                 ));
             }
@@ -174,22 +216,27 @@ impl RiskAssessor {
                 worst = worst.worst(self.assess_embedded(kind, inner.as_deref()));
             }
 
-            worst = worst.worst(base_assessment(&parsed));
+            worst = worst.worst(base_assessment(&parsed, rules));
 
             // Windows（PowerShell / cmd）形态的高危模式 —— 见 [`super::windows`]。
-            // 纯文本、与上面几条同层：只把「明确的毁灭性写法」抬到强制审批（覆盖命令
-            // 名单：Agent / 开了 Plan 审批的 Plan 下必须人点头），不新增拒绝、不降任何
-            // 已有档位（`worst` 只会取更严的那个）。规则本身一条也不写在这里 ——
-            // 那是 `windows` 模块的唯一权威来源。
-            if let Some(verdict) = windows_verdict(&parsed) {
+            // 纯文本、与上面几条同层：默认只把「明确的毁灭性写法」抬到强制审批（覆盖命令
+            // 名单：Agent / 开了 Plan 审批的 Plan 下必须人点头），不降任何已有档位
+            // （`worst` 只会取更严的那个）。规则本身一条也不写在这里 ——
+            // 那是 `windows` 模块与规则表的唯一权威来源。
+            if let Some(verdict) = windows_verdict(&parsed, rules) {
                 worst = worst.worst(verdict);
             }
 
             if let Some(path) = self.protected_path_hit(&parsed) {
-                worst = worst.worst(Assessment::forced(format!(
-                    "命令会改动受保护路径 `{}`",
-                    path
-                )));
+                worst = worst.worst(rules.verdict(
+                    "protected_paths",
+                    format!("命令会改动受保护路径 `{}`", path),
+                ));
+            }
+
+            // 用户自己加的规则：与内置规则同层、同样取最严。
+            for verdict in rules.custom_verdicts(&parsed) {
+                worst = worst.worst(verdict);
             }
         }
         worst
@@ -203,28 +250,35 @@ impl RiskAssessor {
     /// `echo $(rm -rf /)` 在 Auto 下既没有风险判定、也没有名单、也没有弹窗，原样发给
     /// 远端 shell —— 而 HEAD 是靠这里返回 `Err` 硬拦、每个模式都拦住的，四档改造把那层
     /// 拦丢了。看不懂的东西不猜，也不能放行：回给模型，让它改写成静态可判定的形式重发。
-    fn unparsable(err: &ParseError, cmd: &str) -> Assessment {
-        log::warn!("命令被拒绝执行（无法解析）：{} —— {}", err, cmd);
-        Assessment::denied(format!(
-            "无法解析这条命令（{}），所以没有执行 —— 看不懂的写法不猜。\
-             请改写成可以被静态检查的形式后重发：去掉 $( ) / 反引号 / <( ) 这类替换，并确认引号成对。",
-            err.explain()
-        ))
+    fn unparsable(&self, err: &ParseError, cmd: &str) -> Assessment {
+        log::warn!("命令无法解析：{} —— {}", err, cmd);
+        self.policy.rules.verdict(
+            "unparsable",
+            format!(
+                "无法解析这条命令（{}），所以没有执行 —— 看不懂的写法不猜。\
+                 请改写成可以被静态检查的形式后重发：去掉 $( ) / 反引号 / <( ) 这类替换，并确认引号成对。",
+                err.explain()
+            ),
+        )
     }
 
     /// 内嵌的 `bash -c "…"` / `eval …` / `source x`：里层当独立命令再判一次。
     fn assess_embedded(&self, kind: &str, inner: Option<&str>) -> Assessment {
+        let rules = &self.policy.rules;
         match (kind, inner) {
             // `source` / `.` 的正文没法静态看，且等价替代零成本（`bash <脚本>`）
-            // —— 直接拒绝并指路，不弹窗。
+            // —— 默认直接拒绝并指路，不弹窗。
             ("source", _) | (".", _) => {
-                Assessment::denied(
+                rules.verdict(
+                    "source_dot",
                     "`source`/`.` 会在当前 shell 执行脚本内容，内容无法静态检查 —— 请改用 `bash <脚本>` 执行，或把要做的事写成明确命令",
                 )
             }
             (_, Some(s)) => self.assess_command(s),
-            // 有包装却没有内层字符串（例如 `bash -c "$CMD"`）：同样看不懂。
-            _ => Assessment::denied(
+            // 有包装却没有内层字符串：同样看不懂（今天解析器不会产出这种形态，
+            // `bash -c "$CMD"` 走的是上面递归后的「命令写在变量里」；留着是兜底）。
+            _ => rules.verdict(
+                "command_in_variable",
                 "要执行的内容藏在变量里，无法静态检查 —— 请把要执行的命令原文写出来",
             ),
         }
@@ -241,7 +295,7 @@ impl RiskAssessor {
             return Some(p.clone());
         }
         // 普通参数只有在命令可能写的时候才查：`cat /etc/passwd` 不该强制审批。
-        if is_read_only_command(parsed) {
+        if is_read_only_command(parsed, &self.policy.rules) {
             return None;
         }
         parsed
@@ -266,7 +320,7 @@ mod tests {
     #[test]
     fn is_protected_path_matches_known_protected_dirs() {
         let policy = SecurityPolicy::default();
-        for protected in &policy.protected_paths {
+        for protected in policy.rules.items("protected_paths") {
             let path = format!("{}/some/file.txt", protected);
             assert!(
                 policy.is_protected_path(&path),

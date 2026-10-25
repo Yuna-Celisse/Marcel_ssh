@@ -47,6 +47,9 @@ pub struct ApprovalDetail {
     pub reasons: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    /// 这次调用命中的风险规则 id（规则表或自定义规则）；没有命中为空。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rule_ids: Vec<String>,
 }
 
 /// 提问请求详情
@@ -225,6 +228,7 @@ impl AgentInteractionManager {
         risk: Disposition,
         model_reasons: Option<&[String]>,
         metadata: Option<serde_json::Value>,
+        rule_ids: Vec<String>,
     ) -> ApprovalAnswer {
         let interaction_id = format!("approval:{}:{}", task_id, tool_call_id);
         let (session_name, conversation_title) =
@@ -238,6 +242,7 @@ impl AgentInteractionManager {
             disposition: risk,
             reasons: model_reasons.map(|r| r.to_vec()),
             metadata,
+            rule_ids,
         };
 
         let is_head = {
