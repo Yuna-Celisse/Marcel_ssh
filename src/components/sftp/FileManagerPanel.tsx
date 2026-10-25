@@ -55,10 +55,16 @@ interface FileManagerPanelProps {
 }
 
 export default function FileManagerPanel({ sessionId, connectionKey }: FileManagerPanelProps) {
-  const storeSettings = useSettingsStore((s) => s.settings);
+  // 订阅收窄到真正参与渲染的两个字段：订阅整份 settings 时，字号手势的
+  // preview tick、主题切换等任何设置更新都会把整张文件表重渲染一遍。
+  // 只在初始化读一次的字段（旧版路径记忆、显示隐藏的初值、树宽初值）改
+  // 从 getState 取，不占订阅。
+  const treeUserHiddenSetting = useSettingsStore(
+    (s) => s.settings.fileManagerTreeUserHidden ?? false,
+  );
   const settingsLoaded = useSettingsStore((s) => s.loaded);
   const [currentPath, setCurrentPath] = useState(() =>
-    loadRememberedPath(connectionKey, storeSettings),
+    loadRememberedPath(connectionKey, useSettingsStore.getState().settings),
   );
   const [history, setHistory] = useState<string[]>(['/']);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -71,7 +77,9 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
    * 「哪几项没传上去」，只会看到传输中心一句「上传完成」。
    */
   const [dropWarning, setDropWarning] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(storeSettings.fileManagerShowHidden ?? false);
+  const [showHidden, setShowHidden] = useState(
+    () => useSettingsStore.getState().settings.fileManagerShowHidden ?? false,
+  );
   const [menuEntry, setMenuEntry] = useState<SftpFileEntry | null>(null);
   const [menuTargets, setMenuTargets] = useState<SftpFileEntry[]>([]);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -105,7 +113,7 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
   const panelWidth = useContainerWidth(panelRef);
   const mode = toolbarWidth >= 870 ? 'full' : toolbarWidth >= 750 ? 'compact' : 'icon-only';
 
-  const treeUserHidden = storeSettings.fileManagerTreeUserHidden ?? false;
+  const treeUserHidden = treeUserHiddenSetting;
   const treeFits = panelWidth >= FILE_TREE_SHOW_THRESHOLD;
   const showTree = treeFits && !treeUserHidden;
 
@@ -119,7 +127,9 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
     startResize: startTreeResize,
     setWidth: setTreeWidth,
   } = useResizablePanel({
-    initialWidth: clampTreeWidth(storeSettings.fileManagerTreeWidth ?? FILE_TREE_DEFAULT_WIDTH),
+    initialWidth: clampTreeWidth(
+      useSettingsStore.getState().settings.fileManagerTreeWidth ?? FILE_TREE_DEFAULT_WIDTH,
+    ),
     minWidth: FILE_TREE_MIN_WIDTH,
     maxWidth: FILE_TREE_MAX_WIDTH,
     edge: 'left',

@@ -58,7 +58,11 @@ vi.mock('@/stores/settingsStore', () => {
     update: vi.fn(),
   };
   return {
-    useSettingsStore: (selector: (s: typeof stub) => unknown) => selector(stub),
+    useSettingsStore: Object.assign(
+      (selector: (s: typeof stub) => unknown) => selector(stub),
+      // 组件的惰性初始化器直接读 getState（订阅外的一次性读取）
+      { getState: () => stub },
+    ),
   };
 });
 
