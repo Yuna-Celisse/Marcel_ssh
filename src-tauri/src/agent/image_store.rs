@@ -105,6 +105,118 @@ pub fn read_image_data_url(rel: &str) -> Result<String, String> {
     Ok(format!("data:{};base64,{}", mime, B64.encode(bytes)))
 }
 
+// —— data URL 的进程内 LRU ─────────────────────────────────────────────
+// vision 开启时每轮 LLM 请求都会把消息里的图片读回来；图片文件按内容哈希命名、
+// 写入后不可变，逐轮读盘 + base64 是纯浪费。按字节预算淘汰，删除图片/会话时
+// 联动清条目，缓存里不留已删数据。
+
+/// data URL 缓存的字节预算（base64 文本长度计）。
+const DATA_URL_CACHE_BUDGET_BYTES: usize = 32 * 1024 * 1024;
+
+struct DataUrlLru {
+    /// rel 路径 → (data URL, 字节大小)。键与会话目录同名前缀（`conv/msg_0.webp`）。
+    entries: std::collections::HashMap<String, (String, usize)>,
+    /// 使用顺序：尾部 = 最近使用，超预算从头部淘汰。
+    order: std::collections::VecDeque<String>,
+    used_bytes: usize,
+}
+
+impl DataUrlLru {
+    fn new() -> Self {
+        Self {
+            entries: std::collections::HashMap::new(),
+            order: std::collections::VecDeque::new(),
+            used_bytes: 0,
+        }
+    }
+
+    fn touch(&mut self, rel: &str) {
+        if let Some(pos) = self.order.iter().position(|k| k == rel) {
+            let k = self.order.remove(pos).unwrap();
+            self.order.push_back(k);
+        }
+    }
+
+    fn insert(&mut self, rel: String, url: String, size: usize) {
+        if let Some((old, old_size)) = self.entries.insert(rel.clone(), (url, size)) {
+            let _ = old;
+            self.used_bytes = self.used_bytes.saturating_sub(old_size);
+            if let Some(pos) = self.order.iter().position(|k| *k == rel) {
+                self.order.remove(pos);
+            }
+        }
+        self.order.push_back(rel);
+        self.used_bytes += size;
+        while self.used_bytes > DATA_URL_CACHE_BUDGET_BYTES {
+            let Some(evict) = self.order.pop_front() else { break };
+            if let Some((_, sz)) = self.entries.remove(&evict) {
+                self.used_bytes = self.used_bytes.saturating_sub(sz);
+            }
+        }
+    }
+
+    fn remove(&mut self, rel: &str) {
+        if let Some((_, sz)) = self.entries.remove(rel) {
+            self.used_bytes = self.used_bytes.saturating_sub(sz);
+        }
+        if let Some(pos) = self.order.iter().position(|k| k == rel) {
+            self.order.remove(pos);
+        }
+    }
+
+    fn remove_prefix(&mut self, conversation_id: &str) {
+        let prefix = format!("{conversation_id}/");
+        let hits: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for k in hits {
+            self.remove(&k);
+        }
+    }
+}
+
+static DATA_URL_CACHE: std::sync::Mutex<Option<DataUrlLru>> = std::sync::Mutex::new(None);
+
+fn with_cache<R>(f: impl FnOnce(&mut DataUrlLru) -> R) -> R {
+    let mut guard = DATA_URL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let lru = guard.get_or_insert_with(DataUrlLru::new);
+    f(lru)
+}
+
+/// 带进程内 LRU 的 [`read_image_data_url`]：命中直接回 data URL，未命中读盘
+/// 后入缓存（只缓存成功结果——读失败可能可修复，不固化）。
+pub fn read_image_data_url_cached(rel: &str) -> Result<String, String> {
+    let hit = with_cache(|lru| {
+        if let Some((url, _)) = lru.entries.get(rel) {
+            let url = url.clone();
+            lru.touch(rel);
+            Some(url)
+        } else {
+            None
+        }
+    });
+    if let Some(url) = hit {
+        return Ok(url);
+    }
+    let url = read_image_data_url(rel)?;
+    let size = url.len();
+    with_cache(|lru| lru.insert(rel.to_string(), url.clone(), size));
+    Ok(url)
+}
+
+/// 测试专用：清空 data URL 缓存。
+#[cfg(test)]
+pub(crate) fn clear_data_url_cache_for_test() {
+    with_cache(|lru| {
+        lru.entries.clear();
+        lru.order.clear();
+        lru.used_bytes = 0;
+    });
+}
+
 fn guess_mime(path: &Path, bytes: &[u8]) -> &'static str {
     if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
         return "image/webp";
@@ -150,8 +262,14 @@ pub fn copy_image(
 pub fn delete_image(rel: &str) -> Result<(), String> {
     let path = resolve_relative(rel)?;
     match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => {
+            with_cache(|lru| lru.remove(rel));
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            with_cache(|lru| lru.remove(rel));
+            Ok(())
+        }
         Err(e) => Err(format!("delete image: {}", e)),
     }
 }
@@ -170,6 +288,7 @@ pub fn delete_conversation_images(conversation_id: &str) {
     }
     let dir = root.join(conversation_id);
     let _ = std::fs::remove_dir_all(dir);
+    with_cache(|lru| lru.remove_prefix(conversation_id));
 }
 
 /// Absolute path for UI asset protocol (if needed).
@@ -211,6 +330,35 @@ mod tests {
         assert!(data_url.starts_with("data:image/webp;base64,"));
         delete_conversation_images("conv1");
         assert!(!images_root().join("conv1").exists());
+    }
+
+    /// LRU：第二轮不再读盘（改盘上文件内容后仍回旧 data URL 即证明没读盘）；
+    /// 删除图片联动清缓存；读失败不缓存。
+    #[test]
+    fn data_url_cache_hits_and_follows_deletion() {
+        let _guard = test_lock();
+        let dir = tempdir().unwrap();
+        init(dir.path());
+        clear_data_url_cache_for_test();
+
+        let rel = save_image_bytes("conv1", "msg1", 0, b"fake-webp-bytes").unwrap();
+        let first = read_image_data_url_cached(&rel).unwrap();
+        assert!(first.starts_with("data:image/webp;base64,"));
+
+        // 盘上内容被换掉（生产里图片不可变，这里仅用改文件证明第二轮没读盘）
+        let abs = images_root().join(&rel);
+        std::fs::write(&abs, b"different-bytes").unwrap();
+        let second = read_image_data_url_cached(&rel).unwrap();
+        assert_eq!(first, second, "命中缓存必须原样返回，不重新读盘");
+
+        // 删除联动：删掉后缓存失效，读失败不缓存、也不回旧值
+        delete_image(&rel).unwrap();
+        assert!(read_image_data_url_cached(&rel).is_err());
+        std::fs::write(&abs, b"fake-webp-bytes").unwrap();
+        let third = read_image_data_url_cached(&rel).unwrap();
+        assert_eq!(third, first, "重新落盘后应重读并得到一致内容");
+        delete_conversation_images("conv1");
+        assert!(read_image_data_url_cached(&rel).is_err());
     }
 
     #[test]

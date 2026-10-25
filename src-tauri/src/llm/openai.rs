@@ -212,6 +212,12 @@ impl OpenAiProvider {
         messages_len: usize,
         first_byte_timeout: Duration,
     ) -> Result<reqwest::Response, LlmError> {
+        // 请求体在此一次序列化为字节直接发送（reqwest `.json()` 会再序列化一遍
+        // Value；构建侧 to_value + 发送侧 to_vec 的双份 JSON 编码是白付的）。
+        // `.json()` 的行为 = serde_json::to_vec + `application/json`，这里逐字节
+        // 复刻，请求内容不变（有 `request_body_serializes_exactly_once` 钉住）。
+        let body_bytes = serde_json::to_vec(req_body)
+            .map_err(|e| LlmError::ParseError(format!("序列化请求体失败: {}", e)))?;
         log::info!(
             "LLM 请求: {} model={} messages={}",
             url,
@@ -226,7 +232,8 @@ impl OpenAiProvider {
             self.client
                 .post(url)
                 .headers(self.build_headers()?)
-                .json(req_body)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body_bytes)
                 .send(),
         )
         .await;
@@ -783,7 +790,7 @@ fn build_request_content(m: &LlmMessage, send_images: bool) -> RequestContent {
 
     let mut loaded = 0usize;
     for rel in paths {
-        match crate::agent::image_store::read_image_data_url(rel) {
+        match crate::agent::image_store::read_image_data_url_cached(rel) {
             Ok(url) => {
                 loaded += 1;
                 parts.push(RequestContentPart {
@@ -1640,6 +1647,127 @@ mod partial_tool_call_tests {
 }
 
 #[cfg(test)]
+mod wire_bytes_tests {
+    use super::*;
+    use crate::llm::provider::{LlmConfig, LlmMessage, ProviderType, ToolDefinition};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    fn config_with(base_url: String, extra_body: Option<serde_json::Value>) -> LlmConfig {
+        LlmConfig {
+            provider_type: ProviderType::OpenAI,
+            api_key: "test-key".to_string(),
+            model: "test-model".to_string(),
+            base_url: Some(base_url),
+            temperature: 0.1,
+            max_retries: 0,
+            retry_delay_secs: 0.0,
+            retry_http_statuses: String::new(),
+            first_byte_timeout_secs: 20,
+            retry_on_timeout: false,
+            vision: false,
+            extra_body,
+            demote_non_leading_system: false,
+        }
+    }
+
+    /// 发送侧改「一次 to_vec 直接发字节」后，线上字节必须与构建产物逐字节一致、
+    /// Content-Type 仍是 application/json（旧 `.json()` 的行为）。覆盖带工具与
+    /// extra_body 合并的完整路径。
+    #[tokio::test]
+    async fn wire_bytes_equal_built_body_with_json_content_type() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("测试端点绑定失败");
+        let addr = listener.local_addr().expect("读取测试端口失败");
+        let captured: Arc<Mutex<Option<Vec<u8>>>> = Arc::default();
+        let sink = captured.clone();
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let mut declared: Option<usize> = None;
+            loop {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        if declared.is_none() {
+                            let boundary = b"\r\n\r\n";
+                            let Some(pos) = buf.windows(4).position(|w| w == boundary) else {
+                                continue;
+                            };
+                            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                            declared = Some(
+                                head.lines()
+                                    .find_map(|l| {
+                                        l.strip_prefix("content-length:")
+                                            .and_then(|v| v.trim().parse().ok())
+                                    })
+                                    .unwrap_or(0)
+                                    + pos
+                                    + 4,
+                            );
+                        }
+                        if buf.len() >= declared.unwrap_or(usize::MAX) {
+                            break;
+                        }
+                    }
+                }
+            }
+            *sink.lock().unwrap() = Some(buf);
+            // 回个最小 200 让客户端收尾；内容不是合法 SSE，结果被忽略。
+            let _ = stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
+                )
+                .await;
+        });
+
+        let cfg = config_with(
+            format!("http://{addr}/v1"),
+            Some(serde_json::json!({ "top_p": 0.9 })),
+        );
+        let messages = vec![LlmMessage::user("hi")];
+        let tools = vec![ToolDefinition {
+            name: "bash".to_string(),
+            description: "d".to_string(),
+            parameters: serde_json::json!({ "type": "object" }),
+        }];
+        let expected = build_request_body(&cfg, &messages, &tools, true);
+        let expected_bytes = serde_json::to_vec(&expected).expect("expected bytes");
+
+        let provider = OpenAiProvider::new(cfg).expect("构造");
+        let (event_tx, _rx) = mpsc::unbounded_channel();
+        let _ = provider
+            .execute_stream(&messages, &tools, &event_tx, None, None)
+            .await;
+
+        let raw = captured.lock().unwrap().take().expect("服务端应收到请求");
+        let header_end = raw
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("请求头边界");
+        let head = String::from_utf8_lossy(&raw[..header_end]).to_lowercase();
+        assert!(
+            head.starts_with("post /v1/chat/completions"),
+            "请求行不符: {head}"
+        );
+        assert!(
+            head.lines().any(|l| l.starts_with("content-type:") && l.contains("application/json")),
+            "Content-Type 必须仍是 application/json: {head}"
+        );
+        assert_eq!(
+            &raw[header_end + 4..],
+            &expected_bytes[..],
+            "线上请求体必须与构建产物逐字节一致"
+        );
+    }
+}
+
+#[cfg(test)]
 mod header_wait_timeout_tests {
     use super::*;
     use crate::llm::provider::{LlmConfig, ProviderType};
@@ -1688,11 +1816,13 @@ mod header_wait_timeout_tests {
                     Ok(0) | Err(_) => return,
                     Ok(n) => {
                         buf.extend_from_slice(&chunk[..n]);
+                        eprintln!("[wire-test] got {} bytes: {:?}", n, String::from_utf8_lossy(&buf[..n.min(120)]));
                         if declared.is_none() {
                             let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
                                 continue;
                             };
                             let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                            eprintln!("[wire-test] head-end={} buf={} head-tail={:?}", pos, buf.len(), &head[head.len()-80.min(head.len())..]);
                             declared = Some(
                                 head.lines()
                                     .find_map(|l| {

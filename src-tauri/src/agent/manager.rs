@@ -1166,17 +1166,27 @@ pub(crate) fn apply_state_gate(
 ///
 /// `is_subtask` 恒为 `true`：子代理读主 agent 派发时刻的上下文，跟父会话压不压缩
 /// 无关，这个能力对它有用于第一轮。
-pub(crate) fn tools_for_round(
-    base: &[ToolDefinition],
+/// 返回 `Cow`：常见路径（子代理恒真；主会话压缩后/判据失败时恒真）直接浅引用
+/// 整份清单，不再每轮深拷贝整套工具 schema；需要过滤时才物化过滤后的副本。
+pub(crate) fn tools_for_round<'a>(
+    base: &'a [ToolDefinition],
     is_subtask: bool,
     conv_db: &crate::agent::conversation::ConversationDb,
     conversation_id: &str,
-) -> Vec<ToolDefinition> {
+) -> std::borrow::Cow<'a, [ToolDefinition]> {
     let expose = is_subtask
         || conv_db
             .has_readable_history(conversation_id)
             .unwrap_or(true);
-    apply_state_gate(base.to_vec(), expose)
+    if expose {
+        return std::borrow::Cow::Borrowed(base);
+    }
+    std::borrow::Cow::Owned(
+        base.iter()
+            .filter(|d| !crate::agent::tools::STATE_GATED_TOOLS.contains(&d.name.as_str()))
+            .cloned()
+            .collect(),
+    )
 }
 
 /// 把会话级思考强度注入 LLM 配置（纯函数，便于单测）。
@@ -1800,8 +1810,9 @@ mod tests {
             parameters: serde_json::json!({ "type": "object" }),
         };
         let base = vec![def("bash"), def("read_history")];
-        let names =
-            |v: Vec<ToolDefinition>| -> Vec<String> { v.into_iter().map(|d| d.name).collect() };
+        let names = |v: std::borrow::Cow<'_, [ToolDefinition]>| -> Vec<String> {
+            v.iter().map(|d| d.name.clone()).collect()
+        };
 
         let db = ConversationDb::in_memory().expect("db");
         let fresh = db.create_conversation("conn_1", "fresh").expect("fresh");
