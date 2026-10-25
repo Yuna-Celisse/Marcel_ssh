@@ -35,6 +35,122 @@ use crate::llm::streaming::StreamEvent;
 use crate::notification::{send_notification, NotificationKind};
 use crate::AppState;
 
+// —— LLM delta 微批（`request_round_reply` 的 forwarder 用）───────────────
+// 模型输出快时每个几字节的 delta 一次 emit，是每秒上百次的 IPC/序列化开销；
+// 同类连续 delta 攒一个窗口合成一条。批次首片立即发保首字上屏；异类 delta /
+// 非 delta 事件先 flush 再发，顺序语义不变。
+
+/// delta 合批窗口（首片立即发后，窗口内到达的同类 delta 合成一条）。
+const DELTA_BATCH_WINDOW: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// 攒在批里的同类 delta（三类各自合并，互不粘连）。
+enum PendingDelta {
+    Text(String),
+    Thinking(String),
+    ToolArguments { id: String, arguments: String },
+}
+
+impl PendingDelta {
+    fn variant_matches(&self, other: &PendingDelta) -> bool {
+        match (self, other) {
+            (PendingDelta::Text(_), PendingDelta::Text(_)) => true,
+            (PendingDelta::Thinking(_), PendingDelta::Thinking(_)) => true,
+            (
+                PendingDelta::ToolArguments { id: a, .. },
+                PendingDelta::ToolArguments { id: b, .. },
+            ) => a == b,
+            _ => false,
+        }
+    }
+
+    fn into_event(self) -> StreamEvent {
+        match self {
+            PendingDelta::Text(text) => StreamEvent::TextDelta { text },
+            PendingDelta::Thinking(text) => StreamEvent::ThinkingDelta { text },
+            PendingDelta::ToolArguments { id, arguments } => StreamEvent::ToolCallDelta {
+                id,
+                arguments_delta: arguments,
+            },
+        }
+    }
+}
+
+/// 把一批攒下的 delta 合成一条事件发出（空批不发）。
+fn flush_delta_batch(
+    app: &AppHandle,
+    event_name: &str,
+    pending: Option<PendingDelta>,
+    deadline: &mut Option<tokio::time::Instant>,
+) {
+    *deadline = None;
+    if let Some(delta) = pending {
+        emit_event(app, event_name, delta.into_event());
+    }
+}
+
+/// 收进一个 delta：空闲首片立即发并开窗；窗口内的同类追加进批；异类先交出
+/// 当前批、新 delta 立即发并重开窗。返回新的批状态。
+fn push_delta(
+    app: &AppHandle,
+    event_name: &str,
+    pending: Option<PendingDelta>,
+    next: PendingDelta,
+    deadline: &mut Option<tokio::time::Instant>,
+) -> Option<PendingDelta> {
+    match pending {
+        None => {
+            if deadline.is_some() {
+                // 首片刚发过、窗口仍开着：进批等窗口到期合并。
+                Some(next)
+            } else {
+                emit_event(app, event_name, next.into_event());
+                *deadline = Some(tokio::time::Instant::now() + DELTA_BATCH_WINDOW);
+                None
+            }
+        }
+        Some(current) => {
+            if current.variant_matches(&next) {
+                match (current, next) {
+                    (PendingDelta::Text(mut a), PendingDelta::Text(b)) => {
+                        a.push_str(&b);
+                        Some(PendingDelta::Text(a))
+                    }
+                    (PendingDelta::Thinking(mut a), PendingDelta::Thinking(b)) => {
+                        a.push_str(&b);
+                        Some(PendingDelta::Thinking(a))
+                    }
+                    (
+                        PendingDelta::ToolArguments { id, mut arguments },
+                        PendingDelta::ToolArguments {
+                            id: _,
+                            arguments: more,
+                        },
+                    ) => {
+                        arguments.push_str(&more);
+                        Some(PendingDelta::ToolArguments { id, arguments })
+                    }
+                    // variant_matches 已保证同型；这里只是让编译器核对穷尽。
+                    _ => unreachable!("variant_matches 与合并分支不一致"),
+                }
+            } else {
+                // 异类边界（如正文转思维、并行工具调用交替）：先交出旧批再发新片。
+                flush_delta_batch(app, event_name, Some(current), deadline);
+                emit_event(app, event_name, next.into_event());
+                *deadline = Some(tokio::time::Instant::now() + DELTA_BATCH_WINDOW);
+                None
+            }
+        }
+    }
+}
+
+/// select! 的定时臂：未开窗时永不算就绪。
+async fn delta_batch_deadline_wait(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(d) => tokio::time::sleep_until(d).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 /// 回合准备：唤醒轮标记、persister 构建、`db_id_known` 回填、标题更新与
 /// 回合锚点落库（原 `run_agent_loop` 开头段，原样搬出）。
 ///
@@ -241,25 +357,50 @@ pub(super) async fn request_round_reply(
         // `thinking_filter`）。`filtered` 已经是「可上屏正文」——
         // 思维内容与待定的标签前缀都不会出现在里面。
         let mut thinking_filter = ThinkingFilterState::default();
-        while let Some(ev) = rx.recv().await {
-            match ev {
-                StreamEvent::TextDelta { ref text } => {
-                    let filtered = filter_thinking_tags(text, &mut thinking_filter);
-                    if !filtered.is_empty() {
-                        emit_event(&app_fwd, &evn, StreamEvent::TextDelta { text: filtered });
+        // delta 微批：模型输出快时每个几字节的 delta 一次 emit，是每秒上百次
+        // 的 IPC/序列化开销。同类连续 delta 攒一个窗口合成一条事件；批次首片
+        // 立即发保首字上屏，异类 delta / 非 delta 事件（工具边界、Usage、Done、
+        // 错误）先 flush 再发——顺序语义不变，前端只是少收几条拼接等价的事件。
+        let mut pending: Option<PendingDelta> = None;
+        let mut batch_deadline: Option<tokio::time::Instant> = None;
+        loop {
+            tokio::select! {
+                ev = rx.recv() => {
+                    match ev {
+                        None => break,
+                        Some(StreamEvent::TextDelta { ref text }) => {
+                            let filtered = filter_thinking_tags(text, &mut thinking_filter);
+                            if !filtered.is_empty() {
+                                pending = push_delta(&app_fwd, &evn, pending, PendingDelta::Text(filtered), &mut batch_deadline);
+                            }
+                        }
+                        Some(StreamEvent::ThinkingDelta { text }) => {
+                            pending = push_delta(&app_fwd, &evn, pending, PendingDelta::Thinking(text), &mut batch_deadline);
+                        }
+                        Some(StreamEvent::ToolCallDelta { id, arguments_delta }) => {
+                            pending = push_delta(&app_fwd, &evn, pending, PendingDelta::ToolArguments { id, arguments: arguments_delta }, &mut batch_deadline);
+                        }
+                        Some(StreamEvent::Usage { ref usage }) => {
+                            // `Usage` 照原样透传（插件的单轮原始数据），同时留一份给
+                            // ContextUsage 用。
+                            flush_delta_batch(&app_fwd, &evn, pending.take(), &mut batch_deadline);
+                            *round_usage_fwd.lock().unwrap() = Some(usage.clone());
+                            emit_event(&app_fwd, &evn, ev);
+                        }
+                        Some(other) => {
+                            flush_delta_batch(&app_fwd, &evn, pending.take(), &mut batch_deadline);
+                            emit_event(&app_fwd, &evn, other);
+                        }
                     }
                 }
-                StreamEvent::Usage { ref usage } => {
-                    // `Usage` 照原样透传（插件的单轮原始数据），同时留一份给
-                    // ContextUsage 用。
-                    *round_usage_fwd.lock().unwrap() = Some(usage.clone());
-                    emit_event(&app_fwd, &evn, ev);
-                }
-                other => {
-                    emit_event(&app_fwd, &evn, other);
+                // 窗口到期：把攒下的同类 delta 合成一条发出（不吞尾）
+                _ = delta_batch_deadline_wait(batch_deadline) => {
+                    flush_delta_batch(&app_fwd, &evn, pending.take(), &mut batch_deadline);
                 }
             }
         }
+        // 流结束（通道关闭 = 回合收尾）：先交出批里的尾货，再走思维过滤器收尾。
+        flush_delta_batch(&app_fwd, &evn, pending.take(), &mut batch_deadline);
         // 流收尾：补发仍待定的尾巴（只可能是标签字面量的半截，例如整条流
         // 以 `<` 结尾）。吞掉它就等于悄悄改了模型的可见输出。
         let tail = thinking_filter.take_pending();
@@ -700,6 +841,149 @@ pub(super) async fn report_max_rounds_exceeded(
             &ns,
             "Agent 任务失败",
             &msg,
+        );
+    }
+}
+
+#[cfg(test)]
+mod delta_batch_tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use tauri::{AppHandle, Listener};
+
+    use super::{flush_delta_batch, push_delta, PendingDelta};
+    use crate::llm::streaming::StreamEvent;
+
+    fn mock_host() -> (AppHandle, Arc<Mutex<Vec<serde_json::Value>>>) {
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("windowless Tauri host");
+        let events: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+        let captured = events.clone();
+        app.listen("unit://delta", move |e| {
+            captured
+                .lock()
+                .push(serde_json::from_str(e.payload()).expect("event json"));
+        });
+        (app.handle().clone(), events)
+    }
+
+    fn texts(events: &Arc<Mutex<Vec<serde_json::Value>>>) -> Vec<String> {
+        events
+            .lock()
+            .iter()
+            .filter(|e| e["type"] == "textDelta")
+            .map(|e| e["text"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    /// 同类连续 delta：首片立即发，窗口内的合成一条，内容一字不丢。
+    #[test]
+    fn same_kind_deltas_merge_with_immediate_first() {
+        let (app, events) = mock_host();
+        let mut pending = None;
+        let mut deadline = None;
+
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("你".into()), &mut deadline);
+        assert_eq!(texts(&events), vec!["你".to_string()], "首片必须立即发");
+        assert!(deadline.is_some(), "首片后必须开窗");
+        assert!(pending.is_none());
+
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("好".into()), &mut deadline);
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("呀".into()), &mut deadline);
+        assert_eq!(texts(&events).len(), 1, "窗口内不得逐片发");
+
+        flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
+        assert_eq!(texts(&events), vec!["你".to_string(), "好呀".to_string()]);
+        assert!(deadline.is_none(), "flush 后必须关窗");
+    }
+
+    /// 异类边界（正文转思维）：旧批先交出、新片立即发，顺序不变。
+    #[test]
+    fn different_kind_boundary_flushes_in_order() {
+        let (app, events) = mock_host();
+        let mut pending = None;
+        let mut deadline = None;
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("正".into()), &mut deadline);
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("文".into()), &mut deadline);
+        // 异类到来：批里的「文」必须先于思维片发出
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Thinking("想".into()), &mut deadline);
+
+        let got: Vec<(String, String)> = events
+            .lock()
+            .iter()
+            .map(|e| {
+                (
+                    e["type"].as_str().unwrap_or_default().to_string(),
+                    e["text"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("textDelta".to_string(), "正".to_string()),
+                ("textDelta".to_string(), "文".to_string()),
+                ("thinkingDelta".to_string(), "想".to_string()),
+            ],
+            "异类边界必须保序且不吞批"
+        );
+        assert!(pending.is_none());
+    }
+
+    /// 并行工具调用的参数 delta：不同 id 不得粘连成一条。
+    #[test]
+    fn parallel_tool_argument_deltas_stay_separate_by_id() {
+        let (app, events) = mock_host();
+        let mut pending = None;
+        let mut deadline = None;
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "a".into(), arguments: "{\"x\":".into() }, &mut deadline);
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "b".into(), arguments: "{\"y\":".into() }, &mut deadline);
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "b".into(), arguments: "1}".into() }, &mut deadline);
+        flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
+
+        let got: Vec<(String, String, String)> = events
+            .lock()
+            .iter()
+            .map(|e| {
+                (
+                    e["type"].as_str().unwrap_or_default().to_string(),
+                    e["id"].as_str().unwrap_or_default().to_string(),
+                    e["argumentsDelta"].as_str().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        // a 首片立即发并开窗；b 的两片进批合成一条——不同 id 的参数绝不粘连。
+        assert_eq!(
+            got,
+            vec![
+                ("toolCallDelta".to_string(), "a".to_string(), "{\"x\":".to_string()),
+                ("toolCallDelta".to_string(), "b".to_string(), "{\"y\":1}".to_string()),
+            ]
+        );
+    }
+
+    /// 事件载荷形态与逐 delta 直发一致（字段名 camelCase，前端无需感知合批）。
+    #[test]
+    fn merged_event_payload_shape_matches_single_delta_events() {
+        let (app, events) = mock_host();
+        let mut pending = None;
+        let mut deadline = None;
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("a".into()), &mut deadline);
+        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("b".into()), &mut deadline);
+        flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
+        // 首片 "a" 已立即发，批里只有 "b"：全部事件的拼接即完整正文（不丢字）。
+        assert_eq!(texts(&events), vec!["a".to_string(), "b".to_string()]);
+        let merged = events.lock()[1].clone();
+        assert_eq!(merged["type"], "textDelta");
+        assert_eq!(merged["text"], "b");
+        // 与单条直发的事件结构完全一致
+        let single = StreamEvent::TextDelta { text: "b".into() };
+        assert_eq!(
+            serde_json::to_value(&single).unwrap()["type"],
+            merged["type"]
         );
     }
 }
