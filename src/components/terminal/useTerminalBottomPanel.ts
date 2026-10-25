@@ -17,7 +17,10 @@ export function useTerminalBottomPanel() {
   const terminalRootRef = useRef<HTMLDivElement>(null);
   const panelRatioRef = useRef(0);
   const panelResizeStartRef = useRef<{ y: number; height: number } | null>(null);
-  const hasResizedRef = useRef(false);
+  // 拖拽手势真正改动过高度、且尚未落库的脏标记。窗口 resize 触发的比例重算
+  // 只动本地 state/localStorage，不置脏——否则用户拖过一次后，每次 resize
+  // 都会整份序列化写盘（读路径本来就优先 localStorage 的比例值）。
+  const panelHeightDirtyRef = useRef(false);
   const terminalRootHeightRef = useRef(0);
   const terminalRootHeightReadyRef = useRef(false);
   const terminalRootResizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,7 +123,6 @@ export function useTerminalBottomPanel() {
     e.preventDefault();
     panelResizeStartRef.current = { y: e.clientY, height: panelHeight };
     setIsResizingPanel(true);
-    hasResizedRef.current = true;
   }, [panelHeight]);
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export function useTerminalBottomPanel() {
       if (!panelResizeStartRef.current) return;
       const delta = panelResizeStartRef.current.y - e.clientY;
       const newHeight = clampPanelHeight(panelResizeStartRef.current.height + delta);
+      panelHeightDirtyRef.current = true;
       setPanelHeight(newHeight);
       if (containerHeight > 0) {
         savePanelRatio(newHeight / containerHeight);
@@ -154,9 +157,11 @@ export function useTerminalBottomPanel() {
     };
   }, [isResizingPanel, containerHeight, savePanelRatio]);
 
+  // 拖拽手势结束才把最终高度落库；resize 引发的重算不置脏，不会走到这里。
   useEffect(() => {
     if (!settingsLoaded) return;
-    if (!isResizingPanel && panelResizeStartRef.current === null && hasResizedRef.current) {
+    if (!isResizingPanel && panelResizeStartRef.current === null && panelHeightDirtyRef.current) {
+      panelHeightDirtyRef.current = false;
       useSettingsStore.getState().update({ panelHeight });
     }
   }, [isResizingPanel, panelHeight]);
