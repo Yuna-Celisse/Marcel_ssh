@@ -52,7 +52,26 @@ fn text_tokens(s: &str) -> usize {
 }
 
 /// 估算一条消息的 token 数（content + reasoning_content + tool_calls + 图片 + 角色开销）。
+///
+/// 结果 memo 在消息自带的 `estimate_cache` 里（首算一次，之后每轮的全量估算
+/// 只做求和——此前每轮对每条工具调用重新 `arguments.to_string()`、对全部正文
+/// 逐字扫一遍）。内容被原地改写的唯一入口是 pruner，那里经
+/// [`invalidate_estimate`] 重置。
 pub fn estimate_message(msg: &LlmMessage) -> usize {
+    if let Some(cached) = msg.estimate_cache.get() {
+        return cached;
+    }
+    let tokens = compute_message_tokens(msg);
+    msg.estimate_cache.set(tokens);
+    tokens
+}
+
+/// 重置一条消息的估算 memo（内容被原地改写后调用）。
+pub fn invalidate_estimate(msg: &LlmMessage) {
+    msg.estimate_cache.invalidate();
+}
+
+fn compute_message_tokens(msg: &LlmMessage) -> usize {
     let mut tokens = 0usize;
 
     if !msg.content.is_empty() {
@@ -143,6 +162,34 @@ pub fn context_breakdown(msgs: &[LlmMessage], tools: &[ToolDefinition]) -> Conte
 mod tests {
     use super::*;
     use crate::llm::provider::{LlmMessage, ToolCall, ToolDefinition};
+
+    /// memo 真的在用：首算后手工改 memo，问询必须直接采纳 memo 值；
+    /// 失效后重算回到真实估算。
+    #[test]
+    fn estimate_message_reads_and_honors_the_memo() {
+        let m = LlmMessage::user("abcd");
+        assert_eq!(estimate_message(&m), 1 + BLOCK_OVERHEAD + ROLE_OVERHEAD);
+        m.estimate_cache.set(4321);
+        assert_eq!(estimate_message(&m), 4321, "已算过的消息必须直接用 memo");
+        invalidate_estimate(&m);
+        assert_eq!(
+            estimate_message(&m),
+            1 + BLOCK_OVERHEAD + ROLE_OVERHEAD,
+            "失效后必须重算"
+        );
+    }
+
+    /// memo 字段绝不进请求体/落库：序列化产物不含它，反序列化缺字段也能成。
+    #[test]
+    fn memo_field_never_leaks_into_serialization() {
+        let m = LlmMessage::user("hi");
+        estimate_message(&m);
+        let json = serde_json::to_string(&m).expect("serialize");
+        assert!(!json.contains("estimate"), "序列化不得携带 memo 字段: {json}");
+        let back: LlmMessage = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.content, "hi");
+        assert!(back.estimate_cache.get().is_none(), "反序列化后 memo 应为未算");
+    }
 
     #[test]
     fn empty_message_costs_role_overhead() {

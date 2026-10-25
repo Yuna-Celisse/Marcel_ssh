@@ -56,6 +56,8 @@ pub fn prune_messages(msgs: &mut [LlmMessage], cfg: &PruneConfig) -> usize {
         }
         if let Some(new_content) = prune_content(&m.content, cfg) {
             m.content = new_content;
+            // 原地改写 content 后，token 估算 memo 必须跟着失效（见 TokenMemo）。
+            super::meter::invalidate_estimate(m);
             pruned += 1;
         }
     }
@@ -65,6 +67,28 @@ pub fn prune_messages(msgs: &mut [LlmMessage], cfg: &PruneConfig) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 修剪原地改写 content 后，token 估算 memo 必须失效——否则后续压力判断
+    /// 仍按修剪前的体积算，压缩会白触发。
+    #[test]
+    fn pruning_invalidates_the_estimate_memo() {
+        let mut msgs = vec![LlmMessage {
+            role: LlmRole::Tool,
+            content: "x".repeat(40_000),
+            estimate_cache: Default::default(),
+            ..LlmMessage::assistant("")
+        }];
+        let before = super::super::meter::estimate_message(&msgs[0]);
+        assert!(before > 1000);
+        let pruned = prune_messages(&mut msgs, &PruneConfig::default());
+        assert_eq!(pruned, 1);
+        let after = super::super::meter::estimate_message(&msgs[0]);
+        assert!(
+            after < before,
+            "修剪后估算必须变小：before={before} after={after}"
+        );
+    }
+
 
     fn cfg() -> PruneConfig {
         PruneConfig {

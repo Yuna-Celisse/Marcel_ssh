@@ -27,12 +27,60 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
+/// token 估算的进程内 memo（`meter::estimate_message` 的首算结果存在这里，
+/// 后续每轮的全量估算退化为求和）。`usize::MAX` = 未算。**消息内容被原地改写
+/// 时必须回 MAX**（唯一的改写点是 `pruner::prune_messages`，经
+/// `meter::invalidate_estimate` 重置）。跳过序列化：绝不进请求体、不落库。
+#[derive(Debug)]
+pub struct TokenMemo(pub std::sync::atomic::AtomicUsize);
+
+impl Clone for TokenMemo {
+    fn clone(&self) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(
+            self.0.load(std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
+impl Default for TokenMemo {
+    /// 默认 = 未算（不能 derive：`AtomicUsize::default()` 是 0，会被当成已算的 0）。
+    fn default() -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(Self::UNCOMPUTED))
+    }
+}
+
+impl TokenMemo {
+    /// 未算哨兵值。
+    pub const UNCOMPUTED: usize = usize::MAX;
+
+    #[inline]
+    pub fn get(&self) -> Option<usize> {
+        match self.0.load(std::sync::atomic::Ordering::Relaxed) {
+            Self::UNCOMPUTED => None,
+            v => Some(v),
+        }
+    }
+
+    #[inline]
+    pub fn set(&self, tokens: usize) {
+        self.0.store(tokens, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn invalidate(&self) {
+        self.0.store(Self::UNCOMPUTED, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// A message in the LLM conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LlmMessage {
     pub role: LlmRole,
     pub content: String,
+    /// token 估算 memo（见 [`TokenMemo`]）。serde 跳过：Default 给未算哨兵。
+    #[serde(skip, default)]
+    pub estimate_cache: TokenMemo,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -93,6 +141,7 @@ impl LlmMessage {
             finish_reason: None,
             db_id: None,
             db_id_known: false,
+            estimate_cache: Default::default(),
         }
     }
 
@@ -107,6 +156,7 @@ impl LlmMessage {
             finish_reason: None,
             db_id: None,
             db_id_known: false,
+            estimate_cache: Default::default(),
         }
     }
 
@@ -121,6 +171,7 @@ impl LlmMessage {
             finish_reason: None,
             db_id: None,
             db_id_known: false,
+            estimate_cache: Default::default(),
         }
     }
 }

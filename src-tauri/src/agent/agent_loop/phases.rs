@@ -442,6 +442,7 @@ pub(super) async fn finish_text_reply(
 ) -> TextReplyOutcome {
     let (reply, cleaned_content) = classify_text_reply(&assistant_msg.content, truncated);
     let mut cleaned_msg = LlmMessage {
+        estimate_cache: Default::default(),
         content: cleaned_content.clone(),
         ..assistant_msg
     };

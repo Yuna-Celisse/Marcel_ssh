@@ -470,6 +470,7 @@ mod tests {
 
     fn msg(role: LlmRole, content: &str) -> LlmMessage {
         LlmMessage {
+            estimate_cache: Default::default(),
             role,
             content: content.into(),
             tool_calls: None,

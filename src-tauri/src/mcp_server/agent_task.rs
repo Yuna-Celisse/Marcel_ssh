@@ -454,6 +454,7 @@ fn system_prompt(connection_id: &str) -> String {
 /// 构造一条 tool 角色的消息（把工具执行结果回灌给模型）。
 fn tool_message(tool_call_id: &str, content: String) -> LlmMessage {
     LlmMessage {
+        estimate_cache: Default::default(),
         role: LlmRole::Tool,
         content,
         tool_calls: None,

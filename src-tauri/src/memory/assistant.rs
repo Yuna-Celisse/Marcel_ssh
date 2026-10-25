@@ -873,6 +873,7 @@ pub async fn run(
             emit("step", String::new(), Vec::new(), None, Some(step.clone()));
             steps.push(step);
             messages.push(LlmMessage {
+                estimate_cache: Default::default(),
                 role: LlmRole::Tool,
                 content: output,
                 tool_calls: None,
