@@ -4,6 +4,7 @@ import { useConversationStore } from '@/stores/conversationStore';
 import {
   getTaskVisualStatus,
   getConversationAgentStatus,
+  buildConversationAgentStatusMap,
   getSessionAgentStatus,
   getActiveRunningTasks,
   taskCenterEntry,
@@ -76,6 +77,49 @@ describe('agentStatusSelectors', () => {
       };
 
       expect(getConversationAgentStatus('main-conv', tasks)).toBe('waiting_approval');
+    });
+  });
+
+  describe('buildConversationAgentStatusMap', () => {
+    it('与单查版逐条等价（子对话任务/未读归并到父，优先级一致）', () => {
+      useConversationStore.setState({
+        conversations: {
+          'main-a': { id: 'main-a', connectionId: 'c1', title: 'A', createdAt: '', updatedAt: '' },
+          'main-b': { id: 'main-b', connectionId: 'c1', title: 'B', createdAt: '', updatedAt: '' },
+          'main-c': { id: 'main-c', connectionId: 'c1', title: 'C', createdAt: '', updatedAt: '' },
+          'sub-a1': { id: 'sub-a1', connectionId: 'c1', title: 'A1', createdAt: '', updatedAt: '', parentConversationId: 'main-a' },
+          'sub-a2': { id: 'sub-a2', connectionId: 'c1', title: 'A2', createdAt: '', updatedAt: '', parentConversationId: 'main-a' },
+          'sub-b1': { id: 'sub-b1', connectionId: 'c1', title: 'B1', createdAt: '', updatedAt: '', parentConversationId: 'main-b' },
+        },
+      });
+      const tasks: Record<string, AgentTask> = {
+        // main-a：子对话在跑 + 主对话已完成 → running
+        'a-run': mockTask({ id: 'a-run', conversationId: 'sub-a1', status: 'executing' }),
+        // main-b：子对话等审批 → waiting_approval（压过 running/unread）
+        'b-approve': mockTask({ id: 'b-approve', conversationId: 'sub-b1', status: 'waiting_approval' }),
+        'b-run': mockTask({ id: 'b-run', conversationId: 'main-b', status: 'planning' }),
+        // 占位 task（sessionId 空）不得计入
+        'ghost': mockTask({ id: 'ghost', conversationId: 'main-c', sessionId: '', status: 'executing' }),
+      };
+      const unread = ['sub-a2', 'main-c'];
+
+      // 列表只渲染主对话（子对话不进历史列表），映射也按主对话口径：
+      // 主对话行的结果必须与单查版逐条一致。
+      const map = buildConversationAgentStatusMap(tasks, unread);
+      for (const id of ['main-a', 'main-b', 'main-c']) {
+        expect(map.get(id) ?? 'idle').toBe(
+          getConversationAgentStatus(id, tasks, unread),
+          `映射版与单查版在 ${id} 上不一致`,
+        );
+      }
+      // 子对话不占条目（它们的任务/未读已归并进父对话）。
+      expect(map.has('sub-a1')).toBe(false);
+      expect(map.has('sub-b1')).toBe(false);
+      // 关键档位抽查：归并与优先级都正确
+      expect(map.get('main-a')).toBe('running');
+      expect(map.get('main-b')).toBe('waiting_approval');
+      expect(map.get('main-c')).toBe('unread_completed');
+      expect(map.get('does-not-exist') ?? 'idle').toBe('idle');
     });
   });
 

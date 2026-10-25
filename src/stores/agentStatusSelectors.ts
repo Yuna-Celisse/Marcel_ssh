@@ -57,6 +57,64 @@ export function getConversationAgentStatus(
 }
 
 /**
+ * 一次算全所有主对话的 [`getConversationAgentStatus` 结果]。
+ *
+ * 列表页每行调一次单查版 = 每行扫一遍全表（O(行数×会话数)）；这份映射版把
+ * 同一套判定折叠成三趟线性扫描（子→父索引、任务聚合、未读归并），行渲染时
+ * 只做 `map.get(id) ?? 'idle'`。**语义与单查版逐条对齐**（有等价性测试钉住）：
+ * 子对话的任务/未读归并到父对话，waiting_approval > running > unread_completed
+ * > idle 的优先级不变。
+ */
+export function buildConversationAgentStatusMap(
+  tasks: Record<string, AgentTask>,
+  unreadCompletedConvIds: string[] = [],
+): Map<string, AgentVisualStatus> {
+  const allConversations = useConversationStore.getState().conversations;
+  // 子对话 → 父对话（子对话只有一级，父都是主对话）。
+  const parentOf = new Map<string, string>();
+  for (const conv of Object.values(allConversations)) {
+    if (conv.parentConversationId) {
+      parentOf.set(conv.id, conv.parentConversationId);
+    }
+  }
+
+  const agg = new Map<string, { wait: boolean; run: boolean; unread: boolean }>();
+  const bucket = (id: string) => {
+    let b = agg.get(id);
+    if (!b) {
+      b = { wait: false, run: false, unread: false };
+      agg.set(id, b);
+    }
+    return b;
+  };
+
+  // 与单查版同口径：sessionId 为空的占位 task 不算，本机子任务的哨兵值算。
+  for (const t of Object.values(tasks)) {
+    if (!t.sessionId) continue;
+    const root = parentOf.get(t.conversationId) ?? t.conversationId;
+    const b = bucket(root);
+    if (t.status === 'waiting_approval') {
+      b.wait = true;
+    } else if (isTaskActive(t.status)) {
+      b.run = true;
+    }
+  }
+
+  for (const id of unreadCompletedConvIds) {
+    bucket(parentOf.get(id) ?? id).unread = true;
+  }
+
+  const map = new Map<string, AgentVisualStatus>();
+  for (const [id, b] of agg) {
+    map.set(
+      id,
+      b.wait ? 'waiting_approval' : b.run ? 'running' : b.unread ? 'unread_completed' : 'idle',
+    );
+  }
+  return map;
+}
+
+/**
  * 计算指定 SSH 会话（Session）下的综合 Agent 状态
  */
 export function getSessionAgentStatus(

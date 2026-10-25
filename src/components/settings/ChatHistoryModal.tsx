@@ -18,7 +18,7 @@ import {
   groupSearchResultsByConnection,
   formatMatchCountLabel,
 } from '@/stores/conversationHistoryManager';
-import { getConversationAgentStatus } from '@/stores/agentStatusSelectors';
+import { buildConversationAgentStatusMap } from '@/stores/agentStatusSelectors';
 import { AgentStatusIndicator } from '@/components/agent/AgentStatusIndicator';
 
 interface Props {
@@ -32,6 +32,11 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
   const tasks = useTaskStore((s) => s.tasks);
   const unreadCompletedConversations = useTaskStore(
     (s) => s.unreadCompletedConversations,
+  );
+  // 状态一次建映射（每行单查 = 每行扫一遍全表，见 buildConversationAgentStatusMap）
+  const statusMap = useMemo(
+    () => buildConversationAgentStatusMap(tasks, unreadCompletedConversations),
+    [tasks, unreadCompletedConversations],
   );
 
   // 从 manager 中订阅状态
@@ -344,11 +349,7 @@ export default function ChatHistoryModal({ open, onClose }: Props) {
                                       </div>
                                     </div>
                                     <AgentStatusIndicator
-                                      status={getConversationAgentStatus(
-                                        conv.id,
-                                        tasks,
-                                        unreadCompletedConversations,
-                                      )}
+                                      status={statusMap.get(conv.id) ?? 'idle'}
                                       size="xs"
                                     />
                                   </button>

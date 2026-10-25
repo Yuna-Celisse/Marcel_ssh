@@ -8,7 +8,7 @@ import type {
 } from '@/lib/types';
 import { useConnectionStore } from '@/stores/connectionStore';
 import { useTaskStore } from '@/stores/taskStore';
-import { getConversationAgentStatus } from '@/stores/agentStatusSelectors';
+import { buildConversationAgentStatusMap } from '@/stores/agentStatusSelectors';
 import { AgentStatusIndicator } from '@/components/agent/AgentStatusIndicator';
 import { ForkMark } from '@/components/agent/ForkMark';
 import { usePrivacyMode } from '@/hooks/usePrivacyMode';
@@ -47,6 +47,11 @@ export default function MobileChatHistorySheet({
   const tasks = useTaskStore((s) => s.tasks);
   const unreadCompletedConversations = useTaskStore(
     (s) => s.unreadCompletedConversations,
+  );
+  // 状态一次建映射（每行单查 = 每行扫一遍全表，见 buildConversationAgentStatusMap）
+  const statusMap = useMemo(
+    () => buildConversationAgentStatusMap(tasks, unreadCompletedConversations),
+    [tasks, unreadCompletedConversations],
   );
   const privacyMode = usePrivacyMode();
   const connLabel = useCallback(
@@ -495,11 +500,7 @@ export default function MobileChatHistorySheet({
                                           </div>
                                         </div>
                                         <AgentStatusIndicator
-                                          status={getConversationAgentStatus(
-                                            conv.id,
-                                            tasks,
-                                            unreadCompletedConversations,
-                                          )}
+                                          status={statusMap.get(conv.id) ?? 'idle'}
                                           size="xs"
                                         />
                                       </button>
