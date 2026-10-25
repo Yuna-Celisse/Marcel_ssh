@@ -8,6 +8,7 @@ import { useConversationStore } from '@/stores/conversationStore';
 import MobileApprovalSheet from '@/mobile/MobileApprovalSheet';
 import MobileQuestionSheet from '@/mobile/MobileQuestionSheet';
 import { InteractionFloatingCapsule } from '@/components/agent/InteractionFloatingCapsule';
+import { openRiskRule } from '@/lib/riskRuleNav';
 
 /**
  * 「跳转」该跳到哪条 SSH 会话。
@@ -131,6 +132,12 @@ export default function MobileGlobalInteractionOverlay() {
           disposition: current.approval.disposition,
           reasons: current.approval.reasons,
           metadata: current.approval.metadata,
+          ruleIds: current.approval.ruleIds,
+        }}
+        onOpenRiskRule={(ruleId) => {
+          // 先收起面板（不作答），再去设置里定位那条规则；审批仍挂在悬浮胶囊上。
+          setMinimized(true);
+          openRiskRule(ruleId);
         }}
         open={true}
         onApprove={() => {

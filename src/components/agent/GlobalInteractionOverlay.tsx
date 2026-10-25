@@ -9,6 +9,7 @@ import ApprovalDialog from '@/components/agent/ApprovalDialog';
 import QuestionPanel from '@/components/agent/QuestionPanel';
 import { InteractionFloatingCapsule } from './InteractionFloatingCapsule';
 import { flyToInteractionCapsule } from '@/stores/capsuleFlyAnimation';
+import { openRiskRule } from '@/lib/riskRuleNav';
 
 /**
  * 「跳转查看」该跳到哪条 SSH 会话。
@@ -147,6 +148,12 @@ export default function GlobalInteractionOverlay() {
           disposition: current.approval.disposition,
           reasons: current.approval.reasons,
           metadata: current.approval.metadata,
+          ruleIds: current.approval.ruleIds,
+        }}
+        onOpenRiskRule={(ruleId) => {
+          // 先收起弹窗（不作答），再去设置里定位那条规则；审批仍挂在右下角胶囊上。
+          minimizeInteraction();
+          openRiskRule(ruleId);
         }}
         onApprove={() => {
           if (current.approval) {

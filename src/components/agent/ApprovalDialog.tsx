@@ -4,6 +4,7 @@ import { DISPOSITION_LABELS } from '@/lib/constants';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import FileChangeView from './FileChangeView';
+import { RiskRuleHits } from './RiskRuleHits';
 import { cleanExecuteCommandArgs } from './argumentFormat';
 import {
   asArgString,
@@ -29,6 +30,8 @@ interface Props {
   onNavigateToContext?: (e?: React.MouseEvent) => void;
   queueLength?: number;
   onMinimize?: (e?: React.MouseEvent) => void;
+  /// 点「调整」：收起弹窗并打开设置里对应的风险规则。不传就不显示调整入口。
+  onOpenRiskRule?: (ruleId: string) => void;
 }
 
 export default function ApprovalDialog({
@@ -44,6 +47,7 @@ export default function ApprovalDialog({
   onNavigateToContext,
   queueLength = 1,
   onMinimize,
+  onOpenRiskRule,
 }: Props) {
   // 队首切换按键冷却（300ms）：防止连击 Enter 误批下一条刚切换的高危操作
   const [reason, setReason] = useState('');
@@ -279,6 +283,8 @@ export default function ApprovalDialog({
               </ul>
             </div>
           )}
+
+          <RiskRuleHits ruleIds={toolCall.ruleIds} onOpenRule={onOpenRiskRule} />
 
           <div>
             <span className="text-sm text-zinc-400">工具：</span>

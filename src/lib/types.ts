@@ -617,6 +617,8 @@ export interface ToolCallInfo {
   approved?: boolean;
   /** Reasons from the model approval step, shown when the model routed to human. */
   reasons?: string[];
+  /** 这次调用命中的风险规则 id（审批弹窗据此展示规则名并给出调整入口）。 */
+  ruleIds?: string[];
   /** Preview metadata for approval (e.g. edit_file file_content). */
   metadata?: Record<string, unknown>;
 }
@@ -1260,6 +1262,8 @@ export interface ActiveInteractionPayload {
     disposition: Disposition;
     reasons?: string[];
     metadata?: Record<string, unknown>;
+    /** 命中的风险规则 id（规则表或自定义规则）。 */
+    ruleIds?: string[];
   };
   question?: {
     questionId: string;

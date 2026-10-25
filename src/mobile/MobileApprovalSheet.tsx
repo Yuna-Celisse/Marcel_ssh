@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Disposition, ToolCallInfo } from '@/lib/types';
 import { DISPOSITION_LABELS } from '@/lib/constants';
 import FileChangeView from '@/components/agent/FileChangeView';
+import { RiskRuleHits } from '@/components/agent/RiskRuleHits';
 import MobileSheet from './ui/MobileSheet';
 import { cleanExecuteCommandArgs } from '@/components/agent/argumentFormat';
 import {
@@ -27,6 +28,8 @@ interface MobileApprovalSheetProps {
   onNavigateToContext?: (e?: React.MouseEvent) => void;
   queueLength?: number;
   onMinimize?: (e?: React.MouseEvent) => void;
+  /// 点「调整」：收起面板并打开设置里对应的风险规则。不传就不显示调整入口。
+  onOpenRiskRule?: (ruleId: string) => void;
 }
 
 const DISPOSITION_TONE: Record<Disposition, string> = {
@@ -52,6 +55,7 @@ export default function MobileApprovalSheet({
   onNavigateToContext,
   queueLength = 1,
   onMinimize,
+  onOpenRiskRule,
 }: MobileApprovalSheetProps) {
   const [reason, setReason] = useState('');
   // 队首换成下一条时理由必须清空 —— 理由是给「那条命令」的，留在框里就会原样
@@ -248,6 +252,8 @@ export default function MobileApprovalSheet({
             </ul>
           </div>
         )}
+
+        <RiskRuleHits ruleIds={toolCall.ruleIds} onOpenRule={onOpenRiskRule} compact />
 
         <div className="flex items-center gap-2 text-sm">
           <span className="flex-shrink-0 text-zinc-500">工具</span>
