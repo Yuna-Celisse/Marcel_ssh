@@ -145,6 +145,11 @@ export function mobileVisualizationFrame(
 export const HTML_VIZ_HEIGHT_MESSAGE = "marcel-html-viz:height";
 export const HTML_VIZ_STREAM_MESSAGE = "marcel-html-viz:stream";
 export const HTML_VIZ_FOCUS_MESSAGE = "marcel-html-viz:focus";
+/**
+ * iframe 里发生了滚动类输入（滚轮 / 触摸 / 翻页键）。iframe 是独立文档，这些事件不会
+ * 冒泡到宿主的对话列表，列表就不知道「用户在翻看」，滚动被它当成程序自己滚的。
+ */
+export const HTML_VIZ_INTENT_MESSAGE = "marcel-html-viz:intent";
 
 const RESOURCE_ORIGINS = [
   "https://cdnjs.cloudflare.com",
@@ -296,6 +301,20 @@ function heightReporter(token: string): string {
   if (document.body) observer.observe(document.body);
   addEventListener('load', report);
   report();
+  // 滚动意图转发：鼠标 / 手指落在 iframe 上滚动时，宿主列表收不到 wheel / touch，
+  // 会误以为不是用户在滚，仍按「贴底跟随」把视口拽回底部。节流到 100ms 一次。
+  var lastIntent = 0;
+  function intent() {
+    var now = Date.now();
+    if (now - lastIntent < 100) return;
+    lastIntent = now;
+    parent.postMessage({ type: ${JSON.stringify(HTML_VIZ_INTENT_MESSAGE)}, token: token }, '*');
+  }
+  addEventListener('wheel', intent, { passive: true });
+  addEventListener('touchstart', intent, { passive: true });
+  addEventListener('keydown', function (event) {
+    if (/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End| )$/.test(event.key)) intent();
+  });
 })();`;
 }
 

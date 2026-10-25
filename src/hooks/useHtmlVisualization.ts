@@ -12,6 +12,7 @@ import {
   buildSettledVisualizationDoc,
   buildStreamingVisualizationDoc,
   HTML_VIZ_HEIGHT_MESSAGE,
+  HTML_VIZ_INTENT_MESSAGE,
   HTML_VIZ_STREAM_MESSAGE,
   resolveVisualizationTheme,
   sameVisualizationTheme,
@@ -166,6 +167,12 @@ export function useHtmlVisualization(
         token?: unknown;
         height?: unknown;
       } | null;
+      if (data?.type === HTML_VIZ_INTENT_MESSAGE && data.token === token) {
+        // 把 iframe 里的滚动输入补发成宿主侧的 wheel：冒泡到对话列表的滚动容器，
+        // 由 useAgentScrollIntent 照常记成「用户在滚」，不必让它认识 iframe。
+        frameRef.current?.dispatchEvent(new Event("wheel", { bubbles: true }));
+        return;
+      }
       if (data?.type !== HTML_VIZ_HEIGHT_MESSAGE || data.token !== token)
         return;
       if (typeof data.height !== "number" || !Number.isFinite(data.height))

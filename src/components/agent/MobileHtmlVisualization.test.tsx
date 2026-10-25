@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "@/lib/types";
 import {
   HTML_VIZ_HEIGHT_MESSAGE,
+  HTML_VIZ_INTENT_MESSAGE,
   MOBILE_VIZ_STREAM_THROTTLE_MS,
 } from "@/lib/htmlVisualization";
 import {
@@ -234,6 +235,42 @@ describe("MobileHtmlVisualization", () => {
   it("installs the keyboard bridge in the inline document", async () => {
     await render();
     expect(inlineFrame().srcdoc).toContain("wantsKeyboard");
+  });
+
+  describe("scroll intent forwarding", () => {
+    function postIntent(token: string, source: Window | null) {
+      return act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: HTML_VIZ_INTENT_MESSAGE, token },
+            source,
+          }),
+        );
+      });
+    }
+
+    it("re-emits a wheel on the iframe so the list's scroll-intent hook hears it", async () => {
+      await render();
+      const onWheel = vi.fn();
+      host.addEventListener("wheel", onWheel);
+      await postIntent("call-1", inlineFrame().contentWindow);
+      expect(onWheel).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores intent from another token or another window", async () => {
+      await render();
+      const onWheel = vi.fn();
+      host.addEventListener("wheel", onWheel);
+      await postIntent("other", inlineFrame().contentWindow);
+      await postIntent("call-1", window);
+      expect(onWheel).not.toHaveBeenCalled();
+    });
+
+    it("the iframe runtime reports wheel / touch / paging keys", async () => {
+      await render();
+      expect(inlineFrame().srcdoc).toContain(HTML_VIZ_INTENT_MESSAGE);
+      expect(inlineFrame().srcdoc).toContain("addEventListener('wheel', intent");
+    });
   });
 
   describe("first load height", () => {
