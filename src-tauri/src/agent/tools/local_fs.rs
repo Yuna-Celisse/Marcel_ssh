@@ -523,35 +523,43 @@ async fn list_with_policy(path: &str, policy: &LocalPathPolicy) -> Result<Vec<Ra
         return Err(format!("{path} 不是目录，无法列出内容。"));
     }
 
-    let dir =
-        std::fs::read_dir(&resolved).map_err(|e| format!("本机目录读取失败：{path}（{e}）"))?;
-    let mut entries = Vec::new();
-    for entry in dir {
-        let entry = entry.map_err(|e| format!("本机目录条目读取失败：{e}"))?;
-        // 用 symlink_metadata（lstat）而不是 entry.metadata()/fs::metadata：
-        // 类型判定必须看条目本身，不能跟到链接目标去。
-        let meta = std::fs::symlink_metadata(entry.path()).map_err(|e| {
-            format!(
-                "本机目录条目 metadata 读取失败：{}（{}）",
-                display_path(&entry.path()),
-                e
-            )
-        })?;
-        let ft = meta.file_type();
-        let kind = if ft.is_symlink() {
-            EntryKind::Symlink
-        } else if ft.is_dir() {
-            EntryKind::Dir
-        } else {
-            EntryKind::File
-        };
-        entries.push(RawEntry {
-            name: entry.file_name().to_string_lossy().to_string(),
-            kind,
-            size: meta.len(),
-            mode: mode_of(&meta),
-        });
-    }
+    // read_dir + 逐条 lstat 是一串同步系统调用（大目录下上百次 stat），整段挪进
+    // spawn_blocking，别在异步运行时上逐条阻塞。错误文案与顺序语义不变。
+    let path_display = path.to_string();
+    let entries = tokio::task::spawn_blocking(move || -> Result<Vec<RawEntry>, String> {
+        let dir = std::fs::read_dir(&resolved)
+            .map_err(|e| format!("本机目录读取失败：{path_display}（{e}）"))?;
+        let mut entries = Vec::new();
+        for entry in dir {
+            let entry = entry.map_err(|e| format!("本机目录条目读取失败：{e}"))?;
+            // 用 symlink_metadata（lstat）而不是 entry.metadata()/fs::metadata：
+            // 类型判定必须看条目本身，不能跟到链接目标去。
+            let meta = std::fs::symlink_metadata(entry.path()).map_err(|e| {
+                format!(
+                    "本机目录条目 metadata 读取失败：{}（{}）",
+                    display_path(&entry.path()),
+                    e
+                )
+            })?;
+            let ft = meta.file_type();
+            let kind = if ft.is_symlink() {
+                EntryKind::Symlink
+            } else if ft.is_dir() {
+                EntryKind::Dir
+            } else {
+                EntryKind::File
+            };
+            entries.push(RawEntry {
+                name: entry.file_name().to_string_lossy().to_string(),
+                kind,
+                size: meta.len(),
+                mode: mode_of(&meta),
+            });
+        }
+        Ok(entries)
+    })
+    .await
+    .map_err(|e| format!("本机目录列举任务失败：{e}"))??;
     // 顺序保持文件系统给出的原始顺序：展示排序由上层（`file_ops` 的
     // DirectorySortBy）统一负责，后端之间不得有行为分歧。
     Ok(entries)
