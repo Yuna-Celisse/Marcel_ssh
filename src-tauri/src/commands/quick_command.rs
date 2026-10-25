@@ -22,13 +22,16 @@ pub async fn quick_command_add(
     state: State<'_, AppState>,
     command: QuickCommandInput,
 ) -> Result<QuickCommand, AppError> {
-    let mut store = state.quick_command_store.write().await;
-    let mut candidate = store.clone();
-    let id = Uuid::new_v4().to_string();
-    let created = candidate.add(id.clone(), command)?;
+    let (candidate, created) = {
+        let store = state.quick_command_store.write().await;
+        let mut candidate = store.clone();
+        let id = Uuid::new_v4().to_string();
+        let created = candidate.add(id.clone(), command)?;
+        (candidate, created)
+    };
     let path = QuickCommandStore::default_file(&state.config_dir);
-    candidate.save_to_path(&path)?;
-    *store = candidate;
+    tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    *state.quick_command_store.write().await = candidate;
 
     Ok(created)
 }
@@ -41,11 +44,14 @@ pub async fn quick_command_update(
 ) -> Result<(), AppError> {
     let path = QuickCommandStore::default_file(&state.config_dir);
     {
-        let mut store = state.quick_command_store.write().await;
-        let mut candidate = store.clone();
-        candidate.update(&id, patch)?;
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.quick_command_store.write().await;
+            let mut candidate = store.clone();
+            candidate.update(&id, patch)?;
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.quick_command_store.write().await = candidate;
     }
 
     Ok(())
@@ -53,14 +59,17 @@ pub async fn quick_command_update(
 
 #[tauri::command]
 pub async fn quick_command_delete(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    let mut store = state.quick_command_store.write().await;
-    let mut candidate = store.clone();
-    if !candidate.remove(&id) {
-        return Err(AppError::Config(format!("未找到快捷指令: {}", id)));
-    }
+    let candidate = {
+        let store = state.quick_command_store.write().await;
+        let mut candidate = store.clone();
+        if !candidate.remove(&id) {
+            return Err(AppError::Config(format!("未找到快捷指令: {}", id)));
+        }
+        candidate
+    };
     let path = QuickCommandStore::default_file(&state.config_dir);
-    candidate.save_to_path(&path)?;
-    *store = candidate;
+    tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    *state.quick_command_store.write().await = candidate;
 
     Ok(())
 }

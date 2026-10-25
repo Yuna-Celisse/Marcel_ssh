@@ -210,17 +210,19 @@ pub async fn skill_add(
     let resources = resources.unwrap_or_default();
     validate_resources(&resources).map_err(AppError::Config)?;
     let path = SkillStore::default_file(&state.config_dir);
-    let mut store = state.skill_store.write().await;
-    let mut candidate = store.clone();
-    let mut skill = Skill::new(name, description, prompt);
-    skill.resources = resources;
-    // 新 skill 追加到用户排序列表末尾
-    skill.position = candidate.next_position();
-    let cloned = skill.clone();
-    candidate.add(skill);
-    candidate.save_to_path(&path)?;
-    *store = candidate;
-    drop(store);
+    let (candidate, cloned) = {
+        let store = state.skill_store.write().await;
+        let mut candidate = store.clone();
+        let mut skill = Skill::new(name, description, prompt);
+        skill.resources = resources;
+        // 新 skill 追加到用户排序列表末尾
+        skill.position = candidate.next_position();
+        let cloned = skill.clone();
+        candidate.add(skill);
+        (candidate, cloned)
+    };
+    tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    *state.skill_store.write().await = candidate;
 
     Ok(cloned)
 }
@@ -255,13 +257,16 @@ pub async fn skill_update(
     }
     let path = SkillStore::default_file(&state.config_dir);
     {
-        let mut store = state.skill_store.write().await;
-        let mut candidate = store.clone();
-        if !candidate.update(&id, name, description, prompt, resources) {
-            return Err(AppError::Config(format!("skill not found: {}", id)));
-        }
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.skill_store.write().await;
+            let mut candidate = store.clone();
+            if !candidate.update(&id, name, description, prompt, resources) {
+                return Err(AppError::Config(format!("skill not found: {}", id)));
+            }
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.skill_store.write().await = candidate;
     }
 
     Ok(())
@@ -271,13 +276,16 @@ pub async fn skill_update(
 pub async fn skill_toggle(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let path = SkillStore::default_file(&state.config_dir);
     {
-        let mut store = state.skill_store.write().await;
-        let mut candidate = store.clone();
-        if !candidate.toggle(&id) {
-            return Err(AppError::Config(format!("skill not found: {}", id)));
-        }
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.skill_store.write().await;
+            let mut candidate = store.clone();
+            if !candidate.toggle(&id) {
+                return Err(AppError::Config(format!("skill not found: {}", id)));
+            }
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.skill_store.write().await = candidate;
     }
 
     Ok(())
@@ -291,14 +299,16 @@ pub async fn skill_delete(state: State<'_, AppState>, id: String) -> Result<(), 
         ));
     }
     let path = SkillStore::default_file(&state.config_dir);
-    let mut store = state.skill_store.write().await;
-    let mut candidate = store.clone();
-    if !candidate.delete(&id) {
-        return Err(AppError::Config(format!("skill not found: {}", id)));
-    }
-    candidate.save_to_path(&path)?;
-    *store = candidate;
-    drop(store);
+    let candidate = {
+        let store = state.skill_store.write().await;
+        let mut candidate = store.clone();
+        if !candidate.delete(&id) {
+            return Err(AppError::Config(format!("skill not found: {}", id)));
+        }
+        candidate
+    };
+    tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    *state.skill_store.write().await = candidate;
 
     Ok(())
 }
@@ -315,12 +325,15 @@ pub async fn skill_reorder(state: State<'_, AppState>, ids: Vec<String>) -> Resu
     }
     let path = SkillStore::default_file(&state.config_dir);
     {
-        let mut store = state.skill_store.write().await;
-        let mut candidate = store.clone();
-        let changed = candidate.apply_user_order(&ids);
+        let (candidate, changed) = {
+            let store = state.skill_store.write().await;
+            let mut candidate = store.clone();
+            let changed = candidate.apply_user_order(&ids);
+            (candidate, changed)
+        };
         if !changed.is_empty() {
-            candidate.save_to_path(&path)?;
-            *store = candidate;
+            tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+            *state.skill_store.write().await = candidate;
         }
     }
 

@@ -32,12 +32,15 @@ pub async fn mcp_add_server(
     let server = McpServerConfig::new(input)?;
     let cloned = server.clone();
     let path = McpServerStore::default_file(&state.config_dir);
-    let mut store = state.mcp_store.write().await;
-    let mut candidate = store.clone();
-    candidate.add(server);
-    candidate.save_to_path(&path)?;
-    *store = candidate;
-    drop(store);
+    let candidate = {
+        let store = state.mcp_store.write().await;
+        let mut candidate = store.clone();
+        candidate.add(server);
+        candidate
+    };
+    // fsync 是同步系统调用：出写锁后再落盘（对齐 settings 的 block_in_place 写法）
+    tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+    *state.mcp_store.write().await = candidate;
 
     Ok(cloned)
 }
@@ -50,11 +53,14 @@ pub async fn mcp_update_server(
 ) -> Result<(), AppError> {
     let path = McpServerStore::default_file(&state.config_dir);
     {
-        let mut store = state.mcp_store.write().await;
-        let mut candidate = store.clone();
-        candidate.update(&id, input)?;
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.mcp_store.write().await;
+            let mut candidate = store.clone();
+            candidate.update(&id, input)?;
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.mcp_store.write().await = candidate;
     }
     state.mcp_manager.clear_cache(&id).await;
 
@@ -65,11 +71,14 @@ pub async fn mcp_update_server(
 pub async fn mcp_delete_server(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let path = McpServerStore::default_file(&state.config_dir);
     {
-        let mut store = state.mcp_store.write().await;
-        let mut candidate = store.clone();
-        candidate.delete(&id)?;
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.mcp_store.write().await;
+            let mut candidate = store.clone();
+            candidate.delete(&id)?;
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.mcp_store.write().await = candidate;
     }
     state.mcp_manager.clear_cache(&id).await;
 
@@ -80,11 +89,14 @@ pub async fn mcp_delete_server(state: State<'_, AppState>, id: String) -> Result
 pub async fn mcp_toggle_server(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let path = McpServerStore::default_file(&state.config_dir);
     {
-        let mut store = state.mcp_store.write().await;
-        let mut candidate = store.clone();
-        candidate.toggle(&id)?;
-        candidate.save_to_path(&path)?;
-        *store = candidate;
+        let candidate = {
+            let store = state.mcp_store.write().await;
+            let mut candidate = store.clone();
+            candidate.toggle(&id)?;
+            candidate
+        };
+        tokio::task::block_in_place(|| candidate.save_to_path(&path))?;
+        *state.mcp_store.write().await = candidate;
     }
     // enabled 不进 tools cache key；Agent 只注册 store 里 enabled 的 server。
     // 不清 cache，避免关/开闪空与无意义重刷。
