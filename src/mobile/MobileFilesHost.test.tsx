@@ -724,3 +724,46 @@ describe('复制 / 剪切 + 粘贴', () => {
     expect(container.textContent).toContain('另一台服务器');
   });
 });
+
+// ── 宿主渲染收窄的计数断言 ──────────────────────────────────────────────
+// sessionStatusLabel 在有活动会话时每次宿主渲染都会被调用，间谍它的调用次数
+// 即宿主渲染次数的代理（进度 tick 只该重渲染传输条小组件，不该动整页）。
+const sessionUiSpies = vi.hoisted(() => ({
+  sessionStatusLabel: vi.fn((s: string) => s),
+  resolveSessionDisplayName: vi.fn((_a: unknown, _b: unknown) => '主机'),
+}));
+vi.mock('./sessionUi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./sessionUi')>();
+  return {
+    ...actual,
+    sessionStatusLabel: sessionUiSpies.sessionStatusLabel,
+    resolveSessionDisplayName: sessionUiSpies.resolveSessionDisplayName,
+  };
+});
+
+describe('传输进度与宿主重渲染', () => {
+  it('进度 tick 不重渲染文件列表（宿主只订阅忙布尔与终态条目本体）', async () => {
+    await mountFilesTab();
+    expect(
+      sessionUiSpies.sessionStatusLabel.mock.calls.length,
+      '前提：当前用例环境下标签渲染路径确实会走到',
+    ).toBeGreaterThan(0);
+
+    await putTransfer('progress-tick', {
+      status: 'active',
+      written: 0,
+      total: 100,
+      statusText: '传输中',
+    });
+    const baseline = sessionUiSpies.sessionStatusLabel.mock.calls.length;
+
+    for (let i = 1; i <= 20; i++) {
+      await act(async () => {
+        useTransferStore
+          .getState()
+          .updateItem('progress-tick', { written: i * 5, statusText: `传输中 ${i}` });
+      });
+    }
+    expect(sessionUiSpies.sessionStatusLabel.mock.calls.length).toBe(baseline);
+  });
+});

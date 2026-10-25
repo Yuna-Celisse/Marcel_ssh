@@ -74,6 +74,8 @@ import {
   transferProgressPercent,
   TRANSFER_COMPLETION_BANNER_MS,
   TRANSFER_COMPLETION_FRESH_MS,
+  latestFailureItem,
+  latestCompletionItem,
   type FilesEmptyStateReason,
   type TransferCompletionInfo,
 } from './filesUi';
@@ -280,9 +282,9 @@ export default function MobileFilesHost({
   const { uploadFile } = useSftpUpload(sessionId, currentPath);
   const { startDownload } = useSftpDownload(sessionId);
 
-  // 传输中心接管进度管理；移动端保留顶部条显示当前活动传输
-  const uploadItem = useTransferStore((s) => selectActiveOf(s, 'upload'));
-  const downloadItem = useTransferStore((s) => selectActiveOf(s, 'download'));
+  // 传输中心接管进度管理；移动端保留顶部条显示当前活动传输。
+  // 宿主只订阅「有无活动传输」**布尔**（身份稳定，进度 tick 不触发整页重渲染）；
+  // 传输条本身抽成了 MobileTransferBars 小组件、自己订阅条目引用。
 
   // 移动端无传输中心面板：传输任务失败（error 终态）后顶部条消失，用户无从得知。
   // 这里订阅当前 session 最近一次失败任务，若尚未提示过（去重 ref），就地展示错误条。
@@ -292,11 +294,15 @@ export default function MobileFilesHost({
   // sessionId 会变成 ''，而「会话已断开，任务已跳过」这类失败恰恰只在断连后产生，
   // 用 ready id 扫就永远扫不到，提示自然也就没有。
   const activeSessionKey = activeSession?.id ?? '';
-  const transferItems = useTransferStore((s) => s.items);
-  const transferOrder = useTransferStore((s) => s.order);
+  // 探测器挪进选择器：返回的是**终态条目对象**（终态后不再被更新，引用稳定），
+  // 进度 tick 重跑选择器但结果引用不变，宿主不再被拖着重渲染；隐藏页直接
+  // 返回 null（冻结订阅，回前台后下一次 store 变更即追上）。
+  const failureItem = useTransferStore((s) =>
+    visible ? latestFailureItem(s.items, s.order, activeSessionKey) : null,
+  );
   const transferFailure = useMemo(
-    () => latestTransferFailure(transferItems, transferOrder, activeSessionKey),
-    [transferItems, transferOrder, activeSessionKey],
+    () => failureItem && latestTransferFailure({ [failureItem.id]: failureItem }, [failureItem.id], activeSessionKey),
+    [failureItem, activeSessionKey],
   );
   const surfacedFailureRef = useRef<string | null>(null);
   useEffect(() => {
@@ -309,10 +315,12 @@ export default function MobileFilesHost({
 
   // 成功终态同理：条目一到 done 就从顶部活动条消失，界面既不说「已完成」，
   // 也不给文件落点。这里派生最近一次成功任务，短暂展示并给一个复制路径的出口。
+  const completionItem = useTransferStore((s) =>
+    visible ? latestCompletionItem(s.items, s.order, activeSessionKey) : null,
+  );
   const transferCompletion = useMemo(
-    () =>
-      latestTransferCompletion(transferItems, transferOrder, activeSessionKey),
-    [transferItems, transferOrder, activeSessionKey],
+    () => completionItem && latestTransferCompletion({ [completionItem.id]: completionItem }, [completionItem.id], activeSessionKey),
+    [completionItem, activeSessionKey],
   );
   const surfacedCompletionRef = useRef<string | null>(null);
 
@@ -350,8 +358,8 @@ export default function MobileFilesHost({
 
   // 上传 / 下载是两条独立车道（调度器本身就是 upload / download 两条 lane，
   // 桌面两端也可并行）。用一个总布尔会互相禁用，把另一条道白白堵死。
-  const uploadBusy = uploadItem !== null;
-  const downloadBusy = downloadItem !== null;
+  const uploadBusy = useTransferStore((s) => selectActiveOf(s, 'upload') !== null);
+  const downloadBusy = useTransferStore((s) => selectActiveOf(s, 'download') !== null);
 
   const navigateTo = useCallback((path: string) => {
     setCurrentPath(path || '/');
@@ -986,30 +994,7 @@ export default function MobileFilesHost({
 
       {errorBanner('bottom')}
 
-      {uploadItem && (
-        <TransferBar
-          statusText={uploadItem.statusText}
-          written={uploadItem.written}
-          total={uploadItem.total}
-          onCancel={
-            uploadItem.status === 'active' && uploadItem.phase !== 'extracting'
-              ? () => cancelTransfer(uploadItem.id)
-              : undefined
-          }
-        />
-      )}
-      {downloadItem && (
-        <TransferBar
-          statusText={downloadItem.statusText}
-          written={downloadItem.written}
-          total={downloadItem.total}
-          onCancel={
-            downloadItem.status === 'active'
-              ? () => cancelTransfer(downloadItem.id)
-              : undefined
-          }
-        />
-      )}
+      <MobileTransferBars />
 
       {selectMode && (
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-t border-edge-subtle bg-zinc-900/80 px-3 py-2">
@@ -1621,5 +1606,45 @@ function SheetAction({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * 顶部传输条（上传/下载各一条）：自己订阅活动条目。
+ *
+ * 进度每个 tick 都会替换条目对象引用——订阅放在这里，进度更新只重渲染
+ * 这一小块；宿主（MobileFilesHost）只订阅「有无活动传输」的布尔，整页
+ * 文件列表不再随传输进度调和。抽离本身不改渲染内容与交互。
+ */
+function MobileTransferBars() {
+  const uploadItem = useTransferStore((s) => selectActiveOf(s, 'upload'));
+  const downloadItem = useTransferStore((s) => selectActiveOf(s, 'download'));
+  return (
+    <>
+      {uploadItem && (
+        <TransferBar
+          statusText={uploadItem.statusText}
+          written={uploadItem.written}
+          total={uploadItem.total}
+          onCancel={
+            uploadItem.status === 'active' && uploadItem.phase !== 'extracting'
+              ? () => cancelTransfer(uploadItem.id)
+              : undefined
+          }
+        />
+      )}
+      {downloadItem && (
+        <TransferBar
+          statusText={downloadItem.statusText}
+          written={downloadItem.written}
+          total={downloadItem.total}
+          onCancel={
+            downloadItem.status === 'active'
+              ? () => cancelTransfer(downloadItem.id)
+              : undefined
+          }
+        />
+      )}
+    </>
   );
 }

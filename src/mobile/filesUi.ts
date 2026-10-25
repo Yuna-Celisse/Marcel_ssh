@@ -183,16 +183,26 @@ export function latestTransferFailure(
   order: string[],
   sessionId: string,
 ): TransferFailureInfo | null {
+  const item = latestFailureItem(items, order, sessionId);
+  return item && { id: item.id, fileName: item.fileName, statusText: item.statusText };
+}
+
+/**
+ * 同 [`latestTransferFailure`]，但返回**条目本体**（终态条目不再被更新，引用
+ * 稳定）：zustand 选择器必须用这层，info 每次都是新对象、会让 useStore 陷入
+ * 无限重渲染；info 由调用方从条目派生。
+ */
+export function latestFailureItem(
+  items: Record<string, StoredTransferItem>,
+  order: string[],
+  sessionId: string,
+): StoredTransferItem | null {
   for (let i = order.length - 1; i >= 0; i--) {
     const item = items[order[i]];
     if (!item || item.sessionId !== sessionId) continue;
     if (item.id.startsWith('sysopen-')) continue;
     if (item.status !== 'error') continue;
-    return {
-      id: item.id,
-      fileName: item.fileName,
-      statusText: item.statusText,
-    };
+    return item;
   }
   return null;
 }
@@ -237,20 +247,30 @@ export function latestTransferCompletion(
   order: readonly string[],
   sessionId: string,
 ): TransferCompletionInfo | null {
+  const item = latestCompletionItem(items, order, sessionId);
+  return item && {
+    id: item.id,
+    kind: item.kind,
+    fileName: item.fileName,
+    localPath: item.localPath,
+    remotePath: item.remotePath,
+    finishedAt: item.finishedAt ?? 0,
+  };
+}
+
+/** 同 [`latestTransferCompletion`] 的条目层（引用稳定，给 zustand 选择器用）。 */
+export function latestCompletionItem(
+  items: Record<string, StoredTransferItem>,
+  order: readonly string[],
+  sessionId: string,
+): StoredTransferItem | null {
   if (!sessionId) return null;
   for (let i = order.length - 1; i >= 0; i--) {
     const item = items[order[i]];
     if (!item || item.sessionId !== sessionId) continue;
     if (item.id.startsWith('sysopen-')) continue;
     if (item.status !== 'done') continue;
-    return {
-      id: item.id,
-      kind: item.kind,
-      fileName: item.fileName,
-      localPath: item.localPath,
-      remotePath: item.remotePath,
-      finishedAt: item.finishedAt ?? 0,
-    };
+    return item;
   }
   return null;
 }
