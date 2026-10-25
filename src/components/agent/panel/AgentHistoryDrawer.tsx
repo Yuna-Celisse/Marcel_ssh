@@ -53,6 +53,15 @@ export function AgentHistoryDrawer({
   const [editingConvId, setEditingConvId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [mode, setMode] = useState<DrawerMode>("active");
+  // 切视图时的入场方向；首次打开抽屉没有切换，不带动画（整块抽屉自己在滑入）
+  const [viewDir, setViewDir] = useState<"push" | "pop" | null>(null);
+  const viewEnter =
+    viewDir === "push" ? "view-push-enter" : viewDir === "pop" ? "view-pop-enter" : "";
+  const switchMode = (next: DrawerMode) => {
+    setError(null);
+    setViewDir(next === "archived" ? "push" : "pop");
+    setMode(next);
+  };
   const [error, setError] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,11 +178,9 @@ export function AgentHistoryDrawer({
           {mode === "archived" ? (
             <button
               type="button"
-              onClick={() => {
-                setError(null);
-                setMode("active");
-              }}
-              className="flex items-center gap-1 text-sm font-semibold text-zinc-200 hover:text-zinc-100"
+              key="archived-title"
+              onClick={() => switchMode("active")}
+              className={`flex items-center gap-1 text-sm font-semibold text-zinc-200 hover:text-zinc-100 ${viewEnter}`}
               title="返回历史会话"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -182,16 +189,15 @@ export function AgentHistoryDrawer({
               已归档
             </button>
           ) : (
-            <h3 className="text-sm font-semibold text-zinc-200">历史会话</h3>
+            <h3 key="active-title" className={`text-sm font-semibold text-zinc-200 ${viewEnter}`}>
+              历史会话
+            </h3>
           )}
           <div className="flex items-center gap-1">
             {mode === "active" && (
               <button
                 type="button"
-                onClick={() => {
-                  setError(null);
-                  setMode("archived");
-                }}
+                onClick={() => switchMode("archived")}
                 className="flex items-center gap-1 p-1 rounded text-zinc-400 hover:text-zinc-100 hover:bg-state-mid transition-colors"
                 title="查看已归档会话"
                 aria-label="查看已归档会话"
@@ -229,7 +235,7 @@ export function AgentHistoryDrawer({
         </div>
 
         {mode === "archived" ? (
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div key="archived-body" className={`flex-1 overflow-y-auto p-2 space-y-1 ${viewEnter}`}>
             {archivedLoading && archivedConversations.length === 0 && (
               <div className="text-center text-zinc-500 text-sm mt-8">加载中…</div>
             )}
@@ -275,7 +281,7 @@ export function AgentHistoryDrawer({
             ))}
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-2 space-y-3">
+          <div key="active-body" className={`flex-1 overflow-y-auto p-2 space-y-3 ${viewEnter}`}>
             {sessionConversations.length === 0 && (
               <div className="text-center text-zinc-500 text-sm mt-8">
                 <p>暂无历史会话</p>

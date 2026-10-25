@@ -1334,6 +1334,46 @@ button,
   animation: dropdownExit 120ms ease-in both;
 }
 
+/* 同一容器内的视图切换（下钻 / 返回）：新视图从切换方向的一侧小幅滑入并淡入。
+   push = 进入下一层（从右来），pop = 返回上一层（从左来）。位移只有 14px：这是同一块
+   面板里的内容换层，不是整块面板滑进来（整块面板用 animate-slideInRight）。 */
+@keyframes viewPushEnter {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes viewPopEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.view-push-enter {
+  animation: viewPushEnter 220ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+.view-pop-enter {
+  animation: viewPopEnter 220ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-push-enter,
+  .view-pop-enter {
+    animation: none;
+  }
+}
+
 /* 扫光揭示（SweepTransition）：新内容用渐变蒙版自左向右揭开，前沿带一道光。
    --sweep 是蒙版前沿的位置，注册成 <percentage> 才能被关键帧插值。 */
 @property --sweep {
