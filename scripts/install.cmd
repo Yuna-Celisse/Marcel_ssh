@@ -7,7 +7,7 @@ REM ============================================
 title Marcel SSH - Install
 
 set "PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%"
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo.
 echo  Installing dependencies...

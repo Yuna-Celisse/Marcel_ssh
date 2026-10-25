@@ -84,7 +84,7 @@ Release notes 的素材是 commit，但不是 commit 的转述。写每一条之
       改过 updater / 这组门控之后跑一次；它中途会改写工作区文件，别和别的构建或提交并行跑。
 - [ ] 发布桌面时：**自动门控绿了之后**，若要连 UI 一起看（药丸进度、就绪浮层、退出静默安装），
       再用本地测试源把无感链路跑一遍，别拿正式 release 当第一次真机验证 ——
-      `node scripts/update-test-source.mjs`（或双击根目录 `update_test.cmd`）会起一个假更新源，
+      `node scripts/update-test-source.mjs`（或双击 `scripts/update_test.cmd`）会起一个假更新源，
       配合 `MARCEL_LATEST_JSON_URL` 让客户端以为有新版；加 `--no-assets` 测「仅提示跳浏览器」降级、
       `--break-hash` 测校验失败提示、`--payload <真exe>` 测真实静默安装。
       **该钩子只在 debug 构建里编译进去**：客户端要用 `pnpm tauri dev`（桌面）/

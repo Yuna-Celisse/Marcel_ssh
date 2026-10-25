@@ -12,6 +12,6 @@
 
 ### 代码预览
 
-- `install.cmd`：安装前端依赖（`pnpm install`，没有 pnpm 时会先装 pnpm）。
-- `dev.cmd`：启动完整的 Tauri 开发模式——Vite 前端 + 编译并启动 Rust 后端，应用窗口会自动弹出。首次编译 Rust 需要 1–2 分钟。
-- `dev-frontend.cmd`：只启动前端（Vite，不编译 Rust），在浏览器打开 `http://localhost:1420` 预览界面。这是纯 UI 模式，SSH 连接和 Agent 功能不可用，需要完整功能请用 `dev.cmd`。
+- `scripts/install.cmd`：安装前端依赖（`pnpm install`，没有 pnpm 时会先装 pnpm）。
+- `scripts/dev.cmd`：启动完整的 Tauri 开发模式——Vite 前端 + 编译并启动 Rust 后端，应用窗口会自动弹出。首次编译 Rust 需要 1–2 分钟。
+- `scripts/dev-frontend.cmd`：只启动前端（Vite，不编译 Rust），在浏览器打开 `http://localhost:1420` 预览界面。这是纯 UI 模式，SSH 连接和 Agent 功能不可用，需要完整功能请用 `scripts/dev.cmd`。

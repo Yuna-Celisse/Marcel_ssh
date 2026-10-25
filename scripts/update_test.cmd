@@ -9,7 +9,7 @@ REM ============================================
 title Marcel SSH - Update Test Source
 
 set "PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%"
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo.
 echo  ==========================================

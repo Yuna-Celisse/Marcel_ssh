@@ -10,7 +10,7 @@ REM Add Node.js and npm global bin to PATH
 set "PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%"
 
 REM Navigate to project root
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo.
 echo  ==========================================
