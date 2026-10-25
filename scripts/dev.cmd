@@ -32,7 +32,7 @@ if not exist "node_modules\.pnpm" (
     echo  [INFO] Dependencies missing, installing...
     call pnpm install
     echo.
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
         echo  [ERROR] Failed to install dependencies. Run: pnpm install
         pause
         exit /b 1
@@ -43,7 +43,7 @@ if not exist "node_modules\.pnpm" (
         echo  [INFO] Critical dependency missing, installing...
         call pnpm install
         echo.
-        if %ERRORLEVEL% neq 0 (
+        if errorlevel 1 (
             echo  [ERROR] Failed to install dependencies. Run: pnpm install
             pause
             exit /b 1
