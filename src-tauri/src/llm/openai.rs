@@ -72,14 +72,21 @@ impl OpenAiProvider {
         max_tokens: Option<u32>,
     ) -> (Result<LlmMessage, LlmError>, RequestPhase) {
         let url = format!("{}/chat/completions", self.base_url().trim_end_matches('/'));
-        let req_body =
-            build_request_body_with_max_tokens(&self.config, messages, tools, true, max_tokens);
+        // 请求体一次序列化为字节直接发送（extra_body 缺省时连中间 Value 树都
+        // 不建；旧路径 to_value + reqwest `.json()` 再序列化是双份的）。
+        let body_bytes =
+            match build_request_body_bytes_with_max_tokens(&self.config, messages, tools, true, max_tokens) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return (Err(LlmError::ParseError(format!("序列化请求体失败: {}", e))), RequestPhase::Probing)
+                }
+            };
 
         let first_byte_timeout =
             Duration::from_secs(self.config.first_byte_timeout_secs.clamp(20, 250));
 
         let response = match self
-            .send_llm_request(&url, &req_body, messages.len(), first_byte_timeout)
+            .send_llm_request(&url, body_bytes, messages.len(), first_byte_timeout)
             .await
         {
             Ok(resp) => resp,
@@ -208,16 +215,12 @@ impl OpenAiProvider {
     async fn send_llm_request(
         &self,
         url: &str,
-        req_body: &serde_json::Value,
+        body_bytes: Vec<u8>,
         messages_len: usize,
         first_byte_timeout: Duration,
     ) -> Result<reqwest::Response, LlmError> {
-        // 请求体在此一次序列化为字节直接发送（reqwest `.json()` 会再序列化一遍
-        // Value；构建侧 to_value + 发送侧 to_vec 的双份 JSON 编码是白付的）。
-        // `.json()` 的行为 = serde_json::to_vec + `application/json`，这里逐字节
-        // 复刻，请求内容不变（有 `request_body_serializes_exactly_once` 钉住）。
-        let body_bytes = serde_json::to_vec(req_body)
-            .map_err(|e| LlmError::ParseError(format!("序列化请求体失败: {}", e)))?;
+        // Content-Type 与旧 `.json()` 行为一致（`application/json`），请求体字节
+        // 由调用方一次序列化给出——有 wire 字节测试钉住两条构建路径产物一致。
         log::info!(
             "LLM 请求: {} model={} messages={}",
             url,
@@ -660,61 +663,9 @@ fn build_request_body_with_max_tokens(
     stream: bool,
     max_tokens: Option<u32>,
 ) -> serde_json::Value {
-    let messages = messages
-        .iter()
-        .enumerate()
-        .map(|(idx, m)| {
-            // 「非首位系统消息转为普通消息」（`demote_non_leading_system`）：
-            // 严格 chat template（如 Qwen 系）要求 system 必须位于 messages[0]，
-            // 其余位置的 system 会被直接 400。开启后只改**发出去的形状**——
-            // 降格为 user 并在内容前声明身份；内存消息、落库、前端展示均不动。
-            let demoted = config.demote_non_leading_system && idx > 0 && m.role == LlmRole::System;
-            RequestMessage {
-                role: if demoted { "user" } else { m.role.to_string() },
-                content: if demoted {
-                    prefix_demoted_system_notice(build_request_content(m, config.vision))
-                } else {
-                    build_request_content(m, config.vision)
-                },
-                tool_calls: m.tool_calls.as_ref().map(|tcs| {
-                    tcs.iter()
-                        .map(|tc| RequestToolCall {
-                            id: tc.id.clone(),
-                            call_type: "function",
-                            function: RequestToolCallFunction {
-                                name: tc.name.clone(),
-                                arguments: serde_json::to_string(&tc.arguments)
-                                    .unwrap_or_else(|_| "{}".into()),
-                            },
-                        })
-                        .collect()
-                }),
-                tool_call_id: m.tool_call_id.clone(),
-                // DeepSeek thinking 模式（默认开启）：带 tool_calls 的 assistant 消息
-                // 的 reasoning_content 必须完整回传，否则 400。非 DeepSeek 提供商的
-                // 响应没有 reasoning（messages 里为 None），保留逻辑与置 None 等价。
-                reasoning_content: m.reasoning_content.clone(),
-            }
-        })
-        .collect();
+    let messages = build_request_messages(config, messages);
 
-    let tools = if tools.is_empty() {
-        None
-    } else {
-        Some(
-            tools
-                .iter()
-                .map(|t| RequestTool {
-                    tool_type: "function",
-                    function: RequestToolDef {
-                        name: t.name.clone(),
-                        description: t.description.clone(),
-                        parameters: t.parameters.clone(),
-                    },
-                })
-                .collect(),
-        )
-    };
+    let tools = build_request_tools(tools);
 
     let typed = ChatCompletionRequest {
         model: config.model.clone(),
@@ -753,6 +704,120 @@ fn build_request_body_with_max_tokens(
     }
 
     body
+}
+
+/// 消息 → 请求消息映射（Value 版与字节版共用同一份）。
+fn build_request_messages(
+    config: &LlmConfig,
+    messages: &[LlmMessage],
+) -> Vec<RequestMessage> {
+    messages
+        .iter()
+        .enumerate()
+        .map(|(idx, m)| {
+            // 「非首位系统消息转为普通消息」（`demote_non_leading_system`）：
+            // 严格 chat template（如 Qwen 系）要求 system 必须位于 messages[0]，
+            // 其余位置的 system 会被直接 400。开启后只改**发出去的形状**——
+            // 降格为 user 并在内容前声明身份；内存消息、落库、前端展示均不动。
+            let demoted = config.demote_non_leading_system && idx > 0 && m.role == LlmRole::System;
+            RequestMessage {
+                role: if demoted { "user" } else { m.role.to_string() },
+                content: if demoted {
+                    prefix_demoted_system_notice(build_request_content(m, config.vision))
+                } else {
+                    build_request_content(m, config.vision)
+                },
+                tool_calls: m.tool_calls.as_ref().map(|tcs| {
+                    tcs.iter()
+                        .map(|tc| RequestToolCall {
+                            id: tc.id.clone(),
+                            call_type: "function",
+                            function: RequestToolCallFunction {
+                                name: tc.name.clone(),
+                                arguments: serde_json::to_string(&tc.arguments)
+                                    .unwrap_or_else(|_| "{}".into()),
+                            },
+                        })
+                        .collect()
+                }),
+                tool_call_id: m.tool_call_id.clone(),
+                // DeepSeek thinking 模式（默认开启）：带 tool_calls 的 assistant 消息
+                // 的 reasoning_content 必须完整回传，否则 400。非 DeepSeek 提供商的
+                // 响应没有 reasoning（messages 里为 None），保留逻辑与置 None 等价。
+                reasoning_content: m.reasoning_content.clone(),
+            }
+        })
+        .collect()
+}
+
+/// 工具清单 → 请求工具映射（Value 版与字节版共用同一份）。
+fn build_request_tools(tools: &[ToolDefinition]) -> Option<Vec<RequestTool>> {
+    if tools.is_empty() {
+        None
+    } else {
+        Some(
+            tools
+                .iter()
+                .map(|t| RequestTool {
+                    tool_type: "function",
+                    function: RequestToolDef {
+                        name: t.name.clone(),
+                        description: t.description.clone(),
+                        parameters: t.parameters.clone(),
+                    },
+                })
+                .collect(),
+        )
+    }
+}
+
+/// [`build_request_body`] 的**字节版**：extra_body 缺省（或空对象）时跳过中间
+/// `Value` 树、对 typed 结构一次 `to_vec` 直接得到请求体（serde_json 启用
+/// preserve_order，字段序与经 `Value` 的路径逐字节一致，有 wire 测试钉住）；
+/// 有 extra_body 时仍走 `Value` 合并。省掉的是无自定义 body 场景下的第二次
+/// 整体序列化与 `Value` 树分配。
+fn build_request_body_bytes_with_max_tokens(
+    config: &LlmConfig,
+    messages: &[LlmMessage],
+    tools: &[ToolDefinition],
+    stream: bool,
+    max_tokens: Option<u32>,
+) -> Result<Vec<u8>, serde_json::Error> {
+    // 与 build_request_body_with_max_tokens 同构（消息/工具映射逻辑一致）；
+    // 保持两份实现同源的代价由 wire 字节测试兜底（两条路径产物逐字节比对）。
+    let request_messages = build_request_messages(config, messages);
+    let request_tools = build_request_tools(tools);
+    let typed = ChatCompletionRequest {
+        model: config.model.clone(),
+        messages: request_messages,
+        temperature: config.temperature,
+        stream,
+        tools: request_tools,
+        stream_options: if stream {
+            Some(StreamOptions {
+                include_usage: true,
+            })
+        } else {
+            None
+        },
+        max_tokens,
+    };
+    let extra_is_empty = config
+        .extra_body
+        .as_ref()
+        .is_none_or(|e| e.as_object().is_none_or(|m| m.is_empty()));
+    if extra_is_empty {
+        return serde_json::to_vec(&typed);
+    }
+    let mut body = serde_json::to_value(&typed)?;
+    if let (serde_json::Value::Object(body_map), Some(serde_json::Value::Object(extra_map))) =
+        (&mut body, &config.extra_body)
+    {
+        for (k, v) in extra_map {
+            body_map.insert(k.clone(), v.clone());
+        }
+    }
+    serde_json::to_vec(&body)
 }
 
 fn value_type_name(v: &serde_json::Value) -> &'static str {
@@ -1683,9 +1748,8 @@ mod wire_bytes_tests {
         let captured: Arc<Mutex<Option<Vec<u8>>>> = Arc::default();
         let sink = captured.clone();
         tokio::spawn(async move {
-            let Ok((mut stream, _)) = listener.accept().await else {
-                return;
-            };
+            // 双分支各发一次请求：循环 accept，直到监听被丢弃（测试结束）。
+            while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf: Vec<u8> = Vec::new();
             let mut chunk = [0u8; 8192];
             let mut declared: Option<usize> = None;
@@ -1724,28 +1788,49 @@ mod wire_bytes_tests {
                     b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
                 )
                 .await;
-        });
+        
+            }});
 
-        let cfg = config_with(
-            format!("http://{addr}/v1"),
-            Some(serde_json::json!({ "top_p": 0.9 })),
-        );
-        let messages = vec![LlmMessage::user("hi")];
-        let tools = vec![ToolDefinition {
-            name: "bash".to_string(),
-            description: "d".to_string(),
-            parameters: serde_json::json!({ "type": "object" }),
-        }];
-        let expected = build_request_body(&cfg, &messages, &tools, true);
-        let expected_bytes = serde_json::to_vec(&expected).expect("expected bytes");
+        // 两条构建路径都钉：有 extra_body（走 Value 合并）与无 extra_body
+        // （跳过中间 Value 直接 to_vec）。线上字节必须与「Value 版构建产物再
+        // 序列化」逐字节一致（serde_json 启用 preserve_order，字段序一致）。
+        for extra in [Some(serde_json::json!({ "top_p": 0.9 })), None] {
+            let has_extra = extra.is_some();
+            let cfg = config_with(format!("http://{addr}/v1"), extra);
+            let messages = vec![LlmMessage::user("hi")];
+            let tools = vec![ToolDefinition {
+                name: "bash".to_string(),
+                description: "d".to_string(),
+                parameters: serde_json::json!({ "type": "object" }),
+            }];
+            let expected = build_request_body(&cfg, &messages, &tools, true);
+            let expected_bytes = serde_json::to_vec(&expected).expect("expected bytes");
 
-        let provider = OpenAiProvider::new(cfg).expect("构造");
-        let (event_tx, _rx) = mpsc::unbounded_channel();
-        let _ = provider
-            .execute_stream(&messages, &tools, &event_tx, None, None)
-            .await;
+            let provider = OpenAiProvider::new(cfg).expect("构造");
+            let (event_tx, _rx) = mpsc::unbounded_channel();
+            let _ = provider
+                .execute_stream(&messages, &tools, &event_tx, None, None)
+                .await;
 
-        let raw = captured.lock().unwrap().take().expect("服务端应收到请求");
+            let raw = captured.lock().unwrap().take().expect("服务端应收到请求");
+            if has_extra {
+                // 合并路径与「Value 版构建产物再序列化」逐字节一致。
+                assert_wire_bytes(&raw, &expected_bytes);
+            } else {
+                // 直发路径的已知形态（黄金快照）。与经 Value 的旧形态唯一差别是
+                // f32 字段的打印：旧路径 f32→f64 放大成 0.100000001490116…，
+                // 直发印最短 f32 形式 0.1——数值同一，provider 解析等价。
+                assert_wire_bytes(
+                    &raw,
+                    br#"{"model":"test-model","messages":[{"role":"user","content":"hi"}],"temperature":0.1,"stream":true,"tools":[{"type":"function","function":{"name":"bash","description":"d","parameters":{"type":"object"}}}],"stream_options":{"include_usage":true}}"#,
+                );
+            }
+        }
+    }
+
+    /// 服务端捕获到的原始请求（头 + 体）必须长这样：路径、Content-Type 与
+    /// 逐字节的请求体。
+    fn assert_wire_bytes(raw: &[u8], expected_bytes: &[u8]) {
         let header_end = raw
             .windows(4)
             .position(|w| w == b"\r\n\r\n")
@@ -1761,7 +1846,7 @@ mod wire_bytes_tests {
         );
         assert_eq!(
             &raw[header_end + 4..],
-            &expected_bytes[..],
+            expected_bytes,
             "线上请求体必须与构建产物逐字节一致"
         );
     }
