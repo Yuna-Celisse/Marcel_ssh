@@ -55,7 +55,7 @@ describe('settingsStore', () => {
     expect(am.enableModelCommandApproval).toBe(false);
     expect(am.modelApprovalPrompt).toBe('');
     expect(am.autoModeForceApproval).toBe(false);
-    expect(am.confirmEditFile).toBe(true);
+    expect(am.toolApprovalLevels).toEqual({ edit_file: 'Approval', write_file: 'Approval' });
   });
 
   it('default llm registry is empty (channels/models/slots)', () => {
@@ -300,7 +300,6 @@ describe('settingsStore', () => {
       systemPrompt: '',
       maxToolRounds: 500,
       contextWindow: 0,
-      confirmEditFile: true,
       // 刻意不含 commandApprovalEngine / jevModelId / jevApprovalPrompt
     } as unknown as AppSettings['agentModeSettings'];
 

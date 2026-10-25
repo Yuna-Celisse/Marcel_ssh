@@ -4,6 +4,8 @@ import { useAnimatedPresence } from '@/hooks/useAnimatedPresence';
 export interface SelectOption<T extends string = string> {
   value: T;
   label: ReactNode;
+  /** 选项下方的一行小字（只在展开的列表里显示，触发按钮里不带）。用来补一句"选了会怎样"。 */
+  hint?: ReactNode;
   disabled?: boolean;
 }
 
@@ -23,6 +25,13 @@ interface Props<T extends string = string> {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** 触发按钮的无障碍名称。选项没有可见的字段标签时（行内下拉）必须给，否则读屏只会读当前值。 */
+  ariaLabel?: string;
+  /**
+   * 展开列表的横向定位/宽度类名，缺省与触发按钮等宽。选项带 `hint` 时按钮往往很窄，
+   * 列表需要比它宽（例如 `left-auto right-0 w-60`）。
+   */
+  menuClassName?: string;
 }
 
 const chevron = (
@@ -43,6 +52,8 @@ export default function Select<T extends string = string>({
   placeholder,
   disabled,
   className = '',
+  ariaLabel,
+  menuClassName = 'left-0 right-0',
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const presence = useAnimatedPresence(open);
@@ -180,7 +191,14 @@ export default function Select<T extends string = string>({
         ) : (
           <span className="flex-shrink-0 w-4" />
         )}
-        <span className="flex-1 truncate">{opt.label}</span>
+        {opt.hint ? (
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{opt.label}</span>
+            <span className="block truncate text-xs text-zinc-500">{opt.hint}</span>
+          </span>
+        ) : (
+          <span className="flex-1 truncate">{opt.label}</span>
+        )}
       </div>
     );
   };
@@ -192,6 +210,7 @@ export default function Select<T extends string = string>({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
         className={`
           w-full flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm text-left
@@ -214,7 +233,7 @@ export default function Select<T extends string = string>({
           role="listbox"
           onAnimationEnd={presence.onAnimationEnd}
           className={`
-            absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-auto
+            absolute z-50 ${menuClassName} mt-1 max-h-60 overflow-auto
             rounded-lg border border-edge bg-zinc-800 shadow-2xl
             ${presence.phase === 'exit' ? 'dropdown-exit pointer-events-none' : 'dropdown-enter'}
           `}

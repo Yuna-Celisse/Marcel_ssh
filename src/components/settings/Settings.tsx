@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePluginStore } from '@/stores/pluginStore';
 import { useSettingsNavStore } from '@/stores/settingsNavStore';
+import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
 import { getErrorMessage } from '@/lib/errors';
 import type { AppSettings } from '@/lib/types';
 import { resolveSettingsLayout } from '@/lib/settingsLayout';
@@ -176,7 +177,11 @@ export default function Settings() {
           <div ref={shellRef} data-region="settings" className="settings-shell flex flex-1 h-full min-w-0">
             <SettingsSidebar
               activeCategory={activeCategory}
-              onChange={setActiveCategory}
+              onChange={(category) => {
+                // 换分类就从「内置风险规则」二级页退出，回来看到的是主页面。
+                useRiskRuleFocusStore.getState().closePage();
+                setActiveCategory(category);
+              }}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               dirty={dirty}

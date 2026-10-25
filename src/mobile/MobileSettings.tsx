@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
+import { RiskRulesPage } from '@/components/settings/RiskRulesPage';
 import type { AppSettings } from '@/lib/types';
 import { getErrorMessage } from '@/lib/errors';
 import {
@@ -76,7 +78,27 @@ export default function MobileSettings({
     setDebugOpen(false);
     storeClearPreview();
     setActiveCategory(null);
+    useRiskRuleFocusStore.getState().closePage();
   }, [visible, storeClearPreview, initialCategory]);
+
+  // 「内置风险规则」二级页：命令策略分类里再推一层。打开时替换分类内容，返回键先退这一层。
+  const rulesPageOpen = useRiskRuleFocusStore((s) => s.pageOpen);
+  const closeRulesPage = useRiskRuleFocusStore((s) => s.closePage);
+  const showRulesPage = rulesPageOpen && activeCategory === 'agent-policy';
+  useEffect(() => {
+    if (!visible || !showRulesPage) return;
+    return registerBackHandler(() => closeRulesPage());
+  }, [visible, showRulesPage, closeRulesPage]);
+  // 进二级页回到顶部；返回时回到离开前的位置（分类内容是同一个滚动容器，不会自己记）。
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const mainScrollTop = useRef(0);
+  const wasRulesPage = useRef(false);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || wasRulesPage.current === showRulesPage) return;
+    el.scrollTop = showRulesPage ? 0 : mainScrollTop.current;
+    wasRulesPage.current = showRulesPage;
+  }, [showRulesPage]);
 
   // Android back gesture pops the sub-category page (mirrors the header's
   // "返回设置" button, including the preview cleanup).
@@ -155,19 +177,23 @@ export default function MobileSettings({
             <button
               type="button"
               onClick={() => {
+                if (showRulesPage) {
+                  closeRulesPage();
+                  return;
+                }
                 storeClearPreview();
                 setActiveCategory(null);
               }}
               className="mb-1 flex items-center gap-1 text-xs text-indigo-400 active:text-indigo-300"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              返回设置
+              {showRulesPage ? '返回命令策略' : '返回设置'}
             </button>
           ) : null}
           <h1 className="flex items-center gap-2 text-base font-semibold text-zinc-100">
-            {activeMeta?.title ?? '设置'}
+            {showRulesPage ? '内置风险规则' : (activeMeta?.title ?? '设置')}
           </h1>
-          {activeMeta?.description ? (
+          {showRulesPage ? null : activeMeta?.description ? (
             <p className="mt-0.5 text-xs text-zinc-500">
               {activeMeta.description}
             </p>
@@ -188,6 +214,10 @@ export default function MobileSettings({
 
         <div
           key={activeCategory ?? 'root'}
+          ref={scrollRef}
+          onScroll={(e) => {
+            if (!showRulesPage) mainScrollTop.current = e.currentTarget.scrollTop;
+          }}
           className="mobile-panel-enter min-h-0 flex-1 overflow-y-auto overscroll-contain"
         >
           {!activeCategory && (
@@ -225,9 +255,15 @@ export default function MobileSettings({
             </div>
           )}
 
-          {activeCategory === 'agent-policy' && (
+          {activeCategory === 'agent-policy' && !showRulesPage && (
             <div className="p-3">
               <MobileAgentPolicySection />
+            </div>
+          )}
+
+          {activeCategory === 'agent-policy' && showRulesPage && (
+            <div key="risk-rules" className="mobile-panel-enter p-3">
+              <RiskRulesPage compact />
             </div>
           )}
 

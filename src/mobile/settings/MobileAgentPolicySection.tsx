@@ -1,34 +1,31 @@
-import { useRef, useState } from 'react';
-import { Trash2, ChevronDown } from 'lucide-react';
-import type { CommandCheckResult, CommandListMode } from '@/lib/types';
+import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import * as tauri from '@/lib/tauri';
-import { getErrorMessage } from '@/lib/errors';
 import {
   AGENT_MAX_TOOL_ROUNDS_MAX,
   AGENT_MAX_TOOL_ROUNDS_MIN,
-  DISPOSITION_LABELS,
 } from '@/lib/constants';
+import { PROTECTED_PATHS_RULE, modifiedRuleCount } from '@/lib/riskRules';
+import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
+import { useCommandCheck } from '@/hooks/useCommandCheck';
+import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
+import { CommandCheckResultCard } from '@/components/settings/CommandCheckResultCard';
+import { CustomRiskRulesEditor } from '@/components/settings/CustomRiskRulesEditor';
+import { ProtectedPathsEditor } from '@/components/settings/ProtectedPathsEditor';
+import { flashCustomRule } from '@/lib/riskRuleNav';
+import { ToolApprovalEditor } from '@/components/settings/ToolApprovalEditor';
 import Toggle from '@/components/ui/Toggle';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import { useSettingsActions } from '@/components/settings/SettingsActionsContext';
 import {
   DEFAULT_APPROVAL_PROMPT_FALLBACK,
   needsUrlScheme,
-  preCheckCustomPath,
 } from '@/components/settings/AgentPolicySection';
 import { useDefaultApprovalPrompt } from '@/hooks/useDefaultApprovalPrompt';
 import { emptyRegistry, modelFullLabel, modelLabel } from '@/lib/llmRegistry';
 import MobileSheet from '../ui/MobileSheet';
 import { MobileSettingRow } from './MobileSettingRow';
 import { useSettingsStore } from '@/stores/settingsStore';
-
-const BUILT_IN_PROTECTED: ReadonlyArray<{ path: string; reason: string }> = [
-  { path: '/etc', reason: '系统配置' },
-  { path: '/boot', reason: '启动分区' },
-  { path: '/sys', reason: 'sysfs 设备' },
-  { path: '/proc', reason: '进程信息' },
-  { path: '/dev', reason: '设备文件' },
-];
 
 const inputClass =
   'w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-indigo-500 disabled:opacity-40';
@@ -45,9 +42,6 @@ export function MobileAgentPolicySection() {
   const defaultApprovalPrompt = useDefaultApprovalPrompt();
 
   const [newCommand, setNewCommand] = useState('');
-  const [testCommand, setTestCommand] = useState('');
-  const [testResult, setTestResult] = useState<CommandCheckResult | null>(null);
-  const [testing, setTesting] = useState(false);
   const [approvalModelPickerOpen, setApprovalModelPickerOpen] = useState(false);
 
   // Jev 引擎的 API Key（原始 Key 只进密钥链，永不回传前端）。
@@ -74,12 +68,7 @@ export function MobileAgentPolicySection() {
     }
   };
 
-  const customPaths = settings.customProtectedPaths ?? [];
-  const [draftPath, setDraftPath] = useState('');
-  const [pathError, setPathError] = useState<string | null>(null);
-  const pathInputRef = useRef<HTMLInputElement>(null);
-
-  const listDisabled = agent.confirmEachCommand;
+  const confirmMode = agent.confirmEachCommand ? 'each' : agent.listMode;
 
   const handleAddCommand = () => {
     const v = newCommand.trim();
@@ -90,41 +79,19 @@ export function MobileAgentPolicySection() {
     setNewCommand('');
   };
 
-  const handleAddProtectedPath = async () => {
-    const trimmed = draftPath.trim();
-    if (!trimmed) return;
-    const localErr = preCheckCustomPath(trimmed, customPaths);
-    if (localErr) {
-      setPathError(localErr);
-      return;
-    }
-    const err = await tauri.validateCustomProtectedPaths([trimmed]);
-    if (err) {
-      setPathError(err);
-      return;
-    }
-    setPathError(null);
-    setDraftPath('');
-    update({ customProtectedPaths: [...customPaths, trimmed] });
-    pathInputRef.current?.focus();
-  };
+  const riskOverrides = settings.riskRuleOverrides ?? {};
+  const customRules = settings.customRiskRules ?? [];
+  const customPaths = settings.customProtectedPaths ?? [];
+  const { catalog } = useRiskRuleCatalog();
+  const openPage = useRiskRuleFocusStore((s) => s.openPage);
+  const focusRule = useRiskRuleFocusStore((s) => s.focus);
+  const modifiedCount = modifiedRuleCount(riskOverrides);
+  const check = useCommandCheck();
 
-  const runTest = async () => {
-    const cmd = testCommand.trim();
-    if (!cmd) return;
-    setTesting(true);
-    try {
-      setTestResult(await tauri.agentCheckCommand(cmd, 'agent'));
-    } catch (err) {
-      setTestResult({
-        allowed: false,
-        requiresConfirmation: false,
-        disposition: 'Approval',
-        reason: `测试失败：${getErrorMessage(err)}`,
-      });
-    } finally {
-      setTesting(false);
-    }
+  // 命中的是自定义规则 → 就在本页，滚过去；内置规则 → 进二级页并落到那一条。
+  const jumpToRule = (ruleId: string) => {
+    if (customRules.some((c) => c.id === ruleId)) flashCustomRule(ruleId);
+    else focusRule(ruleId);
   };
 
   return (
@@ -152,17 +119,90 @@ export function MobileAgentPolicySection() {
         />
       </MobileSettingRow>
 
-      {/* Key toggles */}
+      {/* 列表模式：「每条都确认」并在这里，选了就不再有名单 */}
       <MobileSettingRow
-        label="每条都手动确认"
-        description="即使通过列表过滤，仍要求确认每条命令"
-        trailing={
-          <Toggle
-            checked={agent.confirmEachCommand}
-            onChange={(checked) => updateAgent({ confirmEachCommand: checked })}
+        label="列表模式"
+        description="每条都问，或只问名单里的"
+      >
+        <div className="mt-2 space-y-2">
+          <SegmentedControl
+            ariaLabel="命令确认方式"
+            value={confirmMode}
+            onChange={(v) =>
+              updateAgent(
+                v === 'each'
+                  ? { confirmEachCommand: true }
+                  : { confirmEachCommand: false, listMode: v },
+              )
+            }
+            options={[
+              { value: 'each', label: '每条都确认' },
+              { value: 'denylist', label: '黑名单' },
+              { value: 'allowlist', label: '白名单' },
+            ]}
           />
-        }
-      />
+          {!agent.confirmEachCommand && (
+            <>
+              <p className="text-xs text-zinc-500">
+                {agent.listMode === 'allowlist' ? '允许的命令' : '禁止的命令'}
+                ，按基础命令名匹配（不含路径或参数）
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCommand}
+                  onChange={(e) => setNewCommand(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCommand();
+                    }
+                  }}
+                  placeholder="例如：rm 或 sudo"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className={inputClass}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCommand}
+                  disabled={!newCommand.trim()}
+                  className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
+                >
+                  添加
+                </button>
+              </div>
+              {agent.commandList.length === 0 ? (
+                <p className="px-1 text-xs italic text-zinc-500">列表为空</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {agent.commandList.map((cmd) => (
+                    <span
+                      key={cmd}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-zinc-800 px-2.5 py-1.5 font-mono text-xs text-zinc-200"
+                    >
+                      {cmd}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateAgent({
+                            commandList: agent.commandList.filter((c) => c !== cmd),
+                          })
+                        }
+                        className="-mr-0.5 px-0.5 text-zinc-500 active:text-red-400"
+                        aria-label={`移除 ${cmd}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </MobileSettingRow>
       <MobileSettingRow
         label="Plan 模式也需要审批"
         description="默认关闭，与 AUTO 一致；开启后走命令名单与逐条确认"
@@ -185,17 +225,6 @@ export function MobileAgentPolicySection() {
           />
         }
       />
-      <MobileSettingRow
-        label="文件修改审批"
-        description="编辑或写入文件前需要确认"
-        trailing={
-          <Toggle
-            checked={agent.confirmEditFile ?? true}
-            onChange={(checked) => updateAgent({ confirmEditFile: checked })}
-          />
-        }
-      />
-
       {/* Model approval */}
       <MobileSettingRow
         label="执行前模型审批"
@@ -372,246 +401,84 @@ export function MobileAgentPolicySection() {
         )}
       </MobileSettingRow>
 
-      {/* List mode + command list */}
+      {/* 受保护路径 */}
       <MobileSettingRow
-        label="命令列表过滤"
-        description={
-          listDisabled
-            ? '已开启「每条都手动确认」，列表过滤不生效'
-            : '按基础命令名匹配（不含路径或参数）'
-        }
+        label="受保护路径"
+        description="在这些路径下写入会触发审批"
       >
-        <div className={listDisabled ? 'pointer-events-none opacity-40' : ''}>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {(
-              [
-                {
-                  value: 'denylist',
-                  label: '黑名单',
-                  desc: '只阻止列表中的命令',
-                },
-                {
-                  value: 'allowlist',
-                  label: '白名单',
-                  desc: '只允许列表中的命令',
-                },
-              ] as { value: CommandListMode; label: string; desc: string }[]
-            ).map((m) => {
-              const active = agent.listMode === m.value;
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => updateAgent({ listMode: m.value })}
-                  className={`rounded-xl border px-3 py-2.5 text-left transition-colors duration-100 active:scale-[0.99] ${
-                    active
-                      ? 'border-indigo-500 bg-indigo-500/10'
-                      : 'border-edge bg-zinc-800/60'
-                  }`}
-                >
-                  <div
-                    className={`text-sm font-medium ${
-                      active ? 'text-indigo-200' : 'text-zinc-300'
-                    }`}
-                  >
-                    {m.label}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {m.desc}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              value={newCommand}
-              onChange={(e) => setNewCommand(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddCommand();
-                }
-              }}
-              placeholder="例如：rm 或 sudo"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              disabled={listDisabled}
-              className={inputClass}
-            />
-            <button
-              type="button"
-              onClick={handleAddCommand}
-              disabled={!newCommand.trim() || listDisabled}
-              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
-            >
-              添加
-            </button>
-          </div>
-
-          {agent.commandList.length === 0 ? (
-            <p className="mt-2 px-1 text-xs italic text-zinc-500">列表为空</p>
-          ) : (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {agent.commandList.map((cmd) => (
-                <span
-                  key={cmd}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-zinc-800 px-2.5 py-1.5 font-mono text-xs text-zinc-200"
-                >
-                  {cmd}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateAgent({
-                        commandList: agent.commandList.filter((c) => c !== cmd),
-                      })
-                    }
-                    disabled={listDisabled}
-                    className="-mr-0.5 px-0.5 text-zinc-500 active:text-red-400"
-                    aria-label={`移除 ${cmd}`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+        <div className="mt-2">
+          <ProtectedPathsEditor
+            rule={catalog?.rules.find((r) => r.id === PROTECTED_PATHS_RULE) ?? null}
+            overrides={riskOverrides}
+            customPaths={customPaths}
+            onChange={(patch) => update(patch)}
+            compact
+          />
         </div>
       </MobileSettingRow>
 
-      {/* Command test */}
+      {/* 需要审批的工具 */}
       <MobileSettingRow
-        label="测试命令"
-        description="输入一条命令，查看在 AGENT 模式下是否会被允许"
+        label="需要审批的工具"
+        description="这些工具执行前按所选档位处理"
       >
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2">
+          <ToolApprovalEditor
+            levels={agent.toolApprovalLevels ?? {}}
+            onChange={(next) => updateAgent({ toolApprovalLevels: next })}
+            compact
+          />
+        </div>
+      </MobileSettingRow>
+
+      {/* 自定义规则 */}
+      <MobileSettingRow label="自定义规则" description="按命令名自己定档位">
+        <div className="mt-2">
+          <CustomRiskRulesEditor
+            rules={customRules}
+            onChange={(next) => update({ customRiskRules: next })}
+            compact
+          />
+        </div>
+      </MobileSettingRow>
+
+      {/* 内置风险规则：二级页入口 */}
+      <button
+        type="button"
+        onClick={openPage}
+        className="flex items-center gap-3 rounded-xl border border-edge-subtle bg-zinc-900 px-3 py-3 text-left transition-transform duration-100 active:scale-[0.99]"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-zinc-100">内置风险规则</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-zinc-500">
+            rm -rf /、pkill、curl | sh 等 {catalog?.rules.length ?? ''} 条
+          </span>
+        </span>
+        {modifiedCount > 0 && (
+          <span className="flex-shrink-0 rounded-full border border-indigo-700/50 bg-indigo-500/10 px-2 py-px text-xs text-indigo-200">
+            已改 {modifiedCount}
+          </span>
+        )}
+        <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-600" />
+      </button>
+
+      {/* 测试命令 */}
+      <MobileSettingRow label="测试命令" description="看一条命令会不会被拦">
+        <div className="mt-2 space-y-2">
           <input
             type="text"
-            value={testCommand}
-            onChange={(e) => setTestCommand(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void runTest();
-              }
-            }}
+            value={check.command}
+            onChange={(e) => check.setCommand(e.target.value)}
             placeholder="例如：rm -rf /tmp/test"
+            aria-label="测试命令"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
             className={inputClass}
           />
-          <button
-            type="button"
-            onClick={() => void runTest()}
-            disabled={!testCommand.trim() || testing}
-            className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
-          >
-            {testing ? '测试中' : '测试'}
-          </button>
-        </div>
-        {testResult && (
-          <div
-            className={`mt-2 rounded-xl border px-3 py-2 text-sm ${
-              testResult.allowed
-                ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200'
-                : 'border-red-800 bg-red-950/40 text-red-200'
-            }`}
-          >
-            <div className="font-medium">
-              {testResult.allowed ? '允许' : '阻止'}
-              {testResult.allowed && testResult.requiresConfirmation && (
-                <span className="ml-2 text-xs text-amber-300">
-                  （需要用户确认）
-                </span>
-              )}
-            </div>
-            <div className="mt-0.5 text-xs opacity-80">
-              处置：{DISPOSITION_LABELS[testResult.disposition]} ·{' '}
-              {testResult.reason}
-            </div>
-          </div>
-        )}
-      </MobileSettingRow>
-
-      {/* Protected paths */}
-      <MobileSettingRow
-        label="受保护路径"
-        description="Agent 在这些路径下的写操作会触发用户审批"
-      >
-        <div className="mt-2 space-y-2">
-          <div>
-            <p className="mb-1 text-xs text-zinc-500">内置保护路径（只读）</p>
-            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-zinc-400">
-              {BUILT_IN_PROTECTED.map((p) => (
-                <span key={p.path} className="whitespace-nowrap">
-                  <code className="text-indigo-300">{p.path}</code>
-                  <span className="text-zinc-500"> {p.reason}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <input
-              ref={pathInputRef}
-              type="text"
-              value={draftPath}
-              onChange={(e) => {
-                if (pathError) setPathError(null);
-                setDraftPath(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void handleAddProtectedPath();
-                }
-              }}
-              placeholder="/home/user/.ssh"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              className={inputClass}
-            />
-            <button
-              type="button"
-              onClick={() => void handleAddProtectedPath()}
-              disabled={!draftPath.trim()}
-              className="flex-shrink-0 rounded-lg bg-zinc-800 px-4 py-2.5 text-sm text-zinc-200 active:bg-state-mid disabled:opacity-40"
-            >
-              添加
-            </button>
-          </div>
-          {pathError && <p className="text-xs text-red-400">{pathError}</p>}
-          {customPaths.length === 0 ? (
-            <p className="px-1 text-xs italic text-zinc-500">无自定义路径</p>
-          ) : (
-            <ul className="space-y-1">
-              {customPaths.map((p) => (
-                <li
-                  key={p}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-zinc-800 px-3 py-2"
-                >
-                  <code className="truncate text-xs text-indigo-300">{p}</code>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      update({
-                        customProtectedPaths: customPaths.filter(
-                          (x) => x !== p,
-                        ),
-                      })
-                    }
-                    className="flex-shrink-0 p-1 text-zinc-500 active:text-red-400"
-                    aria-label={`移除 ${p}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+          {check.error && <p className="text-xs text-red-400">{check.error}</p>}
+          {check.results && (
+            <CommandCheckResultCard results={check.results} onJump={jumpToRule} compact />
           )}
         </div>
       </MobileSettingRow>

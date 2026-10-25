@@ -33,6 +33,8 @@ import type {
   SkillResource,
   SkillDiscovery,
   CommandCheckResult,
+  CheckCommandDraft,
+  RiskRuleCatalog,
   SftpFileEntry,
   ModelInfo,
   ChannelKeyStatus,
@@ -494,11 +496,25 @@ export async function agentDeleteConversationsBySession(
   return invoke("agent_delete_conversations_by_session", { sessionId });
 }
 
+/**
+ * 预演一条命令会被怎么处置。`draft` 带上设置页里还没保存的规则/名单，
+ * 缺省则用已保存的设置。
+ */
 export async function agentCheckCommand(
   command: string,
   mode: "plan" | "agent" | "auto",
+  draft?: CheckCommandDraft,
 ): Promise<CommandCheckResult> {
-  return invoke<CommandCheckResult>("agent_check_command", { command, mode });
+  return invoke<CommandCheckResult>("agent_check_command", {
+    command,
+    mode,
+    draft: draft ?? null,
+  });
+}
+
+/** 全部内置命令风险规则的目录（说明、默认档位、名单默认值）。用户的改动在 settings 里。 */
+export async function agentListRiskRules(): Promise<RiskRuleCatalog> {
+  return invoke<RiskRuleCatalog>("agent_list_risk_rules");
 }
 
 /** 内置的命令审批系统提示词（设置页默认值展示 / 「恢复默认」用，不在前端自带副本）。 */

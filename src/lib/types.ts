@@ -691,8 +691,11 @@ export interface AgentModeSettings {
   contextWindow: number;
   /** Auto 模式下强制审批档（系统级命令、受保护路径、插件声明等）是否仍要人工确认。 */
   autoModeForceApproval: boolean;
-  /** 文件修改审批：`edit_file` / `write_file` 及本机同名工具执行前需要用户确认。 */
-  confirmEditFile: boolean;
+  /**
+   * 用户点名要审批的工具 → 审批档位（键 = 工具名，`local_` 本机工具与远端同名工具共用一条）。
+   * 不在表里的工具不额外审批。默认是编辑、写入文件各「请求审批」。
+   */
+  toolApprovalLevels: Record<string, Disposition>;
 }
 
 export type LlmProviderType = 'openai';
@@ -1424,11 +1427,22 @@ export interface UpdateCapabilities {
   silentDownload: boolean;
 }
 
+/** 命令命中的一条风险规则（设置页「命令测试」展示）。 */
+export interface CommandRuleHit {
+  ruleId: string;
+  title: string;
+  level: Disposition;
+}
+
 export interface CommandCheckResult {
   allowed: boolean;
   requiresConfirmation: boolean;
   disposition: Disposition;
   reason: string;
+  /** 决定档位的那条规则；档位来自命令名单、或没有规则命中时为 null。 */
+  ruleId: string | null;
+  /** 命中的全部风险规则。 */
+  hits: CommandRuleHit[];
 }
 
 /** 用户对一条内置风险规则的改动，三项都可缺省（缺省 = 用默认）。 */
@@ -1450,6 +1464,40 @@ export interface CustomRiskRule {
   argContains: string;
   level: Disposition;
   enabled: boolean;
+}
+
+export type RiskRuleKind = 'rule' | 'exemption';
+export type RiskRuleScope = 'posix' | 'windows' | 'any';
+
+export interface RiskListInfo {
+  key: string;
+  label: string;
+  hint: string;
+  defaults: string[];
+}
+
+export interface RiskRuleInfo {
+  id: string;
+  kind: RiskRuleKind;
+  scope: RiskRuleScope;
+  title: string;
+  description: string;
+  examples: string[];
+  defaultLevel: Disposition;
+  lists: RiskListInfo[];
+}
+
+/** 后端规则目录：说明与默认值的唯一来源（前端不抄一份）。 */
+export interface RiskRuleCatalog {
+  rules: RiskRuleInfo[];
+}
+
+/** 「测试命令」带上的设置草稿：还没保存的规则也要能测出结果。 */
+export interface CheckCommandDraft {
+  riskRuleOverrides?: Record<string, RiskRuleOverride>;
+  customRiskRules?: CustomRiskRule[];
+  customProtectedPaths?: string[];
+  agentModeSettings?: AgentModeSettings;
 }
 
 // Plan / Todolist types

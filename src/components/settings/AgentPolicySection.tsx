@@ -1,46 +1,34 @@
-import { useState, useRef, useMemo } from 'react';
-import { Trash2 } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { ChevronRight } from 'lucide-react';
 import {
   AGENT_MAX_TOOL_ROUNDS_MAX,
   AGENT_MAX_TOOL_ROUNDS_MIN,
-  DISPOSITION_LABELS,
 } from '@/lib/constants';
-import type {
-  CommandListMode,
-  CommandCheckResult,
-} from '@/lib/types';
+import { PROTECTED_PATHS_RULE, modifiedRuleCount } from '@/lib/riskRules';
+import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
+import { useCommandCheck } from '@/hooks/useCommandCheck';
+import { flashCustomRule } from '@/lib/riskRuleNav';
+import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
+import { CommandCheckResultCard } from './CommandCheckResultCard';
+import { CustomRiskRulesEditor } from './CustomRiskRulesEditor';
+import { ProtectedPathsEditor } from './ProtectedPathsEditor';
+import { ToolApprovalEditor } from './ToolApprovalEditor';
 import * as tauri from '@/lib/tauri';
-import { getErrorMessage } from '@/lib/errors';
 import Button from '@/components/ui/Button';
 import Toggle from '@/components/ui/Toggle';
 import Select from '@/components/ui/Select';
 import SegmentedControl from '@/components/ui/SegmentedControl';
-import { Card, SettingItem } from './helpers';
+import { Card, SettingItem, useSearchRegistry } from './helpers';
 import { useSettingsActions } from './SettingsActionsContext';
 import { ValidatedInput } from './ValidatedInput';
 import { emptyRegistry, modelOptionsByChannel } from '@/lib/llmRegistry';
 import { useDefaultApprovalPrompt } from '@/hooks/useDefaultApprovalPrompt';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+export { preCheckCustomPath } from '@/lib/riskRules';
+
 export const DEFAULT_APPROVAL_PROMPT_FALLBACK =
   '（未能从后端读取内置审批提示词；留空即使用内置提示词。）';
-
-const BUILT_IN_PROTECTED: ReadonlyArray<{ path: string; reason: string }> = [
-  { path: '/etc', reason: '系统配置' },
-  { path: '/boot', reason: '启动分区' },
-  { path: '/sys', reason: 'sysfs 设备' },
-  { path: '/proc', reason: '进程信息' },
-  { path: '/dev', reason: '设备文件' },
-];
-
-export function preCheckCustomPath(
-  trimmed: string,
-  existing: string[],
-): string | null {
-  if (!trimmed) return null;
-  if (existing.includes(trimmed)) return `路径已存在：${trimmed}`;
-  return null;
-}
 
 /**
  * 用户填的自定义 API 地址是否「可疑到一定会失败」：非空、但缺 `http://`/`https://`。
@@ -55,47 +43,12 @@ export function needsUrlScheme(raw: string | undefined): boolean {
   return !/^https?:\/\//i.test(v);
 }
 
-function ListModeButton({
-  value,
-  current,
-  onClick,
-  label,
-  description,
-  position,
-  disabled,
-}: {
-  value: CommandListMode;
-  current: CommandListMode;
-  onClick: (v: CommandListMode) => void;
-  label: string;
-  description: string;
-  position?: 'first' | 'last' | 'middle';
-  disabled?: boolean;
-}) {
-  const active = value === current;
-  const roundedClass =
-    position === 'first'
-      ? 'rounded-l-lg'
-      : position === 'last'
-        ? 'rounded-r-lg'
-        : '';
-
-  return (
-    <button
-      onClick={() => onClick(value)}
-      title={description}
-      disabled={disabled}
-      className={`flex-1 px-4 py-2 text-sm transition-colors border-r border-edge last:border-r-0 ${roundedClass} ${
-        active
-          ? 'bg-indigo-600 text-white'
-          : 'bg-zinc-800/50 text-zinc-300 hover:bg-state-mid'
-      } disabled:opacity-40 disabled:cursor-not-allowed`}
-      style={{ transitionTimingFunction: 'var(--spring-bounce)' }}
-    >
-      {label}
-    </button>
-  );
-}
+/** 命令确认方式：「每条都确认」是 `confirmEachCommand`，黑 / 白名单是 `listMode`（见 `commandConfirmMode`）。 */
+const CONFIRM_MODE_OPTIONS = [
+  { value: 'each', label: '每条都确认', title: '每条命令都问你，名单不起作用' },
+  { value: 'denylist', label: '黑名单', title: '只问名单里的命令' },
+  { value: 'allowlist', label: '白名单', title: '名单里的命令不问，其余都问' },
+] as const;
 
 export function AgentPolicySection() {
   const { settings, update } = useSettingsActions();
@@ -106,9 +59,6 @@ export function AgentPolicySection() {
   };
 
   const [newCommand, setNewCommand] = useState('');
-  const [testCommand, setTestCommand] = useState('');
-  const [testResult, setTestResult] = useState<CommandCheckResult | null>(null);
-  const [testing, setTesting] = useState(false);
   const defaultApprovalPrompt = useDefaultApprovalPrompt();
   // 「命令超时」和「执行前模型审批」是偶尔调整的高级项，折叠收纳避免主面板太长。
   // 跟 ModelServiceSection 的「高级：自定义请求参数」折叠风格一致。
@@ -152,43 +102,13 @@ export function AgentPolicySection() {
   };
   const jevEngine = agent.commandApprovalEngine === 'jev';
 
-  // Custom protected paths
-  const customPaths = settings.customProtectedPaths ?? [];
-  const [draftPath, setDraftPath] = useState('');
-  const [pathError, setPathError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const handleAddProtectedPath = async () => {
-    const trimmed = draftPath.trim();
-    if (!trimmed) return;
-    const localErr = preCheckCustomPath(trimmed, customPaths);
-    if (localErr) {
-      setPathError(localErr);
-      return;
-    }
-    const err = await tauri.validateCustomProtectedPaths([trimmed]);
-    if (err) {
-      setPathError(err);
-      return;
-    }
-    setPathError(null);
-    setDraftPath('');
-    update({ customProtectedPaths: [...customPaths, trimmed] });
-    inputRef.current?.focus();
-  };
-
-  const handleRemoveProtectedPath = (path: string) => {
-    update({ customProtectedPaths: customPaths.filter((p) => p !== path) });
-  };
 
   const handleAddCommand = () => {
     const v = newCommand.trim();
     if (!v) return;
-    if (agent.commandList.includes(v)) {
-      setNewCommand('');
-      return;
+    if (!agent.commandList.includes(v)) {
+      updateAgent({ commandList: [...agent.commandList, v] });
     }
-    updateAgent({ commandList: [...agent.commandList, v] });
     setNewCommand('');
   };
 
@@ -196,25 +116,55 @@ export function AgentPolicySection() {
     updateAgent({ commandList: agent.commandList.filter((c) => c !== cmd) });
   };
 
-  const runTest = async () => {
-    const cmd = testCommand.trim();
-    if (!cmd) return;
-    setTesting(true);
-    try {
-      const result = await tauri.agentCheckCommand(cmd, 'agent');
-      setTestResult(result);
-    } catch (err) {
-      console.error(err);
-      setTestResult({
-        allowed: false,
-        requiresConfirmation: false,
-        disposition: 'Approval',
-        reason: `测试失败：${getErrorMessage(err)}`,
-      });
-    } finally {
-      setTesting(false);
-    }
+  const confirmMode = agent.confirmEachCommand ? 'each' : agent.listMode;
+
+  const riskOverrides = settings.riskRuleOverrides ?? {};
+  const customRules = settings.customRiskRules ?? [];
+  const customPaths = settings.customProtectedPaths ?? [];
+  const { catalog } = useRiskRuleCatalog();
+  const openPage = useRiskRuleFocusStore((s) => s.openPage);
+  const focusRule = useRiskRuleFocusStore((s) => s.focus);
+  const modifiedCount = modifiedRuleCount(riskOverrides);
+  const check = useCommandCheck();
+
+  // 命中的是自定义规则 → 就在本页，滚过去；内置规则 → 进二级页并落到那一条。
+  const jumpToRule = (ruleId: string) => {
+    if (customRules.some((c) => c.id === ruleId)) flashCustomRule(ruleId);
+    else focusRule(ruleId);
   };
+
+  // 「内置风险规则」入口行不走 SettingItem（整行是个按钮），设置搜索靠这里手动登记，
+  // 并带上全部规则名，搜规则名也能找到这一行。
+  const { register, unregister } = useSearchRegistry();
+  const ruleTitles = useMemo(() => catalog?.rules.map((r) => r.title) ?? [], [catalog]);
+  const ruleTitlesKey = JSON.stringify(ruleTitles);
+  useEffect(() => {
+    register({
+      id: 'cmd-builtin-rules',
+      label: '内置风险规则',
+      description: '查看并修改 Agent 执行命令前用的全部内置规则',
+      keywords: [
+        '规则',
+        '风险',
+        '拒绝',
+        '强制审批',
+        '请求审批',
+        '放行',
+        '豁免',
+        'pkill',
+        'sudo',
+        'systemctl',
+        'rm -rf',
+        'Windows',
+        '命令执行策略',
+        'Agent',
+        ...ruleTitles,
+      ],
+      sectionId: 'settings-command-policy',
+    });
+    return () => unregister('cmd-builtin-rules');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [register, unregister, ruleTitlesKey]);
 
   return (
     <div className="space-y-6">
@@ -224,22 +174,95 @@ export function AgentPolicySection() {
         description="控制 Agent / Plan 模式下的命令安全边界"
       >
         <SettingItem
-          id="cmd-confirm"
-          label="每条都手动确认"
-          description="每条命令都需要用户确认"
+          id="cmd-list-mode"
+          label="列表模式"
+          description="每条都问，或只问名单里的"
           sectionId="settings-command-policy"
-          keywords={['confirm', '确认', '命令执行策略', 'Agent']}
+          keywords={[
+            'confirm',
+            '确认',
+            'list',
+            'mode',
+            '黑名单',
+            '白名单',
+            '每条都手动确认',
+            '命令执行策略',
+            'Agent',
+          ]}
         >
-          <Toggle
-            checked={agent.confirmEachCommand}
-            onChange={(checked) => updateAgent({ confirmEachCommand: checked })}
-            label="即使通过列表过滤，仍要求用户确认每条命令"
+          <SegmentedControl
+            ariaLabel="命令确认方式"
+            value={confirmMode}
+            onChange={(v) =>
+              updateAgent(
+                v === 'each'
+                  ? { confirmEachCommand: true }
+                  : { confirmEachCommand: false, listMode: v },
+              )
+            }
+            options={CONFIRM_MODE_OPTIONS}
           />
         </SettingItem>
+        {!agent.confirmEachCommand && (
+          <SettingItem
+            id="cmd-list"
+            label={agent.listMode === 'allowlist' ? '允许的命令' : '禁止的命令'}
+            description="按基础命令名匹配（不含路径或参数）"
+            sectionId="settings-command-policy"
+            keywords={['command', 'list', '命令列表', '命令执行策略', 'Agent']}
+          >
+            <div className="flex-1 space-y-2 min-w-0 w-80">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCommand}
+                  onChange={(e) => setNewCommand(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCommand();
+                    }
+                  }}
+                  placeholder="例如：rm 或 sudo"
+                  className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAddCommand}
+                  disabled={!newCommand.trim()}
+                >
+                  添加
+                </Button>
+              </div>
+              {agent.commandList.length === 0 ? (
+                <p className="text-xs text-zinc-500 italic px-1">列表为空</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {agent.commandList.map((cmd) => (
+                    <span
+                      key={cmd}
+                      className="group inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800 border border-edge text-xs font-mono text-zinc-200"
+                    >
+                      {cmd}
+                      <button
+                        onClick={() => handleRemoveCommand(cmd)}
+                        className="text-zinc-500 hover:text-red-400 transition-colors"
+                        aria-label={`移除 ${cmd}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </SettingItem>
+        )}
         <SettingItem
           id="cmd-plan-mode-approval"
           label="Plan 模式也需要审批"
-          description="Plan 模式是否也走命令名单与人工审批"
+          description="默认关：Plan 和 Auto 一样不弹审批"
           sectionId="settings-command-policy"
           keywords={['plan', '计划模式', '审批', '命令执行策略', 'Agent']}
         >
@@ -250,15 +273,11 @@ export function AgentPolicySection() {
             }
             label="Plan 模式下执行命令时需要用户确认"
           />
-          <p className="text-xs text-zinc-500 mt-2">
-            默认关闭：Plan 与 AUTO 一样完全不弹人工审批。开启后 Plan 恢复走命令名单与
-            「每条都手动确认」—— 系统级命令、受保护路径等强制审批档也会跟着开始询问。
-          </p>
         </SettingItem>
         <SettingItem
           id="cmd-auto-force-approval"
           label="Auto 模式强制审批"
-          description="Auto 模式下，强制审批档是否仍要人工确认"
+          description="Auto 下强制审批档仍要你确认"
           sectionId="settings-command-policy"
           keywords={['auto', 'force', 'approval', '强制', '审批', '命令执行策略', 'Agent']}
         >
@@ -267,198 +286,11 @@ export function AgentPolicySection() {
             onChange={(checked) => updateAgent({ autoModeForceApproval: checked })}
             label="系统级命令、受保护路径等在 Auto 模式下也弹窗确认"
           />
-          <p className="text-xs text-zinc-500 mt-2">
-            默认关闭：Auto 完全自主，连强制审批也不问。开启后只有强制审批档（系统级命令、
-            受保护路径、插件强制声明）会打断，普通命令仍然静默；未开启「Plan 模式也需要审批」
-            时 Plan 不受影响。
-          </p>
         </SettingItem>
-        <SettingItem
-          id="cmd-edit-file"
-          label="文件修改审批"
-          description="编辑或写入文件前需要用户确认"
-          sectionId="settings-command-policy"
-          keywords={['edit', 'write', 'file', '编辑', '写入', '审批', '文件操作', 'Agent']}
-        >
-          <Toggle
-            checked={agent.confirmEditFile ?? true}
-            onChange={(checked) => updateAgent({ confirmEditFile: checked })}
-            label="Agent 编辑或写入文件时需要用户确认"
-          />
-        </SettingItem>
-        <SettingItem
-          id="cmd-list-mode"
-          label="列表模式"
-          description="命令过滤方式"
-          sectionId="settings-command-policy"
-          keywords={[
-            'list',
-            'mode',
-            '黑名单',
-            '白名单',
-            '命令执行策略',
-            'Agent',
-          ]}
-        >
-          <div
-            className={`transition-opacity ${agent.confirmEachCommand ? 'opacity-40' : ''}`}
-          >
-            <div className="flex rounded-lg overflow-hidden border border-edge">
-              <ListModeButton
-                value="denylist"
-                current={agent.listMode}
-                onClick={(v) => updateAgent({ listMode: v })}
-                label="黑名单"
-                description="只阻止列表中的命令"
-                position="first"
-                disabled={agent.confirmEachCommand}
-              />
-              <ListModeButton
-                value="allowlist"
-                current={agent.listMode}
-                onClick={(v) => updateAgent({ listMode: v })}
-                label="白名单"
-                description="只允许列表中的命令"
-                position="last"
-                disabled={agent.confirmEachCommand}
-              />
-            </div>
-          </div>
-          {agent.confirmEachCommand && (
-            <p className="text-xs text-amber-400 mt-2">
-              已开启「每条都手动确认」，此选项无用
-            </p>
-          )}
-        </SettingItem>
-        <SettingItem
-          id="cmd-list"
-          label={agent.listMode === 'allowlist' ? '允许的命令' : '禁止的命令'}
-          description="按基础命令名匹配（不含路径或参数）"
-          sectionId="settings-command-policy"
-          keywords={['command', 'list', '命令列表', '命令执行策略', 'Agent']}
-        >
-          <div
-            className={`flex-1 space-y-2 min-w-0 w-80 transition-opacity ${agent.confirmEachCommand ? 'opacity-40' : ''}`}
-          >
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newCommand}
-                onChange={(e) => setNewCommand(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddCommand();
-                  }
-                }}
-                placeholder="例如：rm 或 sudo"
-                disabled={agent.confirmEachCommand}
-                className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleAddCommand}
-                disabled={!newCommand.trim() || agent.confirmEachCommand}
-              >
-                添加
-              </Button>
-            </div>
-            {agent.commandList.length === 0 ? (
-              <p className="text-xs text-zinc-500 italic px-1">列表为空</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {agent.commandList.map((cmd) => (
-                  <span
-                    key={cmd}
-                    className="group inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800 border border-edge text-xs font-mono text-zinc-200"
-                  >
-                    {cmd}
-                    <button
-                      onClick={() => handleRemoveCommand(cmd)}
-                      disabled={agent.confirmEachCommand}
-                      className="text-zinc-500 hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      aria-label={`移除 ${cmd}`}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          {agent.confirmEachCommand && (
-            <p className="text-xs text-amber-400 mt-2">
-              已开启「每条都手动确认」，此选项无用
-            </p>
-          )}
-        </SettingItem>
-        <SettingItem
-          id="cmd-test"
-          label="测试命令"
-          description="验证命令是否会被允许"
-          sectionId="settings-command-policy"
-          keywords={['test', '验证', '命令执行策略', 'Agent']}
-        >
-          <div className="flex-1 space-y-2 min-w-0 w-80">
-            <p className="text-xs text-zinc-500">
-              输入一条命令，查看在 AGENT 模式下是否会被允许。使用的是{' '}
-              <span className="text-amber-400">草稿</span>
-              中的规则（未保存也生效）。
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={testCommand}
-                onChange={(e) => setTestCommand(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void runTest();
-                  }
-                }}
-                placeholder="例如：rm -rf /tmp/test"
-                className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={runTest}
-                loading={testing}
-                disabled={!testCommand.trim()}
-              >
-                测试
-              </Button>
-            </div>
-            {testResult && (
-              <div
-                className={`rounded-xl border px-3 py-2 text-sm ${
-                  testResult.allowed
-                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
-                    : 'bg-red-950/40 border-red-800 text-red-200'
-                }`}
-              >
-                <div className="font-medium">
-                  {testResult.allowed ? '允许' : '阻止'}
-                  {testResult.allowed && testResult.requiresConfirmation && (
-                    <span className="ml-2 text-xs text-amber-300">
-                      （需要用户确认）
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs opacity-80 mt-0.5">
-                  处置：{DISPOSITION_LABELS[testResult.disposition]} ·{' '}
-                  {testResult.reason}
-                </div>
-              </div>
-            )}
-          </div>
-        </SettingItem>
-
         <SettingItem
           id="cmd-protected-paths"
           label="受保护路径"
-          description="Agent 在这些路径下的写操作会触发用户审批。内置 /etc、/boot 等已默认保护。"
+          description="在这些路径下写入会触发审批"
           sectionId="settings-command-policy"
           keywords={[
             'protected',
@@ -470,76 +302,97 @@ export function AgentPolicySection() {
             '命令执行策略',
           ]}
         >
-          <div className="flex-1 space-y-3 min-w-0">
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">内置保护路径（只读）</p>
-              <ul className="text-xs text-zinc-400 flex flex-wrap gap-x-5 gap-y-0.5">
-                {BUILT_IN_PROTECTED.map((p) => (
-                  <li key={p.path} className="whitespace-nowrap">
-                    <code className="text-indigo-300">{p.path}</code>
-                    <span className="text-zinc-500"> — {p.reason}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <p className="text-xs text-zinc-500 mb-1">自定义路径</p>
-              <div className="flex gap-2 mb-1.5">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={draftPath}
-                  onChange={(e) => {
-                    if (pathError) setPathError(null);
-                    setDraftPath(e.target.value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void handleAddProtectedPath();
-                    }
-                  }}
-                  placeholder="/home/user/.ssh"
-                  className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void handleAddProtectedPath()}
-                  disabled={!draftPath.trim()}
-                >
-                  添加
-                </Button>
-              </div>
-              {pathError && (
-                <p className="text-xs text-red-400 mb-1.5">{pathError}</p>
-              )}
-              {customPaths.length === 0 ? (
-                <p className="text-xs text-zinc-500 italic px-1">
-                  无自定义路径
-                </p>
-              ) : (
-                <ul className="text-xs space-y-1">
-                  {customPaths.map((p) => (
-                    <li
-                      key={p}
-                      className="flex items-center justify-between gap-2 rounded-md bg-zinc-800 px-2 py-1"
-                    >
-                      <code className="text-indigo-300 truncate">{p}</code>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveProtectedPath(p)}
-                        className="text-zinc-500 hover:text-red-400 transition-colors flex-shrink-0"
-                        title={`移除 ${p}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          <div className="flex-1 min-w-0">
+            <ProtectedPathsEditor
+              rule={catalog?.rules.find((r) => r.id === PROTECTED_PATHS_RULE) ?? null}
+              overrides={riskOverrides}
+              customPaths={customPaths}
+              onChange={(patch) => update(patch)}
+            />
+          </div>
+        </SettingItem>
+        <SettingItem
+          id="cmd-tool-approval"
+          label="需要审批的工具"
+          description="这些工具执行前按所选档位处理"
+          sectionId="settings-command-policy"
+          keywords={[
+            'edit',
+            'write',
+            'file',
+            'tool',
+            '编辑',
+            '写入',
+            '文件',
+            '文件修改审批',
+            '工具',
+            '审批',
+            '命令执行策略',
+            'Agent',
+          ]}
+        >
+          <div className="flex-1 min-w-0">
+            <ToolApprovalEditor
+              levels={agent.toolApprovalLevels ?? {}}
+              onChange={(next) => updateAgent({ toolApprovalLevels: next })}
+            />
+          </div>
+        </SettingItem>
+        <SettingItem
+          id="cmd-custom-rules"
+          label="自定义规则"
+          description="按命令名自己定档位"
+          sectionId="settings-command-policy"
+          keywords={['custom', 'rule', '自定义', '规则', '命令执行策略', 'Agent']}
+        >
+          <div className="flex-1 min-w-0">
+            <CustomRiskRulesEditor
+              rules={customRules}
+              onChange={(next) => update({ customRiskRules: next })}
+            />
+          </div>
+        </SettingItem>
+        <button
+          type="button"
+          onClick={openPage}
+          className="flex w-full items-center gap-6 px-6 py-4 text-left transition-colors hover:bg-state-soft active:bg-state-mid"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-zinc-200">内置风险规则</span>
+            <span className="mt-0.5 block text-xs text-zinc-500">
+              rm -rf /、pkill、curl | sh 等 {catalog?.rules.length ?? ''} 条
+            </span>
+          </span>
+          {modifiedCount > 0 && (
+            <span className="rounded-full border border-indigo-700/50 bg-indigo-500/10 px-2 py-px text-xs text-indigo-200">
+              已改 {modifiedCount}
+            </span>
+          )}
+          <ChevronRight className="h-4 w-4 flex-shrink-0 text-zinc-500" />
+        </button>
+        <SettingItem
+          id="cmd-test"
+          label="测试命令"
+          description="看一条命令会不会被拦"
+          sectionId="settings-command-policy"
+          keywords={['test', '验证', '命令执行策略', 'Agent']}
+        >
+          <div className="flex-1 space-y-2 min-w-0 w-80">
+            <input
+              type="text"
+              value={check.command}
+              onChange={(e) => check.setCommand(e.target.value)}
+              placeholder="例如：rm -rf /tmp/test"
+              aria-label="测试命令"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="w-full rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm font-mono text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+            />
+            {check.error && <p className="text-xs text-red-400">{check.error}</p>}
+            {check.results && (
+              <CommandCheckResultCard results={check.results} onJump={jumpToRule} />
+            )}
           </div>
         </SettingItem>
 

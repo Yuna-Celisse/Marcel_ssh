@@ -27,7 +27,7 @@ const DEFAULT_AGENT_MODE_SETTINGS: AgentModeSettings = {
   contextWindow: 0,
   // 默认关：Auto 的定义是全自主；打开后只有 ForceApproval 档会弹窗。
   autoModeForceApproval: false,
-  confirmEditFile: true,
+  toolApprovalLevels: { edit_file: 'Approval', write_file: 'Approval' },
 };
 
 const DEFAULT_LLM_REGISTRY: LlmRegistry = emptyRegistry();

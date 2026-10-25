@@ -1,6 +1,8 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useSearchRegistry } from './helpers';
 import { AgentPolicySection } from './AgentPolicySection';
+import { RiskRulesPage } from './RiskRulesPage';
+import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
 import { AgentSystemPromptSection } from './AgentSystemPromptSection';
 import AboutSection from './AboutSection';
 import { ConversationDisplaySection } from './ConversationDisplaySection';
@@ -47,6 +49,24 @@ export function SettingsContent({ activeCategory, searchQuery }: SettingsContent
 
   const isSearching = searchQuery.trim().length > 0;
 
+  // 「内置风险规则」二级页：挂在 Agent 分类里，打开时替换整个分类内容（搜索时不进，
+  // 搜索结果里的"内置风险规则"入口行点了才进）。进去回到顶部，返回时回到离开前的位置。
+  const rulesPageOpen = useRiskRuleFocusStore((s) => s.pageOpen);
+  const showRulesPage = rulesPageOpen && activeCategory === 'agent' && !isSearching;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const mainScrollTop = useRef(0);
+  const wasRulesPage = useRef(false);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || wasRulesPage.current === showRulesPage) return;
+    if (showRulesPage) {
+      el.scrollTop = 0;
+    } else {
+      el.scrollTop = mainScrollTop.current;
+    }
+    wasRulesPage.current = showRulesPage;
+  }, [showRulesPage]);
+
   // 市场是浏览型界面，不走设置项的 section grid 框架，全宽渲染。
   if (activeCategory === 'market' && !isSearching) {
     return (
@@ -81,7 +101,13 @@ export function SettingsContent({ activeCategory, searchQuery }: SettingsContent
     : allSections.filter((section) => visibleSections.includes(section.id));
 
   return (
-    <div className="flex-1 overflow-y-auto bg-zinc-900">
+    <div
+      ref={scrollRef}
+      onScroll={(e) => {
+        if (!showRulesPage) mainScrollTop.current = e.currentTarget.scrollTop;
+      }}
+      className="flex-1 overflow-y-auto bg-zinc-900"
+    >
       <div
         className="settings-layout-frame mx-auto py-8"
         style={{
@@ -90,28 +116,34 @@ export function SettingsContent({ activeCategory, searchQuery }: SettingsContent
           paddingRight: `${layout.contentPaddingX}px`,
         }}
       >
-        <h1 className="text-2xl font-bold text-zinc-100 mb-6">
-          {isSearching ? `搜索：${searchQuery}` : getSettingsCategoryLabel(activeCategory)}
-        </h1>
+        {showRulesPage ? (
+          <RiskRulesPage />
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold text-zinc-100 mb-6">
+              {isSearching ? `搜索：${searchQuery}` : getSettingsCategoryLabel(activeCategory)}
+            </h1>
 
-        {visibleSections.length === 0 && isSearching && (
-          <div className="text-zinc-500 text-center py-12">未找到匹配的设置项</div>
-        )}
+            {visibleSections.length === 0 && isSearching && (
+              <div className="text-zinc-500 text-center py-12">未找到匹配的设置项</div>
+            )}
 
-        <div
-          className={`settings-section-grid ${layout.sectionColumns === 2 ? 'grid grid-cols-2 gap-6 items-start' : 'space-y-6'}`}
-          data-columns={layout.sectionColumns}
-        >
-          {sections.map((section) => (
             <div
-              key={section.id}
-              className={layout.sectionColumns === 2 && SETTINGS_SECTION_SPAN[section.id] === 'full' ? 'col-span-2' : ''}
-              style={isSearching && !visibleSections.includes(section.id) ? { display: 'none' } : undefined}
+              className={`settings-section-grid ${layout.sectionColumns === 2 ? 'grid grid-cols-2 gap-6 items-start' : 'space-y-6'}`}
+              data-columns={layout.sectionColumns}
             >
-              {section.element}
+              {sections.map((section) => (
+                <div
+                  key={section.id}
+                  className={layout.sectionColumns === 2 && SETTINGS_SECTION_SPAN[section.id] === 'full' ? 'col-span-2' : ''}
+                  style={isSearching && !visibleSections.includes(section.id) ? { display: 'none' } : undefined}
+                >
+                  {section.element}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
