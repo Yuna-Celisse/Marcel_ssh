@@ -309,7 +309,7 @@ export default function SkillResourcesEditor({
           disabled={!opts.onSelect}
           aria-current={opts.selected || undefined}
           className={`flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left disabled:cursor-default ${
-            opts.selected || !opts.onSelect ? '' : 'hover:text-white'
+            opts.selected || !opts.onSelect ? '' : 'hover:text-zinc-100'
           }`}
         >
           {opts.children}

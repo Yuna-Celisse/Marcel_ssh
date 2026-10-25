@@ -173,7 +173,7 @@ export function AgentHistoryDrawer({
                 setError(null);
                 setMode("active");
               }}
-              className="flex items-center gap-1 text-sm font-semibold text-zinc-200 hover:text-white"
+              className="flex items-center gap-1 text-sm font-semibold text-zinc-200 hover:text-zinc-100"
               title="返回历史会话"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
