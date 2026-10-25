@@ -64,7 +64,10 @@ pub struct ForkOutcome {
 ///
 /// 回合边界 = 下一条 `user` / `notice`。**不含 `system`**：压缩卡可能在回合中途
 /// 落库（自动压缩），按它切会把一个回合劈成两半。
-fn fork_end_index(messages: &[StoredMessage], anchor: Option<&AnchorRef>) -> Result<usize, ForkError> {
+fn fork_end_index(
+    messages: &[StoredMessage],
+    anchor: Option<&AnchorRef>,
+) -> Result<usize, ForkError> {
     let at = match anchor {
         None => return Ok(messages.len()),
         Some(AnchorRef::ById(id)) => messages
@@ -433,11 +436,20 @@ mod tests {
         let (_, rows) = seed_two_turns(&db);
         assert_eq!(fork_end_index(&rows, None).unwrap(), 6);
         // 锚点在第一个回合中间（tool）→ 取到该回合末尾（第二个 user 之前）
-        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[2].id))).unwrap(), 4);
+        assert_eq!(
+            fork_end_index(&rows, Some(&AnchorRef::ById(&rows[2].id))).unwrap(),
+            4
+        );
         // 锚点就是回合首条 user → 同样取整个回合
-        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[0].id))).unwrap(), 4);
+        assert_eq!(
+            fork_end_index(&rows, Some(&AnchorRef::ById(&rows[0].id))).unwrap(),
+            4
+        );
         // 最后一个回合 → 到末尾
-        assert_eq!(fork_end_index(&rows, Some(&AnchorRef::ById(&rows[4].id))).unwrap(), 6);
+        assert_eq!(
+            fork_end_index(&rows, Some(&AnchorRef::ById(&rows[4].id))).unwrap(),
+            6
+        );
         assert!(matches!(
             fork_end_index(&rows, Some(&AnchorRef::ById("ghost"))),
             Err(ForkError::AnchorNotFound)
@@ -449,7 +461,10 @@ mod tests {
         card.id = "card".into();
         card.role = "system".into();
         with_card.insert(3, card);
-        assert_eq!(fork_end_index(&with_card, Some(&AnchorRef::ById(&rows[0].id))).unwrap(), 5);
+        assert_eq!(
+            fork_end_index(&with_card, Some(&AnchorRef::ById(&rows[0].id))).unwrap(),
+            5
+        );
     }
 
     #[test]
@@ -458,7 +473,12 @@ mod tests {
         let (src, rows) = seed_two_turns(&db);
 
         let out = db
-            .fork_conversation(&src, Some(&AnchorRef::ById(&rows[3].id)), "原会话 · 分支", true)
+            .fork_conversation(
+                &src,
+                Some(&AnchorRef::ById(&rows[3].id)),
+                "原会话 · 分支",
+                true,
+            )
             .expect("fork");
         assert_eq!(
             out.conversation.forked_from_id.as_deref(),

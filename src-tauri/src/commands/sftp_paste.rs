@@ -19,7 +19,10 @@ use crate::AppState;
 const PASTE_TIMEOUT: Duration = Duration::from_secs(1800);
 
 fn split_name(path: &str) -> &str {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(path)
 }
 
 /// 在 `existing` 之外挑一个不冲突的名字：`a.txt` → `a (1).txt`，`dir` → `dir (1)`。
@@ -141,7 +144,13 @@ pub(crate) async fn paste_entry(
     };
     let output = state
         .command_exec
-        .exec_simple_with_timeout(app, session_id, &cmd, CommandSource::SystemTask, PASTE_TIMEOUT)
+        .exec_simple_with_timeout(
+            app,
+            session_id,
+            &cmd,
+            CommandSource::SystemTask,
+            PASTE_TIMEOUT,
+        )
         .await?;
     if output.lines().any(|l| l.trim() == "OK") {
         Ok(final_name)
