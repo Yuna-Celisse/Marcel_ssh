@@ -999,10 +999,19 @@ impl JsonPersistable for AppSettings {
     /// `migrate_update_mode_from_legacy`）。原始文本读不到时跳过迁移 ——
     /// 此时保持 serde 的默认值（自动更新），与旧版本行为一致。
     fn load_from_path(path: &std::path::Path) -> Result<Self, crate::error::AppError> {
-        let mut parsed = Self::load_parsed(path)?;
-        if let Ok(raw) = std::fs::read_to_string(path) {
-            parsed.migrate_update_mode_from_legacy(&raw);
+        // 与 `load_parsed` 同一套读取/解析语义，但原文只读一次（迁移判定还要
+        // 用它判「字段是否显式存在」，原来为这一步把整个文件重读一遍）。
+        if !path.exists() {
+            return Ok(Self::default());
         }
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| crate::error::AppError::Config(format!("读取配置文件失败: {}", e)))?;
+        if raw.trim().is_empty() {
+            return Ok(Self::default());
+        }
+        let mut parsed: Self = serde_json::from_str(&raw)
+            .map_err(|e| crate::error::AppError::Config(format!("解析配置文件失败: {}", e)))?;
+        parsed.migrate_update_mode_from_legacy(&raw);
         Ok(parsed)
     }
 }

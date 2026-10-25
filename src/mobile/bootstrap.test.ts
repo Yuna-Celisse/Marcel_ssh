@@ -44,7 +44,6 @@ describe('runMobileBootstrap', () => {
       loadSettings: vi.fn().mockResolvedValue(undefined),
       getDefaultAgentMode: vi.fn().mockReturnValue('auto'),
       setMode: vi.fn(),
-      fetchSkills: vi.fn().mockResolvedValue(undefined),
       attachTransferListeners: vi.fn().mockResolvedValue(undefined),
       startForegroundServiceIfEnabled: vi.fn(),
     };
@@ -69,7 +68,6 @@ describe('runMobileBootstrap', () => {
     expect(deps.getDefaultAgentMode).toHaveBeenCalledOnce();
     expect(deps.setMode).toHaveBeenCalledWith('auto');
     expect(deps.startForegroundServiceIfEnabled).toHaveBeenCalledOnce();
-    expect(deps.fetchSkills).toHaveBeenCalledOnce();
     expect(deps.attachTransferListeners).toHaveBeenCalledOnce();
     expect(order).toEqual(['appReady', 'loadSettings', 'startForegroundServiceIfEnabled']);
   });
@@ -84,13 +82,6 @@ describe('runMobileBootstrap', () => {
     deps.getDefaultAgentMode = vi.fn().mockReturnValue('nope');
     await runMobileBootstrap(deps);
     expect(deps.setMode).not.toHaveBeenCalled();
-    expect(deps.fetchSkills).toHaveBeenCalledOnce();
-    expect(deps.attachTransferListeners).toHaveBeenCalledOnce();
-  });
-
-  it('still attaches listeners when fetchSkills rejects', async () => {
-    deps.fetchSkills = vi.fn().mockRejectedValue(new Error('skills down'));
-    await runMobileBootstrap(deps);
     expect(deps.attachTransferListeners).toHaveBeenCalledOnce();
   });
 

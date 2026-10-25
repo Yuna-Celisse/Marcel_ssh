@@ -60,6 +60,24 @@ interface MobileTerminalHostProps {
   visible?: boolean;
 }
 
+/**
+ * fit 之后网格没变就跳过 resize IPC：ResizeObserver 在键盘弹起、Tab 切换等
+ * 布局变化时反复触发，但终端行列常常没变——每次都发就是一次 WebView→Java→Rust
+ * 往返加远端 SIGWINCH（tmux/vim 全屏重绘）。map 按**会话**记上次已下发的尺寸；
+ * 新会话不在表里必然下发，切回会话时若网格与记录一致说明远端本来就在这个尺寸。
+ */
+function sendResizeIfGridChanged(
+  sentMap: Map<string, string>,
+  sid: string,
+  cols: number,
+  rows: number,
+) {
+  const key = `${cols}x${rows}`;
+  if (sentMap.get(sid) === key) return;
+  sentMap.set(sid, key);
+  void tauri.sshResize(sid, cols, rows).catch(() => {});
+}
+
 export default function MobileTerminalHost({
   visible = true,
 }: MobileTerminalHostProps) {
@@ -114,6 +132,8 @@ export default function MobileTerminalHost({
 
   inputStateRef.current = inputState;
   activeSessionIdRef.current = activeSessionId;
+  // 每会话上次已下发的远端网格（见 sendResizeIfGridChanged）。
+  const sentResizeRef = useRef(new Map<string, string>());
 
   // 两指捏合调字号：途中只在本地重排，松手后才落盘并通知远端 resize（原因见 terminalFontZoom.ts）。
   const fontZoom = useTerminalFontZoom({
@@ -125,7 +145,7 @@ export default function MobileTerminalHost({
         const sid = activeSessionIdRef.current;
         const sess = sid ? useSessionStore.getState().sessions[sid] : null;
         if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
-          void tauri.sshResize(sid, term.cols, term.rows).catch(() => {});
+          sendResizeIfGridChanged(sentResizeRef.current, sid, term.cols, term.rows);
         }
       } catch {
         /* hidden */
@@ -310,7 +330,7 @@ export default function MobileTerminalHost({
         const sid = activeSessionIdRef.current;
         const sess = sid ? useSessionStore.getState().sessions[sid] : null;
         if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
-          void tauri.sshResize(sid, term.cols, term.rows).catch(() => {});
+          sendResizeIfGridChanged(sentResizeRef.current, sid, term.cols, term.rows);
         }
       } catch {
         /* ignore fit when hidden */
@@ -363,7 +383,7 @@ export default function MobileTerminalHost({
         const sid = activeSessionIdRef.current;
         const sess = sid ? useSessionStore.getState().sessions[sid] : null;
         if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
-          void tauri.sshResize(sid, term.cols, term.rows).catch(() => {});
+          sendResizeIfGridChanged(sentResizeRef.current, sid, term.cols, term.rows);
         }
       } catch {
         /* ignore */
@@ -423,9 +443,12 @@ export default function MobileTerminalHost({
       if (live && visible && !showList) {
         try {
           fitAddonRef.current?.fit();
-          void tauri
-            .sshResize(activeSessionId, term.cols, term.rows)
-            .catch(() => {});
+          sendResizeIfGridChanged(
+            sentResizeRef.current,
+            activeSessionId,
+            term.cols,
+            term.rows,
+          );
           // No programmatic term.focus(): focusing the hidden xterm textarea
           // pops the soft keyboard. Keyboard opens only when the user taps
           // the terminal (xterm focuses itself on pointer down).
@@ -520,7 +543,7 @@ export default function MobileTerminalHost({
         const sid = activeSessionIdRef.current;
         const sess = sid ? useSessionStore.getState().sessions[sid] : null;
         if (sid && !isDebugSession(sid) && sess?.status === 'connected') {
-          void tauri.sshResize(sid, term.cols, term.rows).catch(() => {});
+          sendResizeIfGridChanged(sentResizeRef.current, sid, term.cols, term.rows);
         }
       } catch {
         /* ignore */

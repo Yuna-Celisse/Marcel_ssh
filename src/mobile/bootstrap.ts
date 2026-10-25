@@ -37,7 +37,6 @@ export interface MobileBootstrapDeps {
   loadSettings: () => Promise<void>;
   getDefaultAgentMode: () => string | undefined | null;
   setMode: (mode: AgentMode) => void;
-  fetchSkills: () => Promise<void>;
   attachTransferListeners: () => void;
   /**
    * 按 mobileBackgroundSettings.keepAliveEnabled 启动 Android 前台保活服务。
@@ -77,11 +76,8 @@ export async function runMobileBootstrap(
   } catch {
     /* best-effort：保活失败不阻塞其他功能 */
   }
-  try {
-    await deps.fetchSkills();
-  } catch {
-    /* best-effort */
-  }
+  // skills 已随 hydrateBootstrapData 的启动快照水合（含聚合失败降级路径的
+  // fetchSkills），这里不再单独拉一遍。
   deps.attachTransferListeners();
   // 更新检查不在这里做：后端 updater 启动 30 秒后自查并 emit update://state，
   // 前端由 useUpdateStore 统一镜像（桌面与移动端同一份状态、同一套 UI 判定），
@@ -111,7 +107,6 @@ export async function bootstrapMobileApp(): Promise<void> {
       getDefaultAgentMode: () =>
         useSettingsStore.getState().settings.defaultAgentMode,
       setMode: (mode) => useTaskStore.getState().setMode(mode),
-      fetchSkills: () => useSkillStore.getState().fetchSkills(),
       attachTransferListeners: () => attachTransferListeners(),
       startForegroundServiceIfEnabled: () => {
         const { mobileBackgroundSettings } =
