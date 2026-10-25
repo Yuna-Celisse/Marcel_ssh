@@ -9,6 +9,7 @@ import type {
 import { applyCompactionSplice } from './messageConversion';
 import { extractPartialStringField, createJsonStreamTracker, feedJsonChunk, isJsonComplete, type JsonStreamTracker } from '@/lib/partialJson';
 import { toolPartialPreview } from '@/lib/toolCatalog';
+import { estimateTextTokens } from '@/lib/tokenUsage';
 import { useConversationStore } from './conversationStore';
 import { useTaskStore } from './taskStore';
 
@@ -55,6 +56,11 @@ export interface StreamHandler {
   recordContextUsage(conversationId: string, ev: ContextUsageEvent): void;
   /** 流式增量文本（正文 / 思考 / 工具参数）：累加「运行中任务的输出 token」估算。 */
   recordOutputDelta(conversationId: string, text: string): void;
+  /**
+   * 同上，但给的是**已按片估算好的数字**：rAF 合帧路径一帧只做一次 store
+   * 写入（逐 delta 直写会绕过合帧、每个 delta 一次 zustand set）。
+   */
+  recordOutputTokens(conversationId: string, tokens: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +183,7 @@ export function handleToolCallDelta(
   const pendingMsgId = streamState.pendingToolCalls.get(ev.id);
   if (!pendingMsgId) return;
 
+  streamState.pendingOutputTokens += estimateTextTokens(ev.argumentsDelta);
   const prev = streamState.pendingToolArgs.get(ev.id) ?? '';
   const accumulated = prev + ev.argumentsDelta;
   streamState.pendingToolArgs.set(ev.id, accumulated);
@@ -342,6 +349,9 @@ interface TaskStreamState {
   pendingTextDelta: string;
   pendingThinkingDelta: string;
   pendingToolOutput: Map<string, string>;
+  // 攒在帧里的输出 token 估算（三个 delta 通道各自按片估算后累加，flush 时
+  // 一次 recordOutputTokens 提交——替代旧的逐 delta 直写 taskStore）。
+  pendingOutputTokens: number;
   flushRafId: number | null;
   /** 上下文压缩占位消息 id（compactionStart → done/未完成 原位更新） */
   compactionMessageId: string | null;
@@ -374,6 +384,7 @@ export function getStreamState(taskId: string): TaskStreamState {
     pendingTextDelta: '',
     pendingThinkingDelta: '',
     pendingToolOutput: new Map(),
+    pendingOutputTokens: 0,
     flushRafId: null,
     compactionMessageId: null,
     compactionTrigger: null,
@@ -539,18 +550,26 @@ function flushPendingDeltas(
 ) {
   const state = getStreamState(taskId);
   const { pendingTextDelta, pendingThinkingDelta, pendingToolOutput } = state;
+  const pendingOutputTokens = state.pendingOutputTokens;
 
   // 清空 buffer 和 raf 句柄 —— 必须在 updateMessages 之前完成，
   // 否则 updater 闭包里对 state 的写入会丢失。
   state.pendingTextDelta = '';
   state.pendingThinkingDelta = '';
   state.pendingToolOutput = new Map();
+  state.pendingOutputTokens = 0;
   if (state.flushRafId != null) {
     cancelAnimationFrame(state.flushRafId);
     state.flushRafId = null;
   }
 
   if (!pendingTextDelta && !pendingThinkingDelta && pendingToolOutput.size === 0) return;
+
+  // 输出 token 估算随帧一并提交（live 只增不减、最终被 contextUsage 事件
+  // 覆盖的语义不变——只是从逐 delta 直写并入合帧路径）。
+  if (pendingOutputTokens > 0) {
+    handler.recordOutputTokens(conversationId, pendingOutputTokens);
+  }
 
   handler.updateMessages(conversationId, (convMsgs) => {
     const hasText = !!(pendingTextDelta || pendingThinkingDelta);
@@ -641,6 +660,7 @@ export function handleTextDelta(
 ) {
   const state = getStreamState(taskId);
   state.pendingTextDelta += streamEv.text;
+  state.pendingOutputTokens += estimateTextTokens(streamEv.text);
   setStreamState(taskId, state);
   scheduleFlush(handler, taskId, conversationId, loadingAssistantId);
 
@@ -658,6 +678,7 @@ export function handleThinkingDelta(
 ) {
   const state = getStreamState(taskId);
   state.pendingThinkingDelta += streamEv.text;
+  state.pendingOutputTokens += estimateTextTokens(streamEv.text);
   setStreamState(taskId, state);
   scheduleFlush(handler, taskId, conversationId, loadingAssistantId);
 }

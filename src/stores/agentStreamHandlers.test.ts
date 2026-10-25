@@ -82,6 +82,7 @@ describe('agentStreamHandlers', () => {
         pendingTextDelta: '',
         pendingThinkingDelta: '',
         pendingToolOutput: new Map(),
+        pendingOutputTokens: 0,
         flushRafId: null,
         compactionMessageId: null,
         compactionTrigger: null,

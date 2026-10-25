@@ -67,5 +67,6 @@ export function mockHandler(messages: Record<string, AgentMessage[]> = {}): Mock
     },
     recordContextUsage() {},
     recordOutputDelta() {},
+    recordOutputTokens() {},
   };
 }

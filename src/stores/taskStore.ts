@@ -162,6 +162,12 @@ export interface TaskState {
   applySideUsage: (conversationId: string, usage: ConversationUsage) => void;
   /** 流式文本增量（正文 / 思考 / 工具参数）→ 累加当前轮的输出 token 估算。 */
   recordOutputDelta: (conversationId: string, text: string) => void;
+  /**
+   * 同 [`recordOutputDelta`]，但直接给**已按片估算好的数字**——rAF 合帧路径
+   * 攒一帧的增量只做一次 store 写入（逐 delta 调 `recordOutputDelta` 会绕过
+   * 合帧、每个 delta 一次 zustand set）。
+   */
+  recordOutputTokens: (conversationId: string, tokens: number) => void;
 
   clearActiveTask: () => void;
   clearActiveTaskIf: (taskId: string) => void;
@@ -726,6 +732,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         taskOutputByConversation: {
           ...state.taskOutputByConversation,
           [conversationId]: { ...cur, live: cur.live + estimateTextTokens(text) },
+        },
+      };
+    });
+  },
+
+  recordOutputTokens: (conversationId, tokens) => {
+    if (tokens <= 0) return;
+    set((state) => {
+      const cur = state.taskOutputByConversation[conversationId];
+      if (!cur) return state;
+      return {
+        taskOutputByConversation: {
+          ...state.taskOutputByConversation,
+          [conversationId]: { ...cur, live: cur.live + tokens },
         },
       };
     });

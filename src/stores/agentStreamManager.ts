@@ -313,13 +313,13 @@ export async function attachStreamListener(taskId: string, conversationId: strin
       }
 
       if (hasEventType(ev, 'textDelta')) {
-        handler.recordOutputDelta(conversationId, (ev as unknown as { text: string }).text);
+        // 输出 token 估算随 rAF 合帧一并记账（见 agentStreamHandlers 的
+        // pendingOutputTokens），不再逐 delta 直写 taskStore。
         handleTextDelta(handler, taskId, conversationId, loadingAssistantId, ev);
         return;
       }
 
       if (hasEventType(ev, 'thinkingDelta')) {
-        handler.recordOutputDelta(conversationId, (ev as unknown as { text: string }).text);
         handleThinkingDelta(handler, taskId, conversationId, loadingAssistantId, ev);
         return;
       }
@@ -338,7 +338,6 @@ export async function attachStreamListener(taskId: string, conversationId: strin
 
       if (hasEventType(ev, 'toolCallDelta')) {
         const deltaEv = ev as unknown as { type: 'toolCallDelta'; id: string; argumentsDelta: string };
-        handler.recordOutputDelta(conversationId, deltaEv.argumentsDelta);
         handleToolCallDelta(handler, taskId, conversationId, deltaEv);
         return;
       }
