@@ -706,61 +706,147 @@ impl ProgressThrottle {
     }
 }
 
+/// 下载预取的并发 READ 数（与上传写并发同档：russh-sftp 默认 8）。
+const DOWNLOAD_PREFETCH_CONCURRENCY: usize = 8;
+
+/// 一次在途预取块的结果；`eof` = 服务器返回 SSH_FX_EOF。
+struct PrefetchedChunk {
+    offset: u64,
+    requested: u32,
+    data: Vec<u8>,
+    eof: bool,
+}
+
 /// 远程 → 本地文件的分块拷贝循环（含取消、进度事件、结尾 flush）。
 /// 返回实际写入字节数；上层负责对目标文件做失败清理。
 /// `pub(crate)`：Agent 传输工具（下载）复用同一流式实现。
+///
+/// **滑动窗口预取**：高层 `fs::File` 的读是串行的，吞吐被「一个 RTT 一个块」
+/// 硬顶；这里在独占的裸 SFTP 会话上并发发 [`DOWNLOAD_PREFETCH_CONCURRENCY`]
+/// 个不同 offset 的 READ，按 offset 有序落盘（`RawSftpSession` 按 id 配对
+/// 响应，并发安全）。短读（服务器单次返回不足请求量）自动补读剩余段；
+/// EOF 早于预期时正常收束，由调用方的「写入 < 起始大小」校验兜底报错
+/// （与串行版一致）。
 pub(crate) async fn stream_remote_to_local_file(
     app: &AppHandle,
-    remote: &mut russh_sftp::client::fs::File,
+    raw: std::sync::Arc<russh_sftp::client::RawSftpSession>,
+    remote_handle: &str,
+    read_chunk: u32,
     local: &mut tokio::fs::File,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
     download_id: &str,
     total: u64,
 ) -> Result<u64, AppError> {
-    let mut buf = vec![0u8; 131072];
+    const EOF_STATUS: russh_sftp::protocol::StatusCode = russh_sftp::protocol::StatusCode::Eof;
     let mut written: u64 = 0;
     let mut throttle = ProgressThrottle::new();
+    let mut inflight: tokio::task::JoinSet<Result<PrefetchedChunk, AppError>> = Default::default();
+    // offset → 数据：乱序完成的块按 offset 排好，等前驱到齐再落盘。
+    let mut ready: std::collections::BTreeMap<u64, Vec<u8>> = Default::default();
+    let mut next_issue: u64 = 0;
+    let mut next_write: u64 = 0;
+    let mut eof_seen = false;
+
+    // 发出一个 READ（offset, len）；预取与短读补读共用。
+    let mut issue = |inflight: &mut tokio::task::JoinSet<Result<PrefetchedChunk, AppError>>,
+                     offset: u64,
+                     len: u32| {
+        let raw = raw.clone();
+        let handle = remote_handle.to_string();
+        inflight.spawn(async move {
+            let result = raw.read(&handle, offset, len).await;
+            match result {
+                Ok(data) => Ok(PrefetchedChunk {
+                    offset,
+                    requested: len,
+                    data: data.data,
+                    eof: false,
+                }),
+                Err(russh_sftp::client::error::Error::Status(status))
+                    if status.status_code == EOF_STATUS =>
+                {
+                    Ok(PrefetchedChunk {
+                        offset,
+                        requested: len,
+                        data: Vec::new(),
+                        eof: true,
+                    })
+                }
+                Err(e) => Err(AppError::Ssh(format!("读取远程文件失败: {}", e))),
+            }
+        });
+    };
 
     loop {
         check_cancelled(cancel_rx, "下载已取消")?;
 
-        let n = tokio::select! {
-            result = remote.read(&mut buf) => {
-                result.map_err(|e| AppError::Ssh(format!("读取远程文件失败: {}", e)))?
-            }
-            _ = cancel_rx.changed() => return Err(AppError::Ssh("下载已取消".into())),
-        };
+        // 窗口补位；EOF 后不再发新读（等在途的排干）。
+        while !eof_seen
+            && inflight.len() < DOWNLOAD_PREFETCH_CONCURRENCY
+            && next_issue < total
+        {
+            let offset = next_issue;
+            let len = read_chunk.min((total - offset) as u32);
+            next_issue += len as u64;
+            issue(&mut inflight, offset, len);
+        }
 
-        if n == 0 {
+        if inflight.is_empty() {
             break;
         }
 
-        tokio::select! {
-            result = local.write_all(&buf[..n]) => {
-                result.map_err(|e| AppError::Ssh(format!("写入本地文件失败: {}", e)))?;
-            }
+        let joined = tokio::select! {
+            res = inflight.join_next() => res.expect("inflight 非空"),
             _ = cancel_rx.changed() => return Err(AppError::Ssh("下载已取消".into())),
+        };
+        let chunk = joined
+            .map_err(|e| AppError::Ssh(format!("下载任务失败: {}", e)))??;
+
+        if chunk.eof {
+            // 源文件比开始时小：与串行版一致地「读到 EOF 就收」，缺口由调用方
+            // 的完整性校验报错；在途的更高 offset 请求同样会以 EOF 回来。
+            eof_seen = true;
+            continue;
+        }
+        let requested = chunk.requested as u64;
+        let got = chunk.data.len() as u64;
+        ready.insert(chunk.offset, chunk.data);
+        if got < requested && !eof_seen {
+            // 短读：服务器单次返回不足请求量，剩余段立即补读。
+            issue(&mut inflight, chunk.offset + got, (requested - got) as u32);
         }
 
-        written += n as u64;
+        // 按序落盘。
+        while let Some(data) = ready.remove(&next_write) {
+            check_cancelled(cancel_rx, "下载已取消")?;
+            tokio::select! {
+                result = local.write_all(&data) => {
+                    result.map_err(|e| AppError::Ssh(format!("写入本地文件失败: {}", e)))?;
+                }
+                _ = cancel_rx.changed() => return Err(AppError::Ssh("下载已取消".into())),
+            }
+            let n = data.len() as u64;
+            written += n;
+            next_write += n;
 
-        // 增长检测：实际写入一旦超过下载开始时的大小，说明源文件正在被
-        // 程序写入/追加（如活跃日志）。若继续读会一路追着增长的 EOF 下载
-        // 下去且无法收敛，故在此立即停止。检查放在进度事件之前，避免 UI
-        // 闪现超 100% 的进度。
-        if written > total {
-            return Err(AppError::Ssh(format!(
-                "下载后大小与预期不一致：预期 {} 字节，实际写入 {} 字节，可能有程序正在更改此文件",
-                total, written
-            )));
-        }
+            // 增长检测：实际写入一旦超过下载开始时的大小，说明源文件正在被
+            // 程序写入/追加（如活跃日志），立即停止。预取按起始大小封顶后，
+            // 此检查作为记账异常的兜底保险保留（检查放在进度事件之前，
+            // 避免 UI 闪现超 100% 的进度）。
+            if written > total {
+                return Err(AppError::Ssh(format!(
+                    "下载后大小与预期不一致：预期 {} 字节，实际写入 {} 字节，可能有程序正在更改此文件",
+                    total, written
+                )));
+            }
 
-        if throttle.should_emit(written) {
-            emit_event(
-                app,
-                "sftp-download-progress",
-                json!({ "downloadId": download_id, "written": written, "total": total }),
-            );
+            if throttle.should_emit(written) {
+                emit_event(
+                    app,
+                    "sftp-download-progress",
+                    json!({ "downloadId": download_id, "written": written, "total": total }),
+                );
+            }
         }
     }
 
@@ -780,6 +866,9 @@ pub(crate) async fn stream_remote_to_local_file(
         }
         _ = cancel_rx.changed() => return Err(AppError::Ssh("下载已取消".into())),
     }
+
+    // 释放远端句柄（尽力而为；会话随 Arc 释放而结束）。
+    let _ = raw.close(remote_handle).await;
 
     Ok(written)
 }
@@ -824,10 +913,18 @@ pub async fn sftp_download_stream(
 
     let total = metadata.len();
 
-    let mut remote = sftp
-        .open_with_flags(&remote_path, OpenFlags::READ)
+    // 数据面走独占的裸会话（并发预取 READ）；上面那条高层会话只干了 stat。
+    let (raw, read_chunk) = state.ssh_manager.open_sftp_raw(&session_id).await?;
+    let raw = std::sync::Arc::new(raw);
+    let remote_handle = raw
+        .open(
+            &remote_path,
+            OpenFlags::READ,
+            russh_sftp::protocol::FileAttributes::default(),
+        )
         .await
-        .map_err(|e| AppError::Ssh(format!("打开远程文件失败: {}", e)))?;
+        .map_err(|e| AppError::Ssh(format!("打开远程文件失败: {}", e)))?
+        .handle;
 
     // Android SAF content:// 目标：由 ACTION_CREATE_DOCUMENT 刚创建的文档本身就是
     // 新文件，且 content URI 无法拼 .part 兄弟路径，直接写入目标；
@@ -840,7 +937,9 @@ pub async fn sftp_download_stream(
 
         let written = match stream_remote_to_local_file(
             &app,
-            &mut remote,
+            raw,
+            &remote_handle,
+            read_chunk,
             &mut local,
             &mut cancel_rx,
             &download_id,
@@ -886,7 +985,9 @@ pub async fn sftp_download_stream(
     // （stream_download_single_file，含 .part/.backup + 取消 + 完整性 + done 事件）。
     stream_download_single_file(
         &app,
-        &mut remote,
+        raw,
+        &remote_handle,
+        read_chunk,
         total,
         &local_path,
         &download_id,
@@ -937,7 +1038,9 @@ async fn cleanup_stale_download_temp_files(local_path: &str, current_id: &str) {
 /// `AppState::download_cancel`（前端 `sftp_cancel_download` 按 id 触发）。
 pub(crate) async fn stream_download_single_file(
     app: &AppHandle,
-    remote: &mut russh_sftp::client::fs::File,
+    raw: std::sync::Arc<russh_sftp::client::RawSftpSession>,
+    remote_handle: &str,
+    read_chunk: u32,
     total: u64,
     local_path: &str,
     download_id: &str,
@@ -953,8 +1056,17 @@ pub(crate) async fn stream_download_single_file(
         .await
         .map_err(|e| AppError::Ssh(format!("创建本地文件失败: {}", e)))?;
 
-    let result =
-        stream_remote_to_local_file(app, remote, &mut local, cancel_rx, download_id, total).await;
+    let result = stream_remote_to_local_file(
+        app,
+        raw,
+        remote_handle,
+        read_chunk,
+        &mut local,
+        cancel_rx,
+        download_id,
+        total,
+    )
+    .await;
 
     let written = match result {
         Ok(written) => written,

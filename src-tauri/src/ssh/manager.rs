@@ -895,6 +895,23 @@ impl SshManager {
         open_sftp_on(&conn.handle).await
     }
 
+    /// 打开一条**独占通道**的裸 SFTP 会话（`RawSftpSession`），并完成协议
+    /// 初始化与 `limits@openssh.com` 协商。下载预取用它按 offset 并发发 READ
+    /// （高层 `fs::File` 的读是串行的，一个 RTT 一个块）；返回会话与协商出的
+    /// 单请求读块上限（无 limits 扩展时按 `fs::File` 同口径退回
+    /// `max_packet_len - 9`）。正文传输专用，不占元数据共享会话。
+    pub async fn open_sftp_raw(
+        &self,
+        session_id: &str,
+    ) -> Result<(russh_sftp::client::RawSftpSession, u32), AppError> {
+        let conn = {
+            let guard = self.connections.read().await;
+            guard.get(session_id).cloned()
+        };
+        let conn = conn.ok_or_else(|| AppError::Ssh(format!("会话不存在: {}", session_id)))?;
+        open_sftp_raw_on(&conn.handle).await
+    }
+
     /// 在这条连接的**共享元数据 SFTP 会话**上执行一次短操作（见 `sftp_shared`）。
     ///
     /// - 外层 `Err` = 拿不到会话（连接不存在、开通道 / 握手失败）；
@@ -972,6 +989,53 @@ async fn open_sftp_on(
     russh_sftp::client::SftpSession::new(channel.into_stream())
         .await
         .map_err(|e| AppError::Ssh(format!("初始化 SFTP 会话失败: {}", e)))
+}
+
+/// 与 [`open_sftp_on`] 同一条路，但构建裸会话并单独协商读块上限
+/// （`SftpSession::new_with_config` 的启动序列逐句对齐，见其源码）。
+async fn open_sftp_raw_on(
+    handle: &TokioMutex<client::Handle<Client>>,
+) -> Result<(russh_sftp::client::RawSftpSession, u32), AppError> {
+    let channel = handle
+        .lock()
+        .await
+        .channel_open_session()
+        .await
+        .map_err(|e| AppError::Ssh(format!("打开 SFTP 通道失败: {}", e)))?;
+
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| AppError::Ssh(format!("请求 SFTP 子系统失败: {}", e)))?;
+
+    let mut raw =
+        russh_sftp::client::RawSftpSession::new(channel.into_stream());
+    let version = raw
+        .init()
+        .await
+        .map_err(|e| AppError::Ssh(format!("初始化 SFTP 会话失败: {}", e)))?;
+    // fs::File 的读块口径：limits@openssh.com 的 read_len，否则 max_packet_len-9
+    // （russh-sftp Config 默认 262144）。
+    let mut max_read_len = 262144u64 - 9;
+    if version
+        .extensions
+        .get("limits@openssh.com")
+        .is_some_and(|v| v == "1")
+    {
+        match raw.limits().await {
+            Ok(server_limits) => {
+                if server_limits.max_read_len > 0 {
+                    max_read_len = server_limits.max_read_len;
+                }
+                raw.set_limits(russh_sftp::client::rawsession::Limits::from(server_limits));
+            }
+            Err(e) => {
+                // 协商失败只是拿不到服务器上限：按保守口径继续。
+                log::warn!("SFTP limits 协商失败，读块按默认上限: {}", e);
+            }
+        }
+    }
+    Ok((raw, (max_read_len as u32).min(128 * 1024)))
 }
 
 /// 给刚创建的共享会话挂上空闲回收：闲置够久就释放服务器上的 `sftp-server` 进程

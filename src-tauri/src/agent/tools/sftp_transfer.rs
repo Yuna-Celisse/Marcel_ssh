@@ -1450,8 +1450,27 @@ async fn download_execute(
     let transfer_id = crate::agent::transfer::new_transfer_id();
     let task_id = ctx.task_id.clone().unwrap_or_default();
 
-    let mut remote = match sftp.open_with_flags(remote_path, OpenFlags::READ).await {
-        Ok(f) => f,
+    // 数据面换独占的裸会话（并发预取 READ，见 stream_remote_to_local_file）；
+    // 上面的高层会话只干了 stat。打开失败在真正开始传输前就拦下。
+    let (raw, read_chunk) = match ctx.ssh.open_sftp_raw(&ctx.session_id).await {
+        Ok(pair) => pair,
+        Err(e) => {
+            return Ok(ToolOutput::fail(
+                format!("download {}", remote_path),
+                format!("SFTP unavailable: {}", e),
+            ))
+        }
+    };
+    let raw = std::sync::Arc::new(raw);
+    let remote_handle = match raw
+        .open(
+            remote_path,
+            OpenFlags::READ,
+            russh_sftp::protocol::FileAttributes::default(),
+        )
+        .await
+    {
+        Ok(h) => h.handle,
         Err(e) => {
             return Ok(ToolOutput::fail(
                 format!("download {}", remote_path),
@@ -1459,7 +1478,6 @@ async fn download_execute(
             ))
         }
     };
-
     let file_name = resolved
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1509,7 +1527,9 @@ async fn download_execute(
     // 共享流式核心：.part 临时文件 + 进度事件 + 取消 + 完整性校验 + 原子替换。
     let result = crate::commands::sftp::stream_download_single_file(
         &ctx.app_handle,
-        &mut remote,
+        raw,
+        &remote_handle,
+        read_chunk,
         total,
         &resolved.display().to_string(),
         &transfer_id,
