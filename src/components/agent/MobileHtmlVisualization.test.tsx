@@ -7,6 +7,10 @@ import {
   HTML_VIZ_HEIGHT_MESSAGE,
   MOBILE_VIZ_STREAM_THROTTLE_MS,
 } from "@/lib/htmlVisualization";
+import {
+  rememberVizHeight,
+  resetVizHeightMemoryForTest,
+} from "@/lib/vizHeightMemory";
 import { resetBackHandlers } from "@/mobile/backHandler";
 import MobileHtmlVisualization from "./MobileHtmlVisualization";
 import {
@@ -73,6 +77,9 @@ function fullscreenText(): HTMLButtonElement | undefined {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // 高度记忆是跨测试的模块级状态；同一个 toolCallId 的上一条用例不能影响下一条的起步高度。
+  localStorage.clear();
+  resetVizHeightMemoryForTest();
   // 390×844 的竖屏手机：高度上限 round(844 × 0.65) = 549。
   vi.stubGlobal("innerWidth", 390);
   vi.stubGlobal("innerHeight", 844);
@@ -229,6 +236,60 @@ describe("MobileHtmlVisualization", () => {
     expect(inlineFrame().srcdoc).toContain("wantsKeyboard");
   });
 
+  describe("first load height", () => {
+    it("holds a placeholder behind a transparent iframe until the first height arrives", async () => {
+      await render();
+      expect(inlineFrame().style.height).toBe("240px");
+      expect(inlineFrame().style.opacity).toBe("0");
+      expect(host.querySelector("[data-viz-skeleton]")).not.toBeNull();
+
+      await reportHeight(380);
+      expect(inlineFrame().style.height).toBe("380px");
+      expect(inlineFrame().style.opacity).toBe("1");
+      // 首次撑开的窗口里挂高度过渡，之后的变化必须跟手（不带缓动）。
+      expect(inlineFrame().className).toContain("marcel-viz-frame-grow");
+    });
+
+    it("starts from the remembered height with no placeholder", async () => {
+      rememberVizHeight("call-1", 420);
+      await render();
+      expect(inlineFrame().style.height).toBe("420px");
+      expect(inlineFrame().style.opacity).toBe("1");
+      expect(host.querySelector("[data-viz-skeleton]")).toBeNull();
+    });
+
+    it("remembers the measured height for the next mount", async () => {
+      await render();
+      await reportHeight(333);
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await render();
+      expect(inlineFrame().style.height).toBe("333px");
+      expect(host.querySelector("[data-viz-skeleton]")).toBeNull();
+    });
+
+    it("does not use the placeholder while the content is still streaming in", async () => {
+      await render(vizMessage({ isExecuting: true }));
+      expect(inlineFrame().style.height).toBe("48px");
+      expect(inlineFrame().style.opacity).toBe("1");
+      expect(host.querySelector("[data-viz-skeleton]")).toBeNull();
+    });
+
+    it("gives up on the placeholder if the iframe never reports", async () => {
+      vi.useFakeTimers();
+      try {
+        await render();
+        expect(inlineFrame().style.opacity).toBe("0");
+        await act(async () => {
+          vi.advanceTimersByTime(2100);
+        });
+        expect(inlineFrame().style.opacity).toBe("1");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("while streaming", () => {
     const streaming = (fragment: string) =>
       vizMessage({
@@ -317,7 +378,7 @@ describe("MobileHtmlVisualization", () => {
     it("fades the cropped bottom into the same color", async () => {
       await act(async () => root.render(onPage()));
       await reportHeight(1400);
-      const fade = host.querySelector<HTMLElement>('[aria-hidden="true"].pointer-events-none');
+      const fade = host.querySelector<HTMLElement>('[aria-hidden="true"].h-20');
       expect(fade?.style.background).toContain("rgb(9, 9, 11)");
     });
 

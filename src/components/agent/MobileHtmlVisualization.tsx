@@ -11,6 +11,7 @@ import { useHtmlVisualization } from "@/hooks/useHtmlVisualization";
 import { useIframeFocusReveal } from "@/hooks/useIframeFocusReveal";
 import { useViewportSize } from "@/hooks/useViewportSize";
 import MobileHtmlVisualizationViewer from "@/mobile/MobileHtmlVisualizationViewer";
+import VisualizationSkeleton from "./VisualizationSkeleton";
 
 interface Props {
   message: AgentMessage;
@@ -38,6 +39,8 @@ function MobileHtmlVisualization({ message }: Props) {
     ready,
     doc,
     contentHeight,
+    pending,
+    growing,
     onLoad,
   } = useHtmlVisualization(message, {
     scrollable: false,
@@ -93,6 +96,7 @@ function MobileHtmlVisualization({ message }: Props) {
         )}
       </div>
       <div className="relative overflow-hidden">
+        {(pending || growing) && <VisualizationSkeleton />}
         {ready && (
           <iframe
             ref={frameRef}
@@ -101,9 +105,10 @@ function MobileHtmlVisualization({ message }: Props) {
             title={title}
             srcDoc={doc}
             onLoad={onLoad}
-            className="block w-full border-0"
+            className={`block w-full border-0 ${growing ? "marcel-viz-frame-grow" : "marcel-viz-frame"}`}
             style={{
               height: hasContent ? height : 0,
+              opacity: pending ? 0 : 1,
               backgroundColor: theme.background,
               colorScheme: "normal",
             }}

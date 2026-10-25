@@ -20,8 +20,18 @@ import {
   type HtmlVisualizationTheme,
   type VisualizationDocOptions,
 } from "@/lib/htmlVisualization";
+import { readVizHeight, rememberVizHeight } from "@/lib/vizHeightMemory";
 
 export const VISUALIZATION_MIN_HEIGHT = 48;
+/**
+ * 从没量过高度的定稿可视化先占的高度。比最小高度接近常见成品，首次撑开的落差小，
+ * 再配合骨架 + 过渡就不会有「整块被顶下去」的闪。
+ */
+export const VISUALIZATION_PLACEHOLDER_HEIGHT = 240;
+/** iframe 迟迟不上报高度（出错 / 被藏起来）时，占位最多撑这么久就放弃，直接露出 iframe。 */
+const PLACEHOLDER_GIVE_UP_MS = 2000;
+/** 首次量到高度后，高度过渡的持续窗口（略长于 CSS 里的 .2s）。 */
+const HEIGHT_GROW_WINDOW_MS = 260;
 
 /**
  * 宿主主题（含深浅色切换）变化时重新解析，iframe 文档随之重建。
@@ -100,11 +110,46 @@ export function useHtmlVisualization(
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   // 记在列表的 view 缓存里：虚拟列表卸载 / 重建这一行后 iframe 从上次的高度起步，
-  // 不会先缩成 48px 再弹回去，滚动位置也就不被带偏。
-  const [contentHeight, setContentHeight] = useMessageViewState(
+  // 不会先缩成 48px 再弹回去，滚动位置也就不被带偏。null = 本次列表里还没量过。
+  const [measured, setMeasured] = useMessageViewState<number | null>(
     "viz-content-height",
-    VISUALIZATION_MIN_HEIGHT,
+    null,
   );
+  // 跨会话 / 重启的记忆（见 vizHeightMemory）：列表缓存没有时的起步值。只在挂载时读一次。
+  const [remembered] = useState(() => readVizHeight(token));
+  const [gaveUp, setGaveUp] = useState(false);
+  const [growing, setGrowing] = useState(false);
+  const growTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reportedOnce = useRef(false);
+  const executingRef = useRef(message.isExecuting);
+  executingRef.current = message.isExecuting;
+  useEffect(
+    () => () => {
+      if (growTimer.current !== null) clearTimeout(growTimer.current);
+    },
+    [],
+  );
+  const hasFragment = !!fragment.trim();
+  // 骨架占位：定稿、有内容、哪儿都没有高度记录。流式阶段内容本来就在逐步长高，
+  // 用户看着它长，不算「闪」，不占位。
+  const pending =
+    !gaveUp &&
+    !message.isExecuting &&
+    hasFragment &&
+    measured === null &&
+    remembered === null;
+  const contentHeight =
+    measured ??
+    remembered ??
+    (!message.isExecuting && hasFragment
+      ? VISUALIZATION_PLACEHOLDER_HEIGHT
+      : VISUALIZATION_MIN_HEIGHT);
+
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setTimeout(() => setGaveUp(true), PLACEHOLDER_GIVE_UP_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
   const { theme, ready } = useVisualizationTheme(host);
   const { scrollable, focus } = docOptions;
 
@@ -128,13 +173,26 @@ export function useHtmlVisualization(
       // 0 不是内容高度：页面被 display:none（手机切到别的 tab）、iframe 还没排版时
       // 内容区会量出 0。照单全收会缩成最小高度，切回来再弹开。
       if (data.height <= 0) return;
-      setContentHeight(
-        Math.max(VISUALIZATION_MIN_HEIGHT, Math.ceil(data.height)),
-      );
+      const next = Math.max(VISUALIZATION_MIN_HEIGHT, Math.ceil(data.height));
+      // 只有定稿后的第一次上报做高度过渡（占位 / 记忆值 → 实测值）；之后的变化
+      // （拖动面板宽度、流式逐字长高）必须跟手，不能带缓动。
+      if (!reportedOnce.current) {
+        reportedOnce.current = true;
+        if (!executingRef.current) {
+          setGrowing(true);
+          if (growTimer.current !== null) clearTimeout(growTimer.current);
+          growTimer.current = setTimeout(() => {
+            growTimer.current = null;
+            setGrowing(false);
+          }, HEIGHT_GROW_WINDOW_MS);
+        }
+      }
+      rememberVizHeight(token, next);
+      setMeasured(next);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [token, setContentHeight]);
+  }, [token, setMeasured]);
 
   const streamingDoc = useMemo(
     () => buildStreamingVisualizationDoc(theme, token, { scrollable, focus }),
@@ -184,6 +242,10 @@ export function useHtmlVisualization(
     ready,
     doc,
     contentHeight,
+    /** true = 还在等第一次量高度：容器画骨架、iframe 先藏着（透明）。 */
+    pending,
+    /** true = 正处在首次撑开的过渡窗口：容器给 iframe 挂高度过渡。 */
+    growing,
     onLoad: () => setLoaded(true),
   };
 }

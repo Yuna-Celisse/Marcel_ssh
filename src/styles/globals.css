@@ -212,6 +212,25 @@ html[data-marcel-theme='light'] .prose.marcel-prose :not(pre) > code {
   --marcel-viz-background: var(--color-zinc-950);
 }
 
+/* 可视化 iframe 的外框过渡（桌面 / 手机共用，HtmlVisualization 与 MobileHtmlVisualization 挂）。
+   frame：量到高度前 iframe 透明、量到后淡入；frame-grow 只在首次量到高度的短窗口里额外
+   带上高度过渡（占位 / 记忆值 → 实测值）。平时的高度变化（拖面板宽度、流式长高）
+   不能带缓动，否则会拖泥带水，所以高度过渡不能常驻。 */
+.marcel-viz-frame {
+  transition: opacity 0.2s ease;
+}
+.marcel-viz-frame-grow {
+  transition:
+    opacity 0.2s ease,
+    height 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .marcel-viz-frame,
+  .marcel-viz-frame-grow {
+    transition: none;
+  }
+}
+
 /* ── 主题切换过渡 ──
    applyUiTheme 用 View Transitions 做「从点击处扩散」的圆形揭开：旧页面快照垫底不动，
    新页面被羽化边缘的圆形遮罩推开（半径由 WAAPI 驱动 --marcel-reveal-r，起点是

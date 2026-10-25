@@ -5,6 +5,7 @@ import {
   type HtmlVisualizationMode,
 } from "@/lib/htmlVisualization";
 import { useHtmlVisualization } from "@/hooks/useHtmlVisualization";
+import VisualizationSkeleton from "./VisualizationSkeleton";
 
 interface Props {
   message: AgentMessage;
@@ -25,6 +26,8 @@ function HtmlVisualization({ message }: Props) {
     theme,
     doc,
     contentHeight,
+    pending,
+    growing,
     onLoad,
   } = useHtmlVisualization(message);
 
@@ -50,22 +53,26 @@ function HtmlVisualization({ message }: Props) {
           </span>
         )}
       </div>
-      <iframe
-        ref={frameRef}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        title={title}
-        srcDoc={doc}
-        onLoad={onLoad}
-        className="block w-full border-0"
-        style={{
-          height: fragment.trim()
-            ? Math.min(contentHeight, HEIGHT_CAP[mode])
-            : 0,
-          backgroundColor: theme.background,
-          colorScheme: "normal",
-        }}
-      />
+      <div className="relative">
+        {(pending || growing) && <VisualizationSkeleton />}
+        <iframe
+          ref={frameRef}
+          sandbox="allow-scripts"
+          referrerPolicy="no-referrer"
+          title={title}
+          srcDoc={doc}
+          onLoad={onLoad}
+          className={`block w-full border-0 ${growing ? "marcel-viz-frame-grow" : "marcel-viz-frame"}`}
+          style={{
+            height: fragment.trim()
+              ? Math.min(contentHeight, HEIGHT_CAP[mode])
+              : 0,
+            opacity: pending ? 0 : 1,
+            backgroundColor: theme.background,
+            colorScheme: "normal",
+          }}
+        />
+      </div>
     </div>
   );
 }
