@@ -427,6 +427,11 @@ export default function MobileAgentHost({
   // 唤出门控（任务运行中/压缩中不唤出，理由见共享函数注释）与桌面
   // `AgentPanel` 共用 `canOpenCommandMenu`。
   const commandDraft = useAgentDraftStore((s) => isCommandDraft((s.drafts[draftKey] ?? EMPTY_DRAFT).text));
+  // 命令菜单的已选技能 id：引用稳定（map 出的新数组会让菜单在宿主每次渲染时破 memo）
+  const selectedSkillIds = useMemo(
+    () => attachments.skills.map((skill) => skill.skillId),
+    [attachments.skills],
+  );
   const commandMenuOpen = canOpenCommandMenu(
     commandDraft,
     activeConversationId,
@@ -1012,9 +1017,10 @@ export default function MobileAgentHost({
           </div>
         </div>
       ) : (
-        <AgentDraft draftKey={draftKey}>{(inputDraft) => (
         <div className="relative flex-shrink-0 border-t border-edge-subtle p-3">
-          {/* `/` 命令面板：锚定输入框上方，触摸点选执行；遮罩点击/返回键关闭 */}
+          {/* `/` 命令面板：锚定输入框上方，触摸点选执行；遮罩点击/返回键关闭。
+              草稿文本只在这一小块被消费（菜单 query）——其余 composer 子树不进
+              AgentDraft 作用域，每击键不再整段重渲染（发送键自订阅，见下）。 */}
           {commandMenuOpen && (
             <div
               className="fixed inset-0 z-40"
@@ -1022,17 +1028,21 @@ export default function MobileAgentHost({
               aria-hidden
             />
           )}
-          <AgentCommandMenu
-            open={commandMenuOpen}
-            query={commandMenuOpen ? inputDraft.slice(1) : ""}
-            currentMode={mode}
-            onSelectMode={setMode}
-            onPickSkill={handlePickSkill}
-            selectedSkillIds={attachments.skills.map((skill) => skill.skillId)}
-            onCompact={handleCompact}
-            onFork={handleForkWhole}
-            onClose={() => setInputDraft("")}
-          />
+          <AgentDraft draftKey={draftKey}>
+            {(menuQuery) => (
+              <AgentCommandMenu
+                open={commandMenuOpen}
+                query={commandMenuOpen ? menuQuery.slice(1) : ""}
+                currentMode={mode}
+                onSelectMode={setMode}
+                onPickSkill={handlePickSkill}
+                selectedSkillIds={selectedSkillIds}
+                onCompact={handleCompact}
+                onFork={handleForkWhole}
+                onClose={() => setInputDraft("")}
+              />
+            )}
+          </AgentDraft>
           {/* 压缩中常驻的原因说明（与桌面同文案）：发送键这时是「取消压缩」，
               回车也发不出去，没有这一行用户只会觉得输入框坏了。 */}
           {isCompacting && (
@@ -1183,6 +1193,9 @@ export default function MobileAgentHost({
             </button>
             {/* 三态（与桌面同款）：任务运行中 = 停止（红）；正在压缩上下文 =
                 取消压缩（紫，压缩不能暂停，这是它唯一的出路）；否则 = 发送。 */}
+            <AgentDraft draftKey={draftKey}>
+              {(sendDraft) => (
+              <>
             <button
               type="button"
               onClick={() =>
@@ -1193,7 +1206,7 @@ export default function MobileAgentHost({
                     : void handleSend()
               }
               disabled={!isRunning && !isCompacting && (sending || !!attachments.sendBlockedReason || !(!!ids && canSendAgentPrompt(
-                activeSession, conversationBusy, inputDraft, attachments.items.length > 0 || attachments.skills.length > 0,
+                activeSession, conversationBusy, sendDraft, attachments.items.length > 0 || attachments.skills.length > 0,
               )))}
               className={`mr-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-white transition-transform duration-150 active:scale-95 disabled:opacity-40 ${
                 isRunning
@@ -1216,7 +1229,7 @@ export default function MobileAgentHost({
             {/* 运行中且已输入：停止键留在原处，右侧主位给「加入队列」（与桌面同款；
                 停止在左、队列在右，误点队列无害、误点停止会中断长任务）。 */}
             {isRunning && !sending && !attachments.sendBlockedReason && !!ids && canSendAgentPrompt(
-              activeSession, isCompacting, inputDraft, attachments.items.length > 0 || attachments.skills.length > 0,
+              activeSession, isCompacting, sendDraft, attachments.items.length > 0 || attachments.skills.length > 0,
             ) && (
               <button
                 type="button"
@@ -1228,10 +1241,12 @@ export default function MobileAgentHost({
                 <ArrowUp className="h-[18px] w-[18px]" />
               </button>
             )}
+              </>
+              )}
+            </AgentDraft>
             </div>
           </div>
         </div>
-        )}</AgentDraft>
       )}
     </div>
   );
