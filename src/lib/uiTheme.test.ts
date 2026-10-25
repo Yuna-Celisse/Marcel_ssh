@@ -10,6 +10,7 @@ import {
   deriveTerminalColors,
   inferScheme,
   normalizeUiTheme,
+  onUiThemeChrome,
   resolveThemeVars,
   resolveUiThemeScheme,
   UI_THEME_NEUTRAL_ZONES,
@@ -457,5 +458,84 @@ describe("applyUiTheme", () => {
       started.forEach((fn) => fn());
       expect(document.documentElement.dataset.marcelTheme).toBe("dark");
     });
+  });
+});
+
+describe("系统外框同步（状态栏图标 / 窗口底色 / 冷启动底色）", () => {
+  const dark = {
+    presetId: "obsidian",
+    zones: { ...getUiThemePreset("obsidian")!.zones },
+  };
+  const light = {
+    presetId: "daylight",
+    zones: { ...getUiThemePreset("daylight")!.zones },
+  };
+  const doc = document as unknown as { startViewTransition?: unknown };
+  afterEach(() => {
+    delete doc.startViewTransition;
+    vi.useRealTimers();
+  });
+
+  it("主题落定后广播外框底色与明暗；订阅时回放当前的，订阅早晚无所谓", () => {
+    applyUiTheme(light, false);
+    const seen: Array<{ background: string; scheme: string }> = [];
+    const off = onUiThemeChrome((c) => seen.push(c));
+    expect(seen).toEqual([{ background: light.zones.bg, scheme: "light" }]);
+    applyUiTheme(dark, false);
+    expect(seen[seen.length - 1]).toEqual({
+      background: dark.zones.bg,
+      scheme: "dark",
+    });
+    off();
+    applyUiTheme(light, false);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("揭开动画期间系统栏图标等圆扫过去再翻，不是切换瞬间", () => {
+    vi.useFakeTimers();
+    doc.startViewTransition = vi.fn(() => ({ ready: Promise.resolve() }));
+    applyUiTheme(dark, false);
+    const seen: string[] = [];
+    const off = onUiThemeChrome((c) => seen.push(c.scheme));
+    seen.length = 0;
+    applyUiTheme(light, true);
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(1000);
+    expect(seen).toEqual(["light"]);
+    off();
+  });
+
+  it("动画未播完又切一次：只按最后一次的主题翻，旧定时器不会把图标翻回去", () => {
+    vi.useFakeTimers();
+    doc.startViewTransition = vi.fn(() => ({ ready: Promise.resolve() }));
+    applyUiTheme(dark, false);
+    const seen: string[] = [];
+    const off = onUiThemeChrome((c) => seen.push(c.scheme));
+    seen.length = 0;
+    applyUiTheme(light, true);
+    applyUiTheme(dark, true);
+    vi.advanceTimersByTime(1000);
+    expect(seen[seen.length - 1]).toBe("dark");
+    off();
+  });
+
+  it("订阅者抛错不拖垮主题应用", () => {
+    const off = onUiThemeChrome(() => {
+      throw new Error("boom");
+    });
+    expect(() => applyUiTheme(light, false)).not.toThrow();
+    expect(document.documentElement.dataset.marcelTheme).toBe("light");
+    off();
+  });
+
+  it("缓存外框色供 index.html 冷启动内联脚本读取；<html> 底色接管后跟变量走", () => {
+    applyUiTheme(light, false);
+    expect(JSON.parse(localStorage.getItem("marcel.uiTheme.chrome")!)).toEqual({
+      background: light.zones.bg,
+      scheme: "light",
+    });
+    expect(document.documentElement.style.backgroundColor).toBe(
+      "var(--color-zinc-950)",
+    );
   });
 });

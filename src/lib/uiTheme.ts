@@ -782,6 +782,59 @@ export function resolveThemeVars(
 }
 
 const THEME_CACHE_KEY = "marcel.uiTheme.cache";
+/** 外框底色 + 明暗的精简缓存：index.html 的内联脚本在 JS 加载前读它给 <html> 上底色，
+ *  冷启动不再先露一块写死的深色。键名与 index.html 一致。 */
+const THEME_CHROME_CACHE_KEY = "marcel.uiTheme.chrome";
+
+/* ── 系统外框同步 ──
+   窗口之外的东西（Android 状态栏/导航栏图标明暗、窗口与 WebView 的底色）也要跟主题走，
+   否则浅色主题下系统栏图标是白的、压在白底上看不见。这里只负责「主题落定后把外框信息
+   广播出去」，具体怎么设由各平台订阅者决定（手机见 mobile/mobileBridge.ts）。 */
+export interface UiThemeChrome {
+  /** 外框底色（手机页底、顶栏的颜色，系统栏透明后透出来的就是它）。 */
+  background: string;
+  scheme: "dark" | "light";
+}
+
+const chromeListeners = new Set<(chrome: UiThemeChrome) => void>();
+let lastChrome: UiThemeChrome | null = null;
+let chromeTimer: number | undefined;
+/** 揭开动画里系统栏图标翻色的时机（占总时长的比例）：栏在屏幕边缘，圆扫到那里大约过半。 */
+const CHROME_FLIP_AT = 0.5;
+
+function resolveThemeChrome(theme: UiThemeSettings): UiThemeChrome {
+  return {
+    background: theme.zones.bg,
+    scheme: resolveUiThemeScheme(theme),
+  };
+}
+
+function notifyChrome(
+  listener: (chrome: UiThemeChrome) => void,
+  chrome: UiThemeChrome,
+): void {
+  try {
+    listener(chrome);
+  } catch {
+    // 订阅者出错不能拖垮主题应用。
+  }
+}
+
+function publishChrome(chrome: UiThemeChrome): void {
+  lastChrome = chrome;
+  for (const listener of chromeListeners) notifyChrome(listener, chrome);
+}
+
+/** 订阅外框变化。订阅时若已有落定的主题会立刻回放一次，所以订阅早晚不影响结果。 */
+export function onUiThemeChrome(
+  listener: (chrome: UiThemeChrome) => void,
+): () => void {
+  chromeListeners.add(listener);
+  if (lastChrome) notifyChrome(listener, lastChrome);
+  return () => {
+    chromeListeners.delete(listener);
+  };
+}
 
 /* ── 主题切换过渡 ──
    从点击处向外扩散的圆形揭开（View Transitions）：旧页面快照垫底不动，新页面被一个
@@ -870,6 +923,9 @@ function writeThemeToDom(theme: UiThemeSettings): void {
   const scheme = resolveUiThemeScheme(theme);
   root.style.colorScheme = scheme;
   root.dataset.marcelTheme = scheme;
+  // index.html 的内联脚本给了 <html> 一个字面色防冷启动白闪；接管后改成跟变量走，
+  // 之后换主题 / 拖颜色，页面边缘与过渡快照的底色都不会停在旧色上。
+  root.style.backgroundColor = "var(--color-zinc-950)";
 }
 
 /** DOM 应用：写变量、切 color-scheme、同步 data-marcel-theme（终端配色联动读它）。
@@ -879,8 +935,10 @@ function writeThemeToDom(theme: UiThemeSettings): void {
 export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
   if (typeof document === "undefined") return;
   latestTheme = theme;
+  const chrome = resolveThemeChrome(theme);
   try {
     localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(theme));
+    localStorage.setItem(THEME_CHROME_CACHE_KEY, JSON.stringify(chrome));
   } catch {
     // 存储不可用（隐私 WebView）时跳过缓存，设置加载后会再应用一次。
   }
@@ -901,9 +959,16 @@ export function applyUiTheme(theme: UiThemeSettings, animate = true): void {
     startRevealTransition(doc, () => {
       if (latestTheme) writeThemeToDom(latestTheme);
     });
+    // 系统栏图标等圆扫过去再翻：现在就翻会在栏还是旧底色时变得看不清。
+    window.clearTimeout(chromeTimer);
+    chromeTimer = window.setTimeout(() => {
+      if (latestTheme) publishChrome(resolveThemeChrome(latestTheme));
+    }, REVEAL_MS * CHROME_FLIP_AT);
     return;
   }
   writeThemeToDom(theme);
+  window.clearTimeout(chromeTimer);
+  publishChrome(chrome);
 }
 
 /**

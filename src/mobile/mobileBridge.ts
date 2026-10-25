@@ -13,6 +13,8 @@
  * 这样上层调用方不需要关心平台差异。
  */
 
+import { onUiThemeChrome, type UiThemeChrome } from '@/lib/uiTheme';
+
 interface AndroidBridgeRaw {
   startForegroundService(title: string, body: string): void;
   stopForegroundService(): void;
@@ -24,6 +26,8 @@ interface AndroidBridgeRaw {
   requestNotificationPermission(): void;
   /** "ime,nav"（CSS 长度）；旧版 APK 没有这个方法，调用前必须判空 */
   getInsetBottoms?(): string;
+  /** 外框底色（#RRGGBB）+ 是否浅色主题：原生据此设系统栏图标明暗与窗口底色，并记下供下次冷启动用。旧版 APK 没有 */
+  setSystemChrome?(background: string, light: boolean): void;
 }
 
 declare global {
@@ -56,6 +60,29 @@ export function syncSystemInsets(): void {
   } catch (e) {
     console.warn('[mobileBridge] syncSystemInsets failed:', e);
   }
+}
+
+/**
+ * 把主题的外框信息交给原生：状态栏 / 导航栏图标跟着明暗翻（浅色主题下白图标压在白底上
+ * 看不见），窗口与 WebView 底色跟着外框色走。原生同时把它记下来，下次冷启动在页面出来
+ * 之前就用对的底色，不再先闪一块深色。
+ */
+export function setSystemChrome(chrome: UiThemeChrome): void {
+  try {
+    window.AndroidBridge?.setSystemChrome?.(
+      chrome.background,
+      chrome.scheme === 'light',
+    );
+  } catch (e) {
+    console.warn('[mobileBridge] setSystemChrome failed:', e);
+  }
+}
+
+/** 订阅主题外框：此后每次主题落定都同步给原生（订阅时会回放当前的）。幂等。 */
+let chromeUnsubscribe: (() => void) | null = null;
+export function bindSystemChromeToTheme(): void {
+  if (chromeUnsubscribe || !isAndroidBridgeAvailable()) return;
+  chromeUnsubscribe = onUiThemeChrome(setSystemChrome);
 }
 
 /** 启动前台保活服务。已运行则更新通知文案。 */
@@ -97,7 +124,10 @@ export function holdForeground(key: string, title: string, body: string): void {
  * 还有别的需求时只刷新通知；没有了才看用户自己的保活开关——开着就恢复默认文案，
  * 关着才真正停服务。
  */
-export function releaseForeground(key: string, keepAliveEnabled: boolean): void {
+export function releaseForeground(
+  key: string,
+  keepAliveEnabled: boolean,
+): void {
   if (!foregroundHolds.delete(key)) return;
   const remaining = [...foregroundHolds.values()].pop();
   if (remaining) {
@@ -145,7 +175,10 @@ export async function withForegroundKeepAlive<T>(
 }
 
 /** 更新常驻通知文案（服务必须已启动）。 */
-export function updateForegroundNotification(title: string, body: string): void {
+export function updateForegroundNotification(
+  title: string,
+  body: string,
+): void {
   try {
     window.AndroidBridge?.updateForegroundNotification(title, body);
   } catch (e) {
@@ -157,9 +190,15 @@ export function updateForegroundNotification(title: string, body: string): void 
  * 发送 Agent 事件通知（走 marcel_agent channel，无声，弹横幅）。
  * @returns true 发送成功；false 权限未授予或非 Android 环境
  */
-export function sendAgentNotification(id: number, title: string, body: string): boolean {
+export function sendAgentNotification(
+  id: number,
+  title: string,
+  body: string,
+): boolean {
   try {
-    return window.AndroidBridge?.sendAgentNotification(id, title, body) ?? false;
+    return (
+      window.AndroidBridge?.sendAgentNotification(id, title, body) ?? false
+    );
   } catch (e) {
     console.warn('[mobileBridge] sendAgentNotification failed:', e);
     return false;

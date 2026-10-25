@@ -63,6 +63,17 @@ class MobileBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun getInsetBottoms(): String = "${activity.imeBottomCss},${activity.navBottomCss}"
 
+    // ---------- 主题外框 ----------
+
+    /**
+     * 主题落定后同步外框：系统栏图标明暗 + 窗口 / WebView 底色（`#RRGGBB`），并记下供冷启动用。
+     * 页面 `lib/uiTheme.ts` 每次应用主题都会推一次，所以浅色主题下状态栏图标不会再是白的。
+     */
+    @JavascriptInterface
+    fun setSystemChrome(background: String, light: Boolean) {
+        activity.runOnUiThread { activity.applySystemChrome(background, light) }
+    }
+
     // ---------- 通知权限 ----------
 
     /** 检查 POST_NOTIFICATIONS 权限（API 33+ 需运行时权限，更低版本默认授予）。 */

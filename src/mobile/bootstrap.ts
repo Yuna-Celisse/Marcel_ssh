@@ -6,6 +6,7 @@ import { useSkillStore } from '@/stores/skillStore';
 import { attachTransferListeners } from '@/stores/sftpTransferManager';
 import { hydrateBootstrapData } from '@/lib/bootstrap';
 import {
+  bindSystemChromeToTheme,
   isAndroidBridgeAvailable,
   isNotificationPermissionGranted,
   startForegroundService,
@@ -100,6 +101,8 @@ export async function bootstrapMobileApp(): Promise<void> {
   bootstrapStarted = true;
   // 最先做：底栏避让导航键靠它，不该等设置加载。
   syncSystemInsets();
+  // 状态栏图标与窗口底色跟主题走（订阅时回放启动早期已应用的缓存主题）。
+  bindSystemChromeToTheme();
   try {
     await runMobileBootstrap({
       appReady: () => appReady(),

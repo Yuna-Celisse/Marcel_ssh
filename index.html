@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -7,12 +7,30 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content"
     />
     <title>Marcel SSH</title>
+    <!-- 冷启动底色：JS 与样式表加载之前就把 <html> 涂成用户主题的外框色（缓存由
+         lib/uiTheme.ts 的 applyUiTheme 写入），浅色主题不再先闪一块深色。没有缓存
+         （首次启动）回退曜石的 zinc-950，与移动端 splash 背景 (@color/marcel_splash_bg)
+         一致。主题应用器接管后会把它改成跟 --color-zinc-950 变量走。 -->
+    <script>
+      (function () {
+        var bg = "#09090B";
+        var scheme = "dark";
+        try {
+          var c = JSON.parse(
+            localStorage.getItem("marcel.uiTheme.chrome") || "null",
+          );
+          if (c && /^#[0-9a-fA-F]{6}$/.test(c.background)) {
+            bg = c.background;
+            scheme = c.scheme === "light" ? "light" : "dark";
+          }
+        } catch (e) {}
+        var s = document.documentElement.style;
+        s.backgroundColor = bg;
+        s.colorScheme = scheme;
+      })();
+    </script>
   </head>
-  <!-- inline 背景色：HTML 解析时立即生效，确保 WebView 首帧渲染时已是深色背景，
-       不会在 splash 消失后、CSS/JS 加载前露出白底。zinc-950 与移动端 splash 背景
-       (@color/marcel_splash_bg) 及 React UI 根 (bg-zinc-950) 完全一致。桌面端
-       窗口默认 visible:false 直到 appReady，不受影响。 -->
-  <body style="background-color: #09090B;">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

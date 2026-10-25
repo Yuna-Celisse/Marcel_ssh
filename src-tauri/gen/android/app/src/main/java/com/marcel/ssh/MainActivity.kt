@@ -5,6 +5,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -23,6 +25,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
@@ -54,22 +57,47 @@ class MainActivity : TauriActivity() {
      * 系统只会在设备/电池/温度允许时满足，请求 ≠ 强制。
      */
     private const val TARGET_REFRESH_RATE_HZ = 120f
+
+    /** 主题外框信息的本地记录：冷启动时页面还没出来就要用，所以原生自己存一份。 */
+    private const val CHROME_PREFS = "marcel_chrome"
+    private const val KEY_CHROME_BG = "background"
+    private const val KEY_CHROME_LIGHT = "light"
+    /** 没有记录（首次启动）时的外框：曜石 zinc-950，与 @color/marcel_splash_bg 一致。 */
+    private const val DEFAULT_CHROME_BG = 0xFF09090B.toInt()
+    /** API 24–25 没有浅色导航栏图标，浅色主题下垫一层半透明深色保证图标可见（与 androidx 默认一致）。 */
+    private val LEGACY_NAV_SCRIM = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
   }
+
+  /** 当前外框底色与明暗：来自主题（页面经 [MobileBridge.setSystemChrome] 推送），冷启动读上次记录。 */
+  private var chromeBackground: Int = DEFAULT_CHROME_BG
+  private var chromeLight: Boolean = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     // 冷启动画面由 Theme.marcel_ssh.Splash 的 windowBackground（深色纯色背景）
     // 提供：系统在 Activity 首帧绘制前展示它，无需 AndroidX SplashScreen API
     // （core-splashscreen 的 api-stub Kotlin 元数据有缺陷，编译无法通过）。
-    // WebView 自身背景设为深色（onWebViewCreate），覆盖 HTML 解析前的窗口，
-    // 保证 splash → WebView → React 全程深色无白屏。
-    // 应用界面恒为深色，系统栏图标必须恒为浅色。默认的 auto 样式按系统明暗主题挑图标颜色：
-    // 手机在浅色模式时给的是深色图标，压在深色界面上几乎看不见（状态栏文字发黑）。
-    // SystemBarStyle.dark = 浅色图标，与系统主题无关。
+    // 这一帧是系统按静态主题资源画的，读不到用户选的应用主题，只能是深色；
+    // 之后的窗口底色、WebView 底色、index.html 的 <html> 底色都跟上次的主题外框色走。
+    // 系统栏图标明暗要跟应用主题走，与系统明暗无关：深色主题用浅色图标，浅色主题用深色图标
+    // （默认的 auto 样式按系统明暗挑，手机浅色模式 + 应用深色主题时状态栏文字会发黑）。
+    // 主题在页面里，冷启动时页面还没出来，所以读上次记下的值；之后页面经
+    // MobileBridge.setSystemChrome 实时同步。
+    loadChrome()
     enableEdgeToEdge(
-      statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-      navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+      statusBarStyle = if (chromeLight) {
+        SystemBarStyle.light(Color.TRANSPARENT, LEGACY_NAV_SCRIM)
+      } else {
+        SystemBarStyle.dark(Color.TRANSPARENT)
+      },
+      navigationBarStyle = if (chromeLight) {
+        SystemBarStyle.light(Color.TRANSPARENT, LEGACY_NAV_SCRIM)
+      } else {
+        SystemBarStyle.dark(Color.TRANSPARENT)
+      },
     )
     super.onCreate(savedInstanceState)
+    // splash 之后、WebView 首帧之前露出来的就是窗口底色：用主题外框色而不是写死的深色
+    window.setBackgroundDrawable(ColorDrawable(chromeBackground))
 
     // 申请高刷新率显示模式（120Hz 及以上），让 WebView 跟着跑满。
     // 必须在 super.onCreate 之后、setContentView 之前调用，参数才生效。
@@ -182,9 +210,9 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webViewRef = webView
-    // HTML 解析完成前 WebView 是白底：设为 zinc-950（与 windowBackground /
-    // index.html / React UI 一致），消除 splash 消失到页面首帧之间的白闪。
-    webView.setBackgroundColor(0xFF09090B.toInt())
+    // HTML 解析完成前 WebView 是白底：设为主题外框色（与窗口底色 / index.html 内联脚本 /
+    // React UI 一致），消除 splash 消失到页面首帧之间的闪烁。
+    webView.setBackgroundColor(chromeBackground)
 
     // 注入原生桥接对象，前端通过 window.AndroidBridge.* 调用
     // @JavascriptInterface 注解的方法，用于前台保活服务与 Agent 通知
@@ -264,6 +292,39 @@ class MainActivity : TauriActivity() {
       // （三键导航下导航栏高度恒定）。主动要一次，监听器才能拿到当前值。
       ViewCompat.requestApplyInsets(parent)
     }
+  }
+
+  /** 读上次记下的外框信息；没有记录时保持曜石深色。 */
+  private fun loadChrome() {
+    val prefs = getSharedPreferences(CHROME_PREFS, MODE_PRIVATE)
+    chromeBackground = prefs.getInt(KEY_CHROME_BG, DEFAULT_CHROME_BG)
+    chromeLight = prefs.getBoolean(KEY_CHROME_LIGHT, false)
+  }
+
+  /**
+   * 主题落定后由页面推来：系统栏图标明暗、窗口与 WebView 底色跟着换，并记下供下次冷启动用。
+   * [background] 是 `#RRGGBB`，解析失败只更新图标明暗。必须在主线程调用。
+   */
+  fun applySystemChrome(background: String, light: Boolean) {
+    val parsed = try {
+      Color.parseColor(background)
+    } catch (e: IllegalArgumentException) {
+      Log.w(TAG, "applySystemChrome: 无法解析底色 $background")
+      null
+    }
+    if (parsed != null) chromeBackground = parsed
+    chromeLight = light
+
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    controller.isAppearanceLightStatusBars = light
+    controller.isAppearanceLightNavigationBars = light
+    window.setBackgroundDrawable(ColorDrawable(chromeBackground))
+    webViewRef?.setBackgroundColor(chromeBackground)
+
+    getSharedPreferences(CHROME_PREFS, MODE_PRIVATE).edit()
+      .putInt(KEY_CHROME_BG, chromeBackground)
+      .putBoolean(KEY_CHROME_LIGHT, chromeLight)
+      .apply()
   }
 
   override fun onResume() {
