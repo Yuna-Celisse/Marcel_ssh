@@ -691,6 +691,26 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
     }
   };
 
+  // 鼠标侧键：3 = 后退、4 = 前进，与工具栏的前进/后退按钮同一份历史。
+  // mousedown/mouseup 都要 preventDefault，否则 WebView 会把侧键当成整页后退。
+  const isSideButtonInPanel = (e: React.MouseEvent) => {
+    if (e.button !== 3 && e.button !== 4) return false;
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target)) return false;
+    return !target.closest('[role="dialog"], [aria-modal="true"]');
+  };
+
+  const handlePanelMouseDown = (e: React.MouseEvent) => {
+    if (isSideButtonInPanel(e)) e.preventDefault();
+  };
+
+  const handlePanelMouseUp = (e: React.MouseEvent) => {
+    if (!isSideButtonInPanel(e)) return;
+    e.preventDefault();
+    if (e.button === 3) handleGoBack();
+    else handleGoForward();
+  };
+
   const handleExtract = async (targetDir: string) => {
     const entry = extractConfirm;
     if (!entry) return;
@@ -713,6 +733,8 @@ export default function FileManagerPanel({ sessionId, connectionKey }: FileManag
       className="flex flex-col h-full outline-none"
       tabIndex={-1}
       onKeyDown={handlePanelKeyDown}
+      onMouseDown={handlePanelMouseDown}
+      onMouseUp={handlePanelMouseUp}
     >
       <div ref={toolbarRef} className="flex items-center gap-1.5 border-b border-edge-subtle px-3 py-2 flex-shrink-0">
         <button
