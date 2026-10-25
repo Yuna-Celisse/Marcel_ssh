@@ -10,6 +10,7 @@
  * directly — do not rely on emit→listen round-trip in the same webview.
  */
 
+import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 
 import { matchPattern } from '../pattern';
@@ -20,6 +21,31 @@ export { matchPattern };
 
 /** Per-plugin subscription tracking: pluginId → Set<eventPattern>. */
 const pluginSubscriptions = new Map<string, Set<string>>();
+
+/** 上次上报给后端的订阅总数；-1 = 尚未上报（页面初始化也要报一次现值）。 */
+let reportedSubscriberCount = -1;
+
+function totalSubscriberCount(): number {
+  let total = 0;
+  for (const patterns of pluginSubscriptions.values()) total += patterns.size;
+  return total;
+}
+
+/**
+ * 把当前订阅总数上报给后端：归零后后端 `emit_event` 停发 `plugin://events`
+ * 镜像（省掉无人监听时每个事件一次 JSON 包装 + 全 webview 广播），恢复订阅
+ * 时重新开闸。失败静默——镜像多留/晚关一瞬无害，订阅集下次变化会再报。
+ */
+function syncBackendSubscriberCount(): void {
+  const count = totalSubscriberCount();
+  if (count === reportedSubscriberCount) return;
+  reportedSubscriberCount = count;
+  try {
+    void invoke('plugin_events_report_subscribers', { count }).catch(() => {});
+  } catch {
+    // 非 Tauri 宿主（测试环境）invoke 同步抛错——忽略
+  }
+}
 
 /** Single listener for all plugin events from the backend. */
 let pluginEventsListener: Promise<UnlistenFn> | null = null;
@@ -36,6 +62,8 @@ export async function ensurePluginEventsListener(): Promise<void> {
     });
   }
   await pluginEventsListener;
+  // 页面（重）加载后后端计数是旧值，初始化时对齐一次现值。
+  syncBackendSubscriberCount();
 }
 
 function forwardToPlugins(event: string, data: unknown): void {
@@ -71,6 +99,7 @@ export function subscribeEvents(pluginId: string, events: string[]): string[] {
     subs.add(ev);
     subscribed.push(ev);
   }
+  syncBackendSubscriberCount();
 
   if (subscribed.length > 0) {
     void ensurePluginEventsListener().catch((err) => {
@@ -91,10 +120,12 @@ export function unsubscribeEvents(pluginId: string, events: string[]): string[] 
       unsubscribed.push(ev);
     }
   }
+  syncBackendSubscriberCount();
   return unsubscribed;
 }
 
 /** Remove all subscriptions for a plugin (e.g. on plugin disable/unload). */
 export function removePluginSubscriptions(pluginId: string): void {
   pluginSubscriptions.delete(pluginId);
+  syncBackendSubscriberCount();
 }

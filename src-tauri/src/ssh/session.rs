@@ -52,6 +52,56 @@ fn emit_output(app: &AppHandle, event_name: &str, text: &str) {
     }
 }
 
+/// 输出微批窗口：空闲期后的第一个包立即发（交互回显延迟不变），其后窗口期内
+/// 到达的包合并成一条事件；窗口到期即发出并解除，静默期后的下一包又是立即发。
+/// 远端刷屏（`cat` 大文件等）时 SSH 包到得比渲染快，逐包 emit = 每包一次
+/// JSON 序列化 + WebView eval，这里是每秒数百次的纯开销。
+const OUTPUT_BATCH_WINDOW: std::time::Duration = std::time::Duration::from_millis(10);
+/// 单条合并事件的大小上限：攒满即提前发出（窗口保持，重负荷流继续攒下一批）。
+const OUTPUT_BATCH_BYTES: usize = 256 * 1024;
+
+/// 微批缓冲的尾货整条发出；空缓冲不发事件。
+fn flush_pending(app: &AppHandle, event_name: &str, pending: &mut String) {
+    if !pending.is_empty() {
+        emit_event(app, event_name, pending.as_str());
+        pending.clear();
+    }
+}
+
+/// 把一段已解码的输出并入微批。解码仍逐包原位进行（`Utf8Carry` 语义不变），
+/// 合批只发生在解码之后的字符串层面。
+fn batch_output(
+    app: &AppHandle,
+    event_name: &str,
+    text: &str,
+    pending: &mut String,
+    batch_deadline: &mut Option<tokio::time::Instant>,
+) {
+    if text.is_empty() {
+        return;
+    }
+    match batch_deadline {
+        None => {
+            emit_event(app, event_name, text);
+            *batch_deadline = Some(tokio::time::Instant::now() + OUTPUT_BATCH_WINDOW);
+        }
+        Some(_) => {
+            pending.push_str(text);
+            if pending.len() >= OUTPUT_BATCH_BYTES {
+                flush_pending(app, event_name, pending);
+            }
+        }
+    }
+}
+
+/// select! 的定时臂：未开窗时永不算就绪（`std::future::pending` 不占定时器）。
+async fn batch_deadline_wait(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(d) => tokio::time::sleep_until(d).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
 /// Drive a single SSH session: multiplex incoming channel messages
 /// and outgoing user commands on the same task. This guarantees there is
 /// exactly one owner of the channel and avoids any locking deadlocks.
@@ -73,17 +123,21 @@ pub(crate) async fn drive_session<H: client::Handler>(
     // stdout / stderr 各持一份，互不粘连。
     let mut stdout_decoder = Utf8Carry::default();
     let mut stderr_decoder = Utf8Carry::default();
+    // 输出微批状态：stdout / stderr 解码后的文本按到达顺序共用一条缓冲
+    // （两路本就转发到同一事件流，共用缓冲天然保序）。
+    let mut pending = String::new();
+    let mut batch_deadline: Option<tokio::time::Instant> = None;
     let reason = loop {
         tokio::select! {
             // Incoming data from the SSH server
             msg = channel.wait() => {
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
-                        emit_output(&app, &event_name, &stdout_decoder.decode(&data));
+                        batch_output(&app, &event_name, &stdout_decoder.decode(&data), &mut pending, &mut batch_deadline);
                     }
                     Some(ChannelMsg::ExtendedData { data, .. }) => {
                         // stderr — forward to same stream
-                        emit_output(&app, &event_name, &stderr_decoder.decode(&data));
+                        batch_output(&app, &event_name, &stderr_decoder.decode(&data), &mut pending, &mut batch_deadline);
                     }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => {
                         log::info!("SSH session {} closed by remote", session_id);
@@ -131,8 +185,16 @@ pub(crate) async fn drive_session<H: client::Handler>(
                     }
                 }
             }
+
+            // 微批窗口到期：把攒下的尾货发出去并解除窗口
+            _ = batch_deadline_wait(batch_deadline) => {
+                flush_pending(&app, &event_name, &mut pending);
+                batch_deadline = None;
+            }
         }
     };
+    // 断开前缓冲里还压着未发的尾货，先发出去再走解码器收尾——不能丢字。
+    flush_pending(&app, &event_name, &mut pending);
     // 流结束时解码器里若还留着半截前缀，按 lossy 交出去而不是吞掉。
     emit_output(&app, &event_name, &stdout_decoder.flush());
     emit_output(&app, &event_name, &stderr_decoder.flush());
@@ -258,5 +320,136 @@ mod tests {
     fn a_session_ending_mid_character_flushes_the_tail() {
         let (events, _) = drive_with_packets(vec![Packet::Stdout("你".as_bytes()[..2].to_vec())]);
         assert_eq!(events.concat(), "\u{fffd}");
+    }
+
+    /// 合批：空闲期首包必须立即单独发出（交互回显延迟不变），其后窗口期内
+    /// 到达的包合并成一条事件，窗口到期发出且不丢内容。
+    /// 时钟用 `start_paused` 定步：所有「等一等再喂下一包」都不耗真实时间。
+    #[test]
+    fn first_packet_is_immediate_and_followups_batch_into_one_event() {
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("windowless Tauri host");
+        let events: Arc<Mutex<Vec<String>>> = Arc::default();
+        let captured = events.clone();
+        app.listen("ssh://output/batch-test", move |event| {
+            captured.lock().push(
+                serde_json::from_str::<String>(event.payload()).expect("终端输出事件是一个字符串"),
+            );
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (client, channel, peer) = test_channels().await;
+            let (_cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+            let driver = tokio::spawn(drive_session(
+                "batch-test".to_string(),
+                channel,
+                Arc::new(tokio::sync::Mutex::new(client)),
+                cmd_rx,
+                app.handle().clone(),
+            ));
+            // 首包：让 driver 处理完（立即发 + 开窗）再喂后续
+            peer.data(&b"first"[..]).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            assert_eq!(
+                events.lock().clone(),
+                vec!["first".to_string()],
+                "空闲期首包必须立即单独发出，不能进批"
+            );
+            // 窗口内连到两包：只进缓冲，不各自成事件
+            peer.data(&b"-second"[..]).await.unwrap();
+            peer.data(&b"-third"[..]).await.unwrap();
+            // 等窗口到期（自动推进），合并批应已作为一条事件发出
+            tokio::time::sleep(OUTPUT_BATCH_WINDOW + std::time::Duration::from_millis(1)).await;
+            assert_eq!(
+                events.lock().clone(),
+                vec!["first".to_string(), "-second-third".to_string()],
+                "窗口内的包必须合并成一条事件且不丢不重"
+            );
+            peer.eof().await.unwrap();
+            driver.await.unwrap();
+            // 断开后没有多出来的事件
+            assert_eq!(
+                events.lock().clone(),
+                vec!["first".to_string(), "-second-third".to_string()]
+            );
+        });
+    }
+
+    /// 合批缓冲攒满大小上限时立即发出，不等窗口到期，且窗口保持（后续包继续攒）。
+    /// 直接钉 `batch_output` 的状态机：russh 会把大写入拆成多个通道包，
+    /// 走回环集成测的话上限边界对不上一个确定的事件切分。
+    #[test]
+    fn batch_buffer_flushes_early_when_size_cap_reached() {
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("windowless Tauri host");
+        let events: Arc<Mutex<Vec<String>>> = Arc::default();
+        let captured = events.clone();
+        app.listen("ssh://output/cap-test", move |event| {
+            captured.lock().push(
+                serde_json::from_str::<String>(event.payload()).expect("终端输出事件是一个字符串"),
+            );
+        });
+
+        let ev = "ssh://output/cap-test";
+        let mut pending = String::new();
+        let mut deadline = None;
+
+        // 空闲首包：立即发 + 开窗
+        batch_output(&app.handle(), ev, "head", &mut pending, &mut deadline);
+        assert!(deadline.is_some(), "首包必须开窗");
+        assert_eq!(events.lock().clone(), vec!["head".to_string()]);
+
+        // 攒到「上限减一」：还差一字节，不提前发
+        batch_output(
+            &app.handle(),
+            ev,
+            &"x".repeat(OUTPUT_BATCH_BYTES - 1),
+            &mut pending,
+            &mut deadline,
+        );
+        assert_eq!(
+            events.lock().len(),
+            1,
+            "未达上限不得提前发，仍攒在缓冲里"
+        );
+
+        // 再进一段跨过上限：整条缓冲立即发出，窗口保持
+        let over = format!("{}yyy", "x".repeat(OUTPUT_BATCH_BYTES - 1));
+        batch_output(&app.handle(), ev, "yyy", &mut pending, &mut deadline);
+        assert_eq!(
+            events.lock().clone(),
+            vec!["head".to_string(), over],
+            "攒满上限必须整条立即发出、内容一字不差"
+        );
+        assert!(deadline.is_some(), "上限触发的发送不得关窗，重负荷流继续攒");
+
+        // 窗口内后续包继续进缓冲，由 flush_pending 交出
+        batch_output(&app.handle(), ev, "tail", &mut pending, &mut deadline);
+        assert_eq!(events.lock().len(), 2, "窗口内的后续包不得各自成事件");
+        flush_pending(&app.handle(), ev, &mut pending);
+        assert_eq!(events.lock()[2], "tail", "尾货由 flush_pending 整条交出");
+    }
+
+    /// 断开发生在批缓冲非空时：缓冲尾货必须先于断开原因事件发出，不丢字。
+    #[test]
+    fn pending_batch_is_flushed_when_remote_closes() {
+        let (events, reason) = drive_with_packets(vec![
+            Packet::Stdout(b"a".to_vec()),
+            Packet::Stdout(b"tail-in-batch".to_vec()),
+        ]);
+        assert_eq!(reason, "远程关闭了连接");
+        assert_eq!(
+            events,
+            vec!["a".to_string(), "tail-in-batch".to_string()],
+            "EOF 紧跟到达时批缓冲必须整条交出"
+        );
     }
 }

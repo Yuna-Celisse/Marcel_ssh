@@ -22,6 +22,14 @@ pub async fn plugin_capability_map() -> Result<HashMap<String, String>, AppError
     Ok(as_hash_map())
 }
 
+/// 前端 `eventFanout` 上报当前插件事件订阅总数（订阅集每次变化与页面初始化时）。
+/// 归零后 `crate::emit_event` 停发 `plugin://events` 镜像——无插件监听时每个
+/// 应用事件多付的那次 JSON 包装 + 全 webview 广播是纯浪费（终端刷屏高频事件尤甚）。
+#[tauri::command]
+pub fn plugin_events_report_subscribers(count: usize) {
+    crate::set_plugin_event_subscribers(count);
+}
+
 /// Trigger a plugin registry reload (e.g. after the user enables/disables a
 /// plugin or changes authorized capabilities). Emits `plugin-registry-changed`
 /// with the diff so the frontend can refresh webviews/instructions incrementally

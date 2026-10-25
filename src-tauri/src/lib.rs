@@ -49,17 +49,46 @@ use crate::skills::store::SkillStore;
 use crate::ssh::connection::SshManager;
 use crate::ssh::known_hosts::KnownHostsStore;
 
+/// 前端插件事件订阅总数（主 webview 的 `eventFanout` 在订阅集每次变化时
+/// 经 `plugin_events_report_subscribers` 命令上报，页面初始化也会报一次现值）。
+/// `plugin://events` 的唯一消费者就是主 webview 的 fanout（插件窗口收的是
+/// 它二次分发的 `plugin-event-<id>`），所以归零 = 无人监听。
+static PLUGIN_EVENT_SUBSCRIBERS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// 记录前端当前插件事件订阅总数；0 = 关闭 `plugin://events` 镜像。
+pub fn set_plugin_event_subscribers(count: usize) {
+    PLUGIN_EVENT_SUBSCRIBERS.store(count, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// 发射事件到原始通道 + plugin://events 通道
-/// 插件系统通过监听 plugin://events 接收所有应用事件
+/// 插件系统通过监听 plugin://events 接收所有应用事件；
+/// 无插件订阅时只发原通道——镜像那份要多一次 JSON 包装 + 全 webview 广播，
+/// 终端刷屏类高频事件下是白付的（见 PLUGIN_EVENT_SUBSCRIBERS 门控）。
 pub fn emit_event<S: serde::Serialize + Clone>(app: &AppHandle, event: &str, payload: S) {
+    let mirror =
+        PLUGIN_EVENT_SUBSCRIBERS.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    emit_event_with_mirror(app, event, payload, mirror);
+}
+
+/// `emit_event` 的镜像开关直通实现：测试钉「镜像关 = 原通道照发、镜像开 = 照发
+/// plugin://events」时不经全局计数，不干扰并行用例的事件捕获。
+fn emit_event_with_mirror<S: serde::Serialize + Clone>(
+    app: &AppHandle,
+    event: &str,
+    payload: S,
+    mirror: bool,
+) {
     let _ = app.emit(event, &payload);
-    let _ = app.emit(
-        "plugin://events",
-        serde_json::json!({
-            "event": event,
-            "data": payload,
-        }),
-    );
+    if mirror {
+        let _ = app.emit(
+            "plugin://events",
+            serde_json::json!({
+                "event": event,
+                "data": payload,
+            }),
+        );
+    }
 }
 
 /// Shared application state managed by Tauri.
@@ -1109,6 +1138,7 @@ pub fn run() {
             commands::plugin::plugin_list,
             commands::plugin::plugin_capability_map,
             commands::plugin::plugin_reload,
+            commands::plugin::plugin_events_report_subscribers,
             commands::plugin::get_plugin_dir,
             commands::plugin::open_plugin_dir,
             commands::plugin_install::plugin_install,
@@ -1239,5 +1269,57 @@ mod config_backup_tests {
             "两条警告都必须保留: {}",
             text
         );
+    }
+}
+
+#[cfg(test)]
+mod emit_event_tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use tauri::Listener;
+
+    use super::emit_event_with_mirror;
+
+    /// 镜像关 = 原通道照发、`plugin://events` 不发；镜像开 = 两条都发。
+    /// 直测 `emit_event_with_mirror` 而不是拨全局计数：计数拨 0 会关掉并行
+    /// 跑的 scripted_tests（靠 plugin://events 捕获事件总线）的镜像，制造 flake；
+    /// 全局计数与命令的接线由 scripted 测试架的 `set_plugin_event_subscribers(1)`
+    /// 真实使用覆盖。
+    #[test]
+    fn plugin_mirror_is_gated_on_the_mirror_flag() {
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("windowless Tauri host");
+        let raw: Arc<Mutex<Vec<String>>> = Arc::default();
+        let mirrored: Arc<Mutex<Vec<String>>> = Arc::default();
+        let raw_cap = raw.clone();
+        let mirror_cap = mirrored.clone();
+        app.listen("unit://gated", move |e| {
+            raw_cap.lock().push(e.payload().to_string())
+        });
+        app.listen("plugin://events", move |e| {
+            mirror_cap.lock().push(e.payload().to_string())
+        });
+
+        emit_event_with_mirror(&app.handle(), "unit://gated", "quiet", false);
+        assert_eq!(raw.lock().len(), 1, "原通道必须始终照发");
+        assert!(
+            mirrored.lock().is_empty(),
+            "镜像关闭时不得发 plugin://events"
+        );
+
+        emit_event_with_mirror(&app.handle(), "unit://gated", "listening", true);
+        assert_eq!(raw.lock().len(), 2, "原通道不受镜像开关影响");
+        {
+            let got = mirrored.lock();
+            assert_eq!(got.len(), 1, "镜像开启时必须照发 plugin://events");
+            assert!(
+                got[0].contains("unit://gated") && got[0].contains("listening"),
+                "镜像载荷应带事件名与数据: {}",
+                got[0]
+            );
+        }
     }
 }

@@ -537,6 +537,9 @@ fn scripted_production_loop_roundtrip_reload_and_approval_cancel() {
         );
         let events: Arc<Mutex<Vec<Value>>> = Arc::default();
         let captured = events.clone();
+        // 本测试架靠 plugin://events 镜像捕获事件总线，等同一个插件订阅者：
+        // 登记 1 让 `emit_event` 保持镜像开启（生产里由前端 eventFanout 上报）。
+        crate::set_plugin_event_subscribers(1);
         let event_listener = app.listen("plugin://events", move |event| {
             captured
                 .lock()
@@ -740,6 +743,8 @@ fn build_scenario() -> Scenario {
 fn capture_events(app: &tauri::App<tauri::Wry>) -> (Arc<Mutex<Vec<Value>>>, tauri::EventId) {
     let events: Arc<Mutex<Vec<Value>>> = Arc::default();
     let captured = events.clone();
+    // 同 spawn 路径：测试架就是 plugin://events 的订阅者，登记 1 保持镜像开启。
+    crate::set_plugin_event_subscribers(1);
     let listener = app.listen("plugin://events", move |event| {
         captured
             .lock()
