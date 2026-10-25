@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::persist::JsonPersistable;
+use crate::agent::risk::{CustomRiskRule, RiskRuleOverride};
 use crate::llm::provider::LlmConfig;
 use crate::llm::registry::LlmRegistry;
 
@@ -835,6 +836,13 @@ pub struct AppSettings {
     /// require explicit user approval, same as built-in `/etc`, `/boot`, etc.
     #[serde(default)]
     pub custom_protected_paths: Vec<String>,
+    /// 用户对命令风险规则的改动（改档、开关、名单），只存与内置默认不同的项。
+    /// 规则本身与默认值在 `agent::risk::rules`，那是唯一来源；缺字段 = 全部默认。
+    #[serde(default)]
+    pub risk_rule_overrides: HashMap<String, RiskRuleOverride>,
+    /// 用户自己加的命令风险规则（命令名 + 可选参数关键字 → 档位）。
+    #[serde(default)]
+    pub custom_risk_rules: Vec<CustomRiskRule>,
     /// Command execution timeout in seconds for Agent tools.
     #[serde(default = "default_command_timeout")]
     pub command_timeout_secs: u64,
@@ -941,6 +949,8 @@ impl Default for AppSettings {
             workspace_layout: WorkspaceLayoutSettings::default(),
             ui_theme: UiThemeSettings::default(),
             custom_protected_paths: vec![],
+            risk_rule_overrides: HashMap::new(),
+            custom_risk_rules: vec![],
             command_timeout_secs: default_command_timeout(),
             archive_retention_days: default_archive_retention_days(),
             has_completed_onboarding: false,
@@ -1309,7 +1319,10 @@ mod tests {
             ..Default::default()
         };
         let json = serde_json::to_string(&s).expect("serialize");
-        assert!(json.contains("\"webSearchApiProvider\":\"custom\""), "{json}");
+        assert!(
+            json.contains("\"webSearchApiProvider\":\"custom\""),
+            "{json}"
+        );
         assert!(
             json.contains("\"webSearchCustom\":{\"url\":\"https://search.example.com/v1/search\",\"protocol\":\"tavily\"}"),
             "{json}"
@@ -1544,9 +1557,12 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str("{\"fontSize\": 14}").expect("old config");
         assert!(parsed.memory_settings.enabled);
         assert!(!parsed.memory_settings.auto_reflect);
-        let saved: AppSettings =
-            serde_json::from_str("{\"memorySettings\": {\"enabled\": false}}").expect("saved config");
-        assert!(!saved.memory_settings.enabled, "用户关掉过的不能被新默认改回开");
+        let saved: AppSettings = serde_json::from_str("{\"memorySettings\": {\"enabled\": false}}")
+            .expect("saved config");
+        assert!(
+            !saved.memory_settings.enabled,
+            "用户关掉过的不能被新默认改回开"
+        );
     }
 
     /// autoUpdate 旧配置缺失 → 默认开启（serde default），不改动用户现状。
@@ -2107,7 +2123,9 @@ mod ui_theme_tests {
         let settings = AppSettings {
             ui_theme: UiThemeSettings {
                 preset_id: "custom".to_string(),
-                zones: [("bg".to_string(), "#abcdef".to_string())].into_iter().collect(),
+                zones: [("bg".to_string(), "#abcdef".to_string())]
+                    .into_iter()
+                    .collect(),
             },
             ..AppSettings::default()
         };
@@ -2116,7 +2134,10 @@ mod ui_theme_tests {
         assert!(json.contains("\"presetId\":\"custom\""));
         let back: AppSettings = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back.ui_theme.preset_id, "custom");
-        assert_eq!(back.ui_theme.zones.get("bg").map(String::as_str), Some("#abcdef"));
+        assert_eq!(
+            back.ui_theme.zones.get("bg").map(String::as_str),
+            Some("#abcdef")
+        );
 
         // 旧配置缺字段 → 默认值，不报错
         let legacy: AppSettings = serde_json::from_str("{\"fontSize\":14}").expect("legacy config");

@@ -89,7 +89,6 @@ mod tests {
         );
     }
 
-
     fn cfg() -> PruneConfig {
         PruneConfig {
             threshold_chars: 100,

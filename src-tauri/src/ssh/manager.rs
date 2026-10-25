@@ -153,7 +153,8 @@ impl SshManager {
         config: ConnectionConfig,
         app: AppHandle,
     ) -> Result<(), AppError> {
-        self.connect_inner(session_id, config, Some(app), false).await
+        self.connect_inner(session_id, config, Some(app), false)
+            .await
     }
 
     /// Shared connection logic for both fresh connects and reconnects.
@@ -1008,8 +1009,7 @@ async fn open_sftp_raw_on(
         .await
         .map_err(|e| AppError::Ssh(format!("请求 SFTP 子系统失败: {}", e)))?;
 
-    let mut raw =
-        russh_sftp::client::RawSftpSession::new(channel.into_stream());
+    let mut raw = russh_sftp::client::RawSftpSession::new(channel.into_stream());
     let version = raw
         .init()
         .await

@@ -1,8 +1,8 @@
 // 会话表的 CRUD：创建（含子对话）、列表、全文搜索、改名、touch、置顶、
 // 会话级模型/档位记忆、级联删除与跨设备同步的 upsert。
 use chrono::Utc;
-use rusqlite::Result as RusqliteResult;
 use rusqlite::OptionalExtension;
+use rusqlite::Result as RusqliteResult;
 use uuid::Uuid;
 
 use super::model::{Conversation, ConversationSearchResult, ConversationWithMessages};
@@ -336,7 +336,9 @@ impl ConversationDb {
             let mut stmt = conn.prepare(&sql)?;
             let params: Vec<&str> = to_delete.iter().map(|s| s.as_str()).collect();
             let rows: Vec<String> = stmt
-                .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, String>(0))?
+                .query_map(rusqlite::params_from_iter(params), |row| {
+                    row.get::<_, String>(0)
+                })?
                 .filter_map(|r| r.ok())
                 .collect();
             rows.into_iter()
@@ -462,10 +464,7 @@ impl ConversationDb {
 
     /// 归档/恢复会覆盖的会话 id 集合（主对话 + 子agent对话）。
     /// 命令层在写库前用它做「正在运行」守卫，保证判定范围与级联范围一致。
-    pub fn conversation_subtree_ids(
-        &self,
-        conversation_id: &str,
-    ) -> RusqliteResult<Vec<String>> {
+    pub fn conversation_subtree_ids(&self, conversation_id: &str) -> RusqliteResult<Vec<String>> {
         self.collect_descendants(conversation_id)
     }
 
@@ -796,10 +795,14 @@ mod tests {
         )
         .expect("msg");
 
-        let empty = db.search_conversations("   ", None, false).expect("search empty");
+        let empty = db
+            .search_conversations("   ", None, false)
+            .expect("search empty");
         assert!(empty.is_empty());
 
-        let all = db.search_conversations("world", None, false).expect("search");
+        let all = db
+            .search_conversations("world", None, false)
+            .expect("search");
         assert_eq!(all.len(), 2);
         // c2 was touched later via save_message → higher updated_at
         assert_eq!(all[0].conversation_id, c2.id);
@@ -921,10 +924,7 @@ mod tests {
 
         db.unarchive_conversation_cascade(&conv.id).unwrap();
         assert_eq!(db.list_active_conversations("conn_1").unwrap().len(), 1);
-        assert!(db
-            .list_archived_conversations("conn_1")
-            .unwrap()
-            .is_empty());
+        assert!(db.list_archived_conversations("conn_1").unwrap().is_empty());
         assert!(db
             .get_conversation(&conv.id)
             .unwrap()
@@ -1214,7 +1214,9 @@ mod tests {
         )
         .expect("msg sub");
 
-        let results = db.search_conversations("needle", None, false).expect("search");
+        let results = db
+            .search_conversations("needle", None, false)
+            .expect("search");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].conversation_id, parent.id);
     }

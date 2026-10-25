@@ -443,8 +443,7 @@ impl AgentManager {
             .collect::<Vec<_>>();
 
         if !crate::agent::tools::html_render_enabled(&experimental_settings) {
-            enabled_skills
-                .retain(|skill| skill.id != crate::skills::builtin::VISUALIZE_SKILL_ID);
+            enabled_skills.retain(|skill| skill.id != crate::skills::builtin::VISUALIZE_SKILL_ID);
         }
         (enabled_skills, enabled_mcp_servers, experimental_settings)
     }
@@ -700,8 +699,12 @@ impl AgentManager {
         //     会话不在 SSH 管理器里，自然只剩全局）。记忆关闭时为空串。
         let memory_scope = crate::memory::scope::for_session(&self.state, &spec.session_id).await;
         let memory_section = if spec.role == AgentRole::Main {
-            crate::memory::inject::section_for_main(&self.state, &spec.conversation_id, &memory_scope)
-                .await
+            crate::memory::inject::section_for_main(
+                &self.state,
+                &spec.conversation_id,
+                &memory_scope,
+            )
+            .await
         } else {
             crate::memory::inject::section_for_sub(&self.state, &memory_scope).await
         };
@@ -775,13 +778,14 @@ impl AgentManager {
             );
         }
         // 主任务收尾时挂空闲定时器（见下方 spawn 里的 finalize 之后）。
-        let reflect_hook: Option<(String, String, String)> = (spec.role == AgentRole::Main).then(|| {
-            (
-                spec.conversation_id.clone(),
-                memory_scope.connection_id.clone().unwrap_or_default(),
-                spec.session_id.clone(),
-            )
-        });
+        let reflect_hook: Option<(String, String, String)> =
+            (spec.role == AgentRole::Main).then(|| {
+                (
+                    spec.conversation_id.clone(),
+                    memory_scope.connection_id.clone().unwrap_or_default(),
+                    spec.session_id.clone(),
+                )
+            });
 
         // ── 6. spawn + 生命周期 ──
         // 取消通道注册进统一表。guard 必须**活到任务结束**，所以它随下面

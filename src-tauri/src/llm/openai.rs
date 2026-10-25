@@ -74,13 +74,21 @@ impl OpenAiProvider {
         let url = format!("{}/chat/completions", self.base_url().trim_end_matches('/'));
         // 请求体一次序列化为字节直接发送（extra_body 缺省时连中间 Value 树都
         // 不建；旧路径 to_value + reqwest `.json()` 再序列化是双份的）。
-        let body_bytes =
-            match build_request_body_bytes_with_max_tokens(&self.config, messages, tools, true, max_tokens) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    return (Err(LlmError::ParseError(format!("序列化请求体失败: {}", e))), RequestPhase::Probing)
-                }
-            };
+        let body_bytes = match build_request_body_bytes_with_max_tokens(
+            &self.config,
+            messages,
+            tools,
+            true,
+            max_tokens,
+        ) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return (
+                    Err(LlmError::ParseError(format!("序列化请求体失败: {}", e))),
+                    RequestPhase::Probing,
+                )
+            }
+        };
 
         let first_byte_timeout =
             Duration::from_secs(self.config.first_byte_timeout_secs.clamp(20, 250));
@@ -707,10 +715,7 @@ fn build_request_body_with_max_tokens(
 }
 
 /// 消息 → 请求消息映射（Value 版与字节版共用同一份）。
-fn build_request_messages(
-    config: &LlmConfig,
-    messages: &[LlmMessage],
-) -> Vec<RequestMessage> {
+fn build_request_messages(config: &LlmConfig, messages: &[LlmMessage]) -> Vec<RequestMessage> {
     messages
         .iter()
         .enumerate()
@@ -995,7 +1000,9 @@ mod usage_cache_tests {
 
     #[test]
     fn moonshot_style_top_level_cached_tokens_are_read() {
-        let u = parse(r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"cached_tokens":30}"#);
+        let u = parse(
+            r#"{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"cached_tokens":30}"#,
+        );
         assert_eq!(u.cached_read_tokens, Some(30));
     }
 
@@ -1750,46 +1757,46 @@ mod wire_bytes_tests {
         tokio::spawn(async move {
             // 双分支各发一次请求：循环 accept，直到监听被丢弃（测试结束）。
             while let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf: Vec<u8> = Vec::new();
-            let mut chunk = [0u8; 8192];
-            let mut declared: Option<usize> = None;
-            loop {
-                match stream.read(&mut chunk).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        buf.extend_from_slice(&chunk[..n]);
-                        if declared.is_none() {
-                            let boundary = b"\r\n\r\n";
-                            let Some(pos) = buf.windows(4).position(|w| w == boundary) else {
-                                continue;
-                            };
-                            let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-                            declared = Some(
-                                head.lines()
-                                    .find_map(|l| {
-                                        l.strip_prefix("content-length:")
-                                            .and_then(|v| v.trim().parse().ok())
-                                    })
-                                    .unwrap_or(0)
-                                    + pos
-                                    + 4,
-                            );
-                        }
-                        if buf.len() >= declared.unwrap_or(usize::MAX) {
-                            break;
+                let mut buf: Vec<u8> = Vec::new();
+                let mut chunk = [0u8; 8192];
+                let mut declared: Option<usize> = None;
+                loop {
+                    match stream.read(&mut chunk).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            buf.extend_from_slice(&chunk[..n]);
+                            if declared.is_none() {
+                                let boundary = b"\r\n\r\n";
+                                let Some(pos) = buf.windows(4).position(|w| w == boundary) else {
+                                    continue;
+                                };
+                                let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
+                                declared = Some(
+                                    head.lines()
+                                        .find_map(|l| {
+                                            l.strip_prefix("content-length:")
+                                                .and_then(|v| v.trim().parse().ok())
+                                        })
+                                        .unwrap_or(0)
+                                        + pos
+                                        + 4,
+                                );
+                            }
+                            if buf.len() >= declared.unwrap_or(usize::MAX) {
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            *sink.lock().unwrap() = Some(buf);
-            // 回个最小 200 让客户端收尾；内容不是合法 SSE，结果被忽略。
-            let _ = stream
+                *sink.lock().unwrap() = Some(buf);
+                // 回个最小 200 让客户端收尾；内容不是合法 SSE，结果被忽略。
+                let _ = stream
                 .write_all(
                     b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}",
                 )
                 .await;
-        
-            }});
+            }
+        });
 
         // 两条构建路径都钉：有 extra_body（走 Value 合并）与无 extra_body
         // （跳过中间 Value 直接 to_vec）。线上字节必须与「Value 版构建产物再
@@ -1841,7 +1848,8 @@ mod wire_bytes_tests {
             "请求行不符: {head}"
         );
         assert!(
-            head.lines().any(|l| l.starts_with("content-type:") && l.contains("application/json")),
+            head.lines()
+                .any(|l| l.starts_with("content-type:") && l.contains("application/json")),
             "Content-Type 必须仍是 application/json: {head}"
         );
         assert_eq!(
@@ -1901,13 +1909,22 @@ mod header_wait_timeout_tests {
                     Ok(0) | Err(_) => return,
                     Ok(n) => {
                         buf.extend_from_slice(&chunk[..n]);
-                        eprintln!("[wire-test] got {} bytes: {:?}", n, String::from_utf8_lossy(&buf[..n.min(120)]));
+                        eprintln!(
+                            "[wire-test] got {} bytes: {:?}",
+                            n,
+                            String::from_utf8_lossy(&buf[..n.min(120)])
+                        );
                         if declared.is_none() {
                             let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
                                 continue;
                             };
                             let head = String::from_utf8_lossy(&buf[..pos]).to_lowercase();
-                            eprintln!("[wire-test] head-end={} buf={} head-tail={:?}", pos, buf.len(), &head[head.len()-80.min(head.len())..]);
+                            eprintln!(
+                                "[wire-test] head-end={} buf={} head-tail={:?}",
+                                pos,
+                                buf.len(),
+                                &head[head.len() - 80.min(head.len())..]
+                            );
                             declared = Some(
                                 head.lines()
                                     .find_map(|l| {

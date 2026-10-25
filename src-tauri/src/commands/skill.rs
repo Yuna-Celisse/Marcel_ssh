@@ -3,8 +3,8 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::commands::market::{download_first_with_progress, zip_urls_for_branch};
-use crate::emit_event;
 use crate::config::persist::JsonPersistable;
+use crate::emit_event;
 use crate::error::AppError;
 use crate::skills::github::parse_skill_url;
 use crate::skills::parser::{
@@ -64,7 +64,8 @@ struct CachedArchive {
     bytes: std::sync::Arc<Vec<u8>>,
 }
 
-static ARCHIVE_CACHE: tokio::sync::Mutex<Option<CachedArchive>> = tokio::sync::Mutex::const_new(None);
+static ARCHIVE_CACHE: tokio::sync::Mutex<Option<CachedArchive>> =
+    tokio::sync::Mutex::const_new(None);
 
 /// 下载仓库 archive（复用市场镜像 / 代理兜底 / 大小上限），带短时缓存与进度。
 ///
@@ -112,8 +113,9 @@ async fn download_repo_archive(
             );
         }
     };
-    let bytes =
-        std::sync::Arc::new(download_first_with_progress(&urls, &mut cancel_rx, on_progress).await?);
+    let bytes = std::sync::Arc::new(
+        download_first_with_progress(&urls, &mut cancel_rx, on_progress).await?,
+    );
     *guard = Some(CachedArchive {
         key,
         at: std::time::Instant::now(),

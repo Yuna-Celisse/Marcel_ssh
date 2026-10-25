@@ -33,12 +33,12 @@ pub use history::{
     WindowStart,
 };
 pub use llm_history::HistorySnapshot;
-pub use recall::{RecallHit, RootConversationBrief};
 pub use messages::{ActiveMessagesResult, EarlierMessagesResult, StoredMessage};
 pub use model::{
     Conversation, ConversationError, ConversationSearchResult, ConversationWithMessages,
     SubConversationInfo,
 };
+pub use recall::{RecallHit, RootConversationBrief};
 pub use usage::{ConversationUsage, LastContext};
 
 use std::collections::HashMap;
@@ -270,8 +270,11 @@ impl ConversationDb {
         // 旧库 ALTER 加列；缺省 NULL = 不是分叉出来的会话。
         if !column_exists(&conn, "conversations", "forked_from_id") {
             log::info!("Migrating conversation database: adding forked_from_id column");
-            conn.execute("ALTER TABLE conversations ADD COLUMN forked_from_id TEXT", [])
-                .map_err(|e| ConversationError::SchemaError { source: e })?;
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN forked_from_id TEXT",
+                [],
+            )
+            .map_err(|e| ConversationError::SchemaError { source: e })?;
             log::info!("Migration complete: forked_from_id column added");
         }
 
@@ -344,14 +347,22 @@ fn tune_connection(conn: &Connection, path: &str) {
     if path == ":memory:" {
         return;
     }
-    match conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get::<_, String>(0)) {
+    match conn.query_row("PRAGMA journal_mode = WAL", [], |row| {
+        row.get::<_, String>(0)
+    }) {
         Ok(mode) if mode.eq_ignore_ascii_case("wal") => {
             if let Err(e) = conn.execute_batch("PRAGMA synchronous = NORMAL;") {
-                log::warn!("会话库已启用 WAL，但设置 synchronous=NORMAL 失败（保持默认）: {}", e);
+                log::warn!(
+                    "会话库已启用 WAL，但设置 synchronous=NORMAL 失败（保持默认）: {}",
+                    e
+                );
             }
         }
         Ok(mode) => {
-            log::warn!("会话库未能切到 WAL（当前 journal_mode={}），保持默认持久性设置", mode);
+            log::warn!(
+                "会话库未能切到 WAL（当前 journal_mode={}），保持默认持久性设置",
+                mode
+            );
         }
         Err(e) => {
             log::warn!("会话库切换 WAL 失败（保持默认持久性设置）: {}", e);
@@ -658,7 +669,9 @@ mod tests {
     fn index_names(db: &ConversationDb) -> Vec<String> {
         let conn = db.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages'")
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages'",
+            )
             .unwrap();
         stmt.query_map([], |r| r.get::<_, String>(0))
             .unwrap()
@@ -673,7 +686,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = ConversationDb::new(dir.path().join("conversations.db")).unwrap();
         assert_eq!(pragma_text(&db, "journal_mode").to_lowercase(), "wal");
-        assert_eq!(pragma_int(&db, "synchronous"), 1, "1 = NORMAL（2 才是 FULL）");
+        assert_eq!(
+            pragma_int(&db, "synchronous"),
+            1,
+            "1 = NORMAL（2 才是 FULL）"
+        );
     }
 
     /// 内存库没有 WAL 可言：调优必须直接跳过，不能报错也不能改它的行为。
@@ -693,8 +710,15 @@ mod tests {
         {
             let seed = ConversationDb::new(&path).unwrap();
             let conv = seed.create_conversation("conn-1", "legacy").unwrap();
-            seed.save_message(&conv.id, "user", "hello", "2026-01-01T00:00:00Z", None, None)
-                .unwrap();
+            seed.save_message(
+                &conv.id,
+                "user",
+                "hello",
+                "2026-01-01T00:00:00Z",
+                None,
+                None,
+            )
+            .unwrap();
         }
         // 把它还原成「旧版本留下的样子」：回滚日志 + 冗余索引。
         {
@@ -729,7 +753,9 @@ mod tests {
     #[test]
     fn fresh_db_has_no_redundant_index() {
         let db = ConversationDb::in_memory().unwrap();
-        assert!(!index_names(&db).iter().any(|n| n == "idx_messages_conversation"));
+        assert!(!index_names(&db)
+            .iter()
+            .any(|n| n == "idx_messages_conversation"));
     }
 
     /// 砍掉冗余索引后，按会话取消息仍必须走索引（而不是退化成全表扫描）。
@@ -746,7 +772,8 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert!(
-            plan.iter().any(|d| d.contains("USING") && d.contains("idx_messages_conv_time")),
+            plan.iter()
+                .any(|d| d.contains("USING") && d.contains("idx_messages_conv_time")),
             "plan: {plan:?}"
         );
     }
@@ -784,8 +811,15 @@ mod tests {
     fn truncate_is_atomic_with_touching_the_conversation() {
         let db = create_test_db();
         let conv = db.create_conversation("conn_1", "atomic").unwrap();
-        db.save_message(&conv.id, "user", "keep me", "2026-01-01T00:00:00Z", None, None)
-            .unwrap();
+        db.save_message(
+            &conv.id,
+            "user",
+            "keep me",
+            "2026-01-01T00:00:00Z",
+            None,
+            None,
+        )
+        .unwrap();
         make_touch_fail(&db);
 
         let err = db.delete_messages_from_timestamp(&conv.id, "2026-01-01T00:00:00Z");
@@ -812,6 +846,9 @@ mod tests {
         assert!(err.is_err());
         let after = db.load_messages(&conv_id).unwrap();
         assert_eq!(after.len(), before.len(), "不得多出新卡，也不得少了旧卡");
-        assert!(after.iter().any(|m| m.id == card_id), "被吸收的旧卡必须还在");
+        assert!(
+            after.iter().any(|m| m.id == card_id),
+            "被吸收的旧卡必须还在"
+        );
     }
 }

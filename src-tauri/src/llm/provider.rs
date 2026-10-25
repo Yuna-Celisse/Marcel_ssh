@@ -68,7 +68,8 @@ impl TokenMemo {
 
     #[inline]
     pub fn invalidate(&self) {
-        self.0.store(Self::UNCOMPUTED, std::sync::atomic::Ordering::Relaxed);
+        self.0
+            .store(Self::UNCOMPUTED, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

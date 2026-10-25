@@ -62,7 +62,8 @@ pub async fn app_get_bootstrap(state: State<'_, AppState>) -> Result<AppBootstra
                 crate::commands::settings::compute_channel_key_status(&settings);
             let has_api_key = channel_key_status.iter().any(|s| s.has_key)
                 || keychain::get_llm_api_key().ok().flatten().is_some();
-            let has_web_search_api_key = keychain::get_web_search_api_key().ok().flatten().is_some();
+            let has_web_search_api_key =
+                keychain::get_web_search_api_key().ok().flatten().is_some();
             let has_deepseek_tools_api_key = keychain::get_deepseek_tools_api_key()
                 .ok()
                 .flatten()

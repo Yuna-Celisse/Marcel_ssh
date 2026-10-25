@@ -22,9 +22,9 @@ mod sftp_paste;
 #[path = "sftp_sysopen.rs"]
 mod sftp_sysopen;
 
-pub use sftp_sysopen::OpenWithSystemResult;
 pub(crate) use sftp_sysopen::cleanup_session_sysopen;
 use sftp_sysopen::sanitize_sysopen_component;
+pub use sftp_sysopen::OpenWithSystemResult;
 
 /// 远端长任务（压缩 / 解压）的显式超时。
 /// 解压大文件夹/大压缩包可能远超命令执行默认的 120s（见
@@ -781,10 +781,7 @@ pub(crate) async fn stream_remote_to_local_file(
         check_cancelled(cancel_rx, "下载已取消")?;
 
         // 窗口补位；EOF 后不再发新读（等在途的排干）。
-        while !eof_seen
-            && inflight.len() < DOWNLOAD_PREFETCH_CONCURRENCY
-            && next_issue < total
-        {
+        while !eof_seen && inflight.len() < DOWNLOAD_PREFETCH_CONCURRENCY && next_issue < total {
             let offset = next_issue;
             let len = read_chunk.min((total - offset) as u32);
             next_issue += len as u64;
@@ -799,8 +796,7 @@ pub(crate) async fn stream_remote_to_local_file(
             res = inflight.join_next() => res.expect("inflight 非空"),
             _ = cancel_rx.changed() => return Err(AppError::Ssh("下载已取消".into())),
         };
-        let chunk = joined
-            .map_err(|e| AppError::Ssh(format!("下载任务失败: {}", e)))??;
+        let chunk = joined.map_err(|e| AppError::Ssh(format!("下载任务失败: {}", e)))??;
 
         if chunk.eof {
             // 源文件比开始时小：与串行版一致地「读到 EOF 就收」，缺口由调用方

@@ -148,7 +148,9 @@ impl DataUrlLru {
         self.order.push_back(rel);
         self.used_bytes += size;
         while self.used_bytes > DATA_URL_CACHE_BUDGET_BYTES {
-            let Some(evict) = self.order.pop_front() else { break };
+            let Some(evict) = self.order.pop_front() else {
+                break;
+            };
             if let Some((_, sz)) = self.entries.remove(&evict) {
                 self.used_bytes = self.used_bytes.saturating_sub(sz);
             }

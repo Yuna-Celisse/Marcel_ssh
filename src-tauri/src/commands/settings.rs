@@ -464,17 +464,38 @@ mod tests {
             let mut unrelated = base.clone();
             unrelated.font_family = "另一套字体".into();
             unrelated.panel_height = 480;
-            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &base.disabled_plugins, &unrelated).await;
+            sync_plugin_registry_on_save(
+                &app.handle(),
+                &registry,
+                dir.path(),
+                &base.disabled_plugins,
+                &unrelated,
+            )
+            .await;
             assert_eq!(*emitted.lock(), 0, "未动 disabled_plugins 不得重扫或广播");
 
             // 动了 disabled_plugins：重扫并广播一次
             let mut toggled = base.clone();
             toggled.disabled_plugins.push("some-plugin".into());
-            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &base.disabled_plugins, &toggled).await;
+            sync_plugin_registry_on_save(
+                &app.handle(),
+                &registry,
+                dir.path(),
+                &base.disabled_plugins,
+                &toggled,
+            )
+            .await;
             assert_eq!(*emitted.lock(), 1, "动了 disabled_plugins 必须重扫并广播");
 
             // 再次保存且字段已稳定（以库内上一份为准）：不重复广播
-            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &toggled.disabled_plugins, &toggled).await;
+            sync_plugin_registry_on_save(
+                &app.handle(),
+                &registry,
+                dir.path(),
+                &toggled.disabled_plugins,
+                &toggled,
+            )
+            .await;
             assert_eq!(*emitted.lock(), 1, "字段未再变化不得重复广播");
         });
     }

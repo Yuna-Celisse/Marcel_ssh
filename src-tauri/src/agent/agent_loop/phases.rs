@@ -886,13 +886,31 @@ mod delta_batch_tests {
         let mut pending = None;
         let mut deadline = None;
 
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("你".into()), &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("你".into()),
+            &mut deadline,
+        );
         assert_eq!(texts(&events), vec!["你".to_string()], "首片必须立即发");
         assert!(deadline.is_some(), "首片后必须开窗");
         assert!(pending.is_none());
 
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("好".into()), &mut deadline);
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("呀".into()), &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("好".into()),
+            &mut deadline,
+        );
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("呀".into()),
+            &mut deadline,
+        );
         assert_eq!(texts(&events).len(), 1, "窗口内不得逐片发");
 
         flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
@@ -906,10 +924,28 @@ mod delta_batch_tests {
         let (app, events) = mock_host();
         let mut pending = None;
         let mut deadline = None;
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("正".into()), &mut deadline);
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("文".into()), &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("正".into()),
+            &mut deadline,
+        );
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("文".into()),
+            &mut deadline,
+        );
         // 异类到来：批里的「文」必须先于思维片发出
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Thinking("想".into()), &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Thinking("想".into()),
+            &mut deadline,
+        );
 
         let got: Vec<(String, String)> = events
             .lock()
@@ -939,9 +975,36 @@ mod delta_batch_tests {
         let (app, events) = mock_host();
         let mut pending = None;
         let mut deadline = None;
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "a".into(), arguments: "{\"x\":".into() }, &mut deadline);
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "b".into(), arguments: "{\"y\":".into() }, &mut deadline);
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::ToolArguments { id: "b".into(), arguments: "1}".into() }, &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::ToolArguments {
+                id: "a".into(),
+                arguments: "{\"x\":".into(),
+            },
+            &mut deadline,
+        );
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::ToolArguments {
+                id: "b".into(),
+                arguments: "{\"y\":".into(),
+            },
+            &mut deadline,
+        );
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::ToolArguments {
+                id: "b".into(),
+                arguments: "1}".into(),
+            },
+            &mut deadline,
+        );
         flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
 
         let got: Vec<(String, String, String)> = events
@@ -959,8 +1022,16 @@ mod delta_batch_tests {
         assert_eq!(
             got,
             vec![
-                ("toolCallDelta".to_string(), "a".to_string(), "{\"x\":".to_string()),
-                ("toolCallDelta".to_string(), "b".to_string(), "{\"y\":1}".to_string()),
+                (
+                    "toolCallDelta".to_string(),
+                    "a".to_string(),
+                    "{\"x\":".to_string()
+                ),
+                (
+                    "toolCallDelta".to_string(),
+                    "b".to_string(),
+                    "{\"y\":1}".to_string()
+                ),
             ]
         );
     }
@@ -971,8 +1042,20 @@ mod delta_batch_tests {
         let (app, events) = mock_host();
         let mut pending = None;
         let mut deadline = None;
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("a".into()), &mut deadline);
-        pending = push_delta(&app, "unit://delta", pending, PendingDelta::Text("b".into()), &mut deadline);
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("a".into()),
+            &mut deadline,
+        );
+        pending = push_delta(
+            &app,
+            "unit://delta",
+            pending,
+            PendingDelta::Text("b".into()),
+            &mut deadline,
+        );
         flush_delta_batch(&app, "unit://delta", pending.take(), &mut deadline);
         // 首片 "a" 已立即发，批里只有 "b"：全部事件的拼接即完整正文（不丢字）。
         assert_eq!(texts(&events), vec!["a".to_string(), "b".to_string()]);

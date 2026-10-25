@@ -415,11 +415,7 @@ mod tests {
             &mut pending,
             &mut deadline,
         );
-        assert_eq!(
-            events.lock().len(),
-            1,
-            "未达上限不得提前发，仍攒在缓冲里"
-        );
+        assert_eq!(events.lock().len(), 1, "未达上限不得提前发，仍攒在缓冲里");
 
         // 再进一段跨过上限：整条缓冲立即发出，窗口保持
         let over = format!("{}yyy", "x".repeat(OUTPUT_BATCH_BYTES - 1));

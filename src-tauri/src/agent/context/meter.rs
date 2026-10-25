@@ -185,10 +185,16 @@ mod tests {
         let m = LlmMessage::user("hi");
         estimate_message(&m);
         let json = serde_json::to_string(&m).expect("serialize");
-        assert!(!json.contains("estimate"), "序列化不得携带 memo 字段: {json}");
+        assert!(
+            !json.contains("estimate"),
+            "序列化不得携带 memo 字段: {json}"
+        );
         let back: LlmMessage = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back.content, "hi");
-        assert!(back.estimate_cache.get().is_none(), "反序列化后 memo 应为未算");
+        assert!(
+            back.estimate_cache.get().is_none(),
+            "反序列化后 memo 应为未算"
+        );
     }
 
     #[test]
