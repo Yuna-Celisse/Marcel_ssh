@@ -147,7 +147,10 @@ pub async fn config_save_settings(
     // 兼容镜像，真值以 `updateMode` 为准，保存前统一派生，避免落盘出现
     // 「模式说关闭、镜像说开着」的矛盾配置。
     candidate.sync_update_mode_mirror();
-    let previous_update_mode = state.settings.read().await.update_mode;
+    let (previous_update_mode, previous_disabled_plugins) = {
+        let store = state.settings.read().await;
+        (store.update_mode, store.disabled_plugins.clone())
+    };
 
     // 自愈兜底：去重同 id 重复模型（历史「保存渠道」合并 bug 可能仍让前端
     // 内存里带重复条目；先去重再校验，避免合法保存被重复数据拦住）
@@ -222,16 +225,42 @@ pub async fn config_save_settings(
     // Settings changes (enable/disable plugin, authorized capabilities) may
     // affect the plugin registry. Reload and emit so the frontend can
     // diff-refresh webviews/injections without a nuke-and-rebuild.
-    let config_dir = state.config_dir.clone();
+    sync_plugin_registry_on_save(
+        &app,
+        &state.plugin_registry,
+        &state.config_dir,
+        &previous_disabled_plugins,
+        &snapshot,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// 保存设置后的插件注册表同步。
+///
+/// `registry.reload` 从 settings 实际只读 `disabled_plugins`（其余输入是扫盘
+/// 结果与应用版本；能力授权在每个插件命令执行时实时读 settings，不依赖
+/// reload）。该字段没变就整段跳过——字号、面板高度这类高频保存不再拖着
+/// 扫盘 + `plugin-registry-changed` 广播全链路跑一遍。启停插件的保存照旧
+/// 即时重扫生效。
+async fn sync_plugin_registry_on_save(
+    app: &tauri::AppHandle,
+    registry: &crate::plugins::registry::SharedPluginRegistry,
+    config_dir: &std::path::Path,
+    previous_disabled_plugins: &[String],
+    next_settings: &AppSettings,
+) {
+    if next_settings.disabled_plugins == previous_disabled_plugins {
+        return;
+    }
     let app_version = app.package_info().version.to_string();
     let diff = {
-        let mut reg = state.plugin_registry.write().await;
-        reg.reload(&config_dir, &snapshot, &app_version).await
+        let mut reg = registry.write().await;
+        reg.reload(config_dir, next_settings, &app_version).await
     };
     use tauri::Emitter;
     let _ = app.emit("plugin-registry-changed", &diff);
-
-    Ok(())
 }
 
 /// Validate a candidate list of user-defined protected paths.
@@ -403,5 +432,50 @@ mod tests {
     #[test]
     fn accepts_empty_list() {
         assert!(validate(vec![]).is_ok());
+    }
+
+    /// 保存设置后的注册表同步：`disabled_plugins` 没动（字号/面板高度这类
+    /// 高频保存）必须整段跳过——不扫盘、不发 `plugin-registry-changed`；
+    /// 动了才重扫并广播（启停插件即时生效）。
+    #[test]
+    fn plugin_registry_sync_gates_on_disabled_plugins_only() {
+        use parking_lot::Mutex;
+        use std::sync::Arc;
+        use tauri::Listener;
+        use tempfile::TempDir;
+
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async {
+            let app = tauri::Builder::default()
+                .any_thread()
+                .build(tauri::test::mock_context(tauri::test::noop_assets()))
+                .expect("windowless Tauri host");
+            let emitted: Arc<Mutex<usize>> = Arc::default();
+            let captured = emitted.clone();
+            app.listen("plugin-registry-changed", move |_| {
+                *captured.lock() += 1;
+            });
+
+            let registry = crate::plugins::registry::new_shared();
+            let dir = TempDir::new().expect("temp dir");
+            let base = AppSettings::default();
+
+            // 无关字段随便改：字体、面板高度——不触发重扫/广播
+            let mut unrelated = base.clone();
+            unrelated.font_family = "另一套字体".into();
+            unrelated.panel_height = 480;
+            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &base.disabled_plugins, &unrelated).await;
+            assert_eq!(*emitted.lock(), 0, "未动 disabled_plugins 不得重扫或广播");
+
+            // 动了 disabled_plugins：重扫并广播一次
+            let mut toggled = base.clone();
+            toggled.disabled_plugins.push("some-plugin".into());
+            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &base.disabled_plugins, &toggled).await;
+            assert_eq!(*emitted.lock(), 1, "动了 disabled_plugins 必须重扫并广播");
+
+            // 再次保存且字段已稳定（以库内上一份为准）：不重复广播
+            sync_plugin_registry_on_save(&app.handle(), &registry, dir.path(), &toggled.disabled_plugins, &toggled).await;
+            assert_eq!(*emitted.lock(), 1, "字段未再变化不得重复广播");
+        });
     }
 }
