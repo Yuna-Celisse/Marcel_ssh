@@ -406,6 +406,10 @@ export default function ConnectionList() {
       );
       const next = siblings.find((row) => y < (row.top + row.bottom) / 2);
       const target = { group, beforeId: next?.id ?? null };
+      // 落点没变就早退：target 每次 mousemove 都是新对象，直接 set 会让整列表
+      // 每帧重渲染；提交路径本来就读 ref，早退不影响语义。
+      const prev = dropTargetRef.current;
+      if (prev?.group === target.group && prev?.beforeId === target.beforeId) return;
       dropTargetRef.current = target;
       setDropTarget(target);
     },
