@@ -111,10 +111,26 @@ pub(crate) struct AgentPromptVars {
 /// `include_str!`; no runtime file I/O.
 pub(crate) struct TemplateManager;
 
+/// 模板注册表的进程级缓存。两个构建函数的全部输入都是 `include_str!` 编译期
+/// 常量、无任何运行时入参；此前 `render_agent_prompt`（每回合）与
+/// `render_fragment` / 审批渲染（每条 Jev 审批）每次调用都重建并重新编译
+/// 整套模板，纯白付。Handlebars 渲染只走 `&self`，缓存后并发共享安全；
+/// 构建器本身保持纯函数，测试照旧直测（见 `every_template_file_is_registered`）。
+static AGENT_TEMPLATES: std::sync::OnceLock<Handlebars<'static>> = std::sync::OnceLock::new();
+static APPROVAL_TEMPLATES: std::sync::OnceLock<Handlebars<'static>> = std::sync::OnceLock::new();
+
 impl TemplateManager {
     /// 全项目唯一的 Handlebars 实例创建点（agent / 审批两个 registry 都从这里来）。
     ///
     /// 提示词不是 HTML，所以关掉默认的 HTML 转义：否则 `{{user_prompt}}`、
+    fn agent_registry() -> &'static Handlebars<'static> {
+        AGENT_TEMPLATES.get_or_init(Self::build_agent_registry)
+    }
+
+    fn approval_registry() -> &'static Handlebars<'static> {
+        APPROVAL_TEMPLATES.get_or_init(Self::build_approval_registry)
+    }
+
     /// `{{this.label}}` 里的 `< > & " ' ` =` 会变成 `&lt;` 等实体，模型看到的是
     /// 被污染的文本。新建 registry 一律走这里，别再直接 `Handlebars::new()`。
     fn new_registry() -> Handlebars<'static> {
@@ -244,7 +260,7 @@ impl TemplateManager {
         audience: ToolAudience,
         extra_sections: &[String],
     ) -> Result<String, AppError> {
-        let reg = Self::build_agent_registry();
+        let reg = Self::agent_registry();
         let plugin_joined = vars.plugin_sections.join("\n\n");
         let ctx = json!({
             "session_id": &vars.session_id,
@@ -326,7 +342,7 @@ impl TemplateManager {
     /// 与 `render_multi_host` 同款兜底：渲染失败只记日志并返回空串——
     /// 一段提示词坏掉不该让整个任务起不来。
     pub fn render_fragment(&self, name: &str, ctx: &serde_json::Value) -> String {
-        Self::build_agent_registry()
+        Self::agent_registry()
             .render(name, ctx)
             .unwrap_or_else(|e| {
                 log::warn!("模板 [{}] 渲染失败: {}", name, e);
@@ -336,7 +352,7 @@ impl TemplateManager {
 
     /// Render the base approval system prompt.
     pub fn render_approval_base(&self) -> String {
-        Self::build_approval_registry()
+        Self::approval_registry()
             .render("审批", &json!({}))
             .unwrap_or_default()
     }
@@ -374,7 +390,7 @@ impl TemplateManager {
         machines: &[serde_json::Value],
         can_transfer: bool,
     ) -> String {
-        let reg = Self::build_agent_registry();
+        let reg = Self::agent_registry();
         reg.render(
             "多机",
             &json!({
@@ -1088,6 +1104,22 @@ mod tests {
         assert!(out.contains("当前机器：cur<h>&'"));
         assert!(out.contains("- web<1>&\"'（在线）"));
         assert!(!out.contains("&lt;") && !out.contains("&amp;") && !out.contains("&quot;"));
+    }
+
+    /// 注册表缓存：两次访问拿到同一实例（真的只建一次），且缓存实例与全新
+    /// 构建的渲染产物逐字节一致。
+    #[test]
+    fn registry_cache_is_single_instance_and_renders_identically() {
+        let a = TemplateManager::agent_registry() as *const _;
+        let b = TemplateManager::agent_registry() as *const _;
+        assert_eq!(a, b, "注册表必须是进程级单例");
+        let fresh = TemplateManager::build_agent_registry();
+        let ctx = json!({ "session_id": "s", "user_prompt": "p", "plugin_sections": "" });
+        for name in ["角色", "沟通", "多机"] {
+            let from_cache = TemplateManager::agent_registry().render(name, &ctx).unwrap();
+            let from_fresh = fresh.render(name, &ctx).unwrap();
+            assert_eq!(from_cache, from_fresh, "模板 {name} 的产物不得因缓存而变");
+        }
     }
 
     #[test]
