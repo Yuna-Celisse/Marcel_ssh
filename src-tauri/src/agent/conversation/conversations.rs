@@ -2,6 +2,7 @@
 // 会话级模型/档位记忆、级联删除与跨设备同步的 upsert。
 use chrono::Utc;
 use rusqlite::Result as RusqliteResult;
+use rusqlite::OptionalExtension;
 use uuid::Uuid;
 
 use super::model::{Conversation, ConversationSearchResult, ConversationWithMessages};
@@ -59,7 +60,11 @@ impl ConversationDb {
         title: &str,
         parent_conversation_id: &str,
     ) -> RusqliteResult<Conversation> {
-        self.insert_conversation(connection_id, title, Some(parent_conversation_id))
+        let conv = self.insert_conversation(connection_id, title, Some(parent_conversation_id))?;
+        // 派发子对话让父会话的 `has_readable_history` 单调翻真（`tools_for_round`
+        // 的状态门控判据），直接置缓存真，下一轮请求不必再全行扫一遍。
+        self.mark_readable_history(parent_conversation_id);
+        Ok(conv)
     }
 
     fn insert_conversation(
@@ -282,6 +287,18 @@ impl ConversationDb {
     }
 
     pub fn delete_conversation(&self, conversation_id: &str) -> RusqliteResult<()> {
+        // 删除的是谁的子对话（删完这行就没了）：父会话的「派发过子对话」判据
+        // 可能因此回落，缓存要在删之前拿到 parent 一并失效。
+        let parent_id: Option<String> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT parent_conversation_id FROM conversations WHERE id = ?1",
+                [conversation_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten()
+        };
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM messages WHERE conversation_id = ?1",
@@ -302,6 +319,10 @@ impl ConversationDb {
             [conversation_id],
         )?;
         drop(conn);
+        self.invalidate_readable_history(conversation_id);
+        if let Some(parent) = parent_id.as_deref() {
+            self.invalidate_readable_history(parent);
+        }
         crate::agent::image_store::delete_conversation_images(conversation_id);
         Ok(())
     }
@@ -546,6 +567,17 @@ impl ConversationDb {
     /// DB 列仅作旧数据遗留；收到带 model_id 的旧端快照也不落库，避免重新
     /// 固定会话模型（由内存映射的 last-used 语义接管）。
     pub fn upsert_conversation(&self, conv: &Conversation) -> RusqliteResult<()> {
+        // 同步可能改挂/摘除 parent（判据第二臂），旧 parent 在覆盖后就查不到了。
+        let old_parent: Option<String> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT parent_conversation_id FROM conversations WHERE id = ?1",
+                [&conv.id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten()
+        };
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO conversations (id, connection_id, title, created_at, updated_at, parent_conversation_id, pinned, forked_from_id, archived_at)
@@ -573,6 +605,15 @@ impl ConversationDb {
                 conv.archived_at.map(|t| t.to_rfc3339()),
             ),
         )?;
+        drop(conn);
+        // 同步写不经过三个受控翻转点：自身与新旧 parent 的判据缓存一律失效。
+        self.invalidate_readable_history(&conv.id);
+        if let Some(p) = old_parent.as_deref() {
+            self.invalidate_readable_history(p);
+        }
+        if let Some(p) = conv.parent_conversation_id.as_deref() {
+            self.invalidate_readable_history(p);
+        }
         Ok(())
     }
 

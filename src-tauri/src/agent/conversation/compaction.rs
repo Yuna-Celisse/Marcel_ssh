@@ -116,6 +116,8 @@ impl ConversationDb {
         // 插卡与顶会话同事务（见 `touch_at`）。
         Self::touch_at(&tx, conversation_id, &Utc::now().to_rfc3339())?;
         tx.commit()?;
+        // 压缩卡落库 = `has_readable_history` 单调翻真（状态门控判据），直接置缓存。
+        self.mark_readable_history(conversation_id);
         Ok(())
     }
 }

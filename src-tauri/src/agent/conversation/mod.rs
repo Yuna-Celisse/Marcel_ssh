@@ -41,6 +41,7 @@ pub use model::{
 };
 pub use usage::{ConversationUsage, LastContext};
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -48,6 +49,11 @@ use rusqlite::Connection;
 
 pub struct ConversationDb {
     conn: Mutex<Connection>,
+    /// `has_readable_history` 的按会话缓存。这个问题每轮 LLM 请求前都要问一次
+    /// （`tools_for_round` 的状态门控），不值得每次全行 LIKE 扫描。判据只在三个
+    /// 写路径上翻转——压缩提交（单调翻真）、派发子对话（翻真）、删子对话（可回落）
+    /// ——缓存也只在这三处维护（见 `history.rs` 的 mark/invalidate）。
+    readable_history_cache: std::sync::Mutex<HashMap<String, bool>>,
 }
 
 impl ConversationDb {
@@ -305,6 +311,7 @@ impl ConversationDb {
 
         Ok(Self {
             conn: Mutex::new(conn),
+            readable_history_cache: std::sync::Mutex::new(HashMap::new()),
         })
     }
 

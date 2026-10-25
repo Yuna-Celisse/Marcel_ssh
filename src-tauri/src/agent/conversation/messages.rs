@@ -700,6 +700,9 @@ impl ConversationDb {
             )?;
         }
         tx.commit()?;
+        drop(conn);
+        // 整体替换可能增删压缩卡，`has_readable_history` 的缓存跟着失效重查。
+        self.invalidate_readable_history(conversation_id);
         Ok(())
     }
 }

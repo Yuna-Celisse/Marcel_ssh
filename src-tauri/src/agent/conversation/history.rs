@@ -502,11 +502,20 @@ impl ConversationDb {
     /// 删除后判据会回落，但那时这个工具本来也读不到任何东西。
     ///
     /// 与 `history_overview` 分开是因为这是每轮请求前都要问一次的问题，不该为它
-    /// 跑一次六条语句的概览。
+    /// 跑一次六条语句的概览。结果按会话缓存，只在三个翻转点维护：压缩提交与
+    /// 派发子对话直接置真（见 `mark_readable_history`），删子对话失效重查。
     pub fn has_readable_history(&self, conversation_id: &str) -> RusqliteResult<bool> {
+        if let Some(cached) = self
+            .readable_history_cache
+            .lock()
+            .unwrap()
+            .get(conversation_id)
+        {
+            return Ok(*cached);
+        }
         let conn = self.conn.lock().unwrap();
         let pattern = format!("{COMPACTION_CARD_PREFIX}%");
-        conn.query_row(
+        let value: bool = conn.query_row(
             "SELECT EXISTS(
                  SELECT 1 FROM messages
                   WHERE conversation_id = ?1 AND role = 'system'
@@ -516,7 +525,29 @@ impl ConversationDb {
              )",
             rusqlite::params![conversation_id, pattern],
             |r| r.get(0),
-        )
+        )?;
+        drop(conn);
+        self.readable_history_cache
+            .lock()
+            .unwrap()
+            .insert(conversation_id.to_string(), value);
+        Ok(value)
+    }
+
+    /// 判据单调翻真的两个写路径（压缩提交、派发子对话）直接置真，免得下轮再扫。
+    pub(super) fn mark_readable_history(&self, conversation_id: &str) {
+        self.readable_history_cache
+            .lock()
+            .unwrap()
+            .insert(conversation_id.to_string(), true);
+    }
+
+    /// 判据可能回落的写路径（删子对话）失效缓存，下次问询重查。
+    pub(super) fn invalidate_readable_history(&self, conversation_id: &str) {
+        self.readable_history_cache
+            .lock()
+            .unwrap()
+            .remove(conversation_id);
     }
 
     /// 本会话派发过的子对话（按创建时间升序）。
@@ -1264,6 +1295,39 @@ mod tests {
         assert!(db
             .has_readable_history(&compacted)
             .expect("still compacted"));
+    }
+
+    /// 缓存真的在缓存：判据翻转若绕过三个受控写路径（这里用裸 SQL 直塞一张
+    /// 压缩卡模拟），问询结果不得跟着变；显式失效后重查才翻真。翻转点本身的
+    /// 行为由上一条 `has_readable_history_needs_an_archive_or_a_child` 钉住。
+    #[test]
+    fn readable_history_result_is_cached_until_invalidated() {
+        let db = create_test_db();
+        let conv = db.create_conversation("conn_1", "cached").expect("create");
+        assert!(!db.has_readable_history(&conv.id).expect("initial"));
+
+        // 绕过 commit_compaction 直接落一张压缩卡：数据库里已有"读不到的东西"，
+        // 但缓存不该被打动（证明后续问询不再扫库）。
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO messages (id, conversation_id, role, content, created_at, timestamp)
+                 VALUES ('card-1', ?1, 'system', ?2, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                rusqlite::params![
+                    conv.id,
+                    format!("{COMPACTION_CARD_PREFIX}归档摘要"),
+                ],
+            )
+            .expect("raw insert");
+        assert!(
+            !db.has_readable_history(&conv.id).expect("cached"),
+            "裸 SQL 插卡后问询仍应命中缓存为假"
+        );
+
+        // 失效后重查：读到真值。
+        db.invalidate_readable_history(&conv.id);
+        assert!(db.has_readable_history(&conv.id).expect("after invalidate"));
     }
 
     /// 子对话清单（主 agent 核对前先看有哪些）。
