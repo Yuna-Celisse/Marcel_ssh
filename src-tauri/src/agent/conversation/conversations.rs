@@ -299,25 +299,12 @@ impl ConversationDb {
             .optional()?
             .flatten()
         };
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM messages WHERE conversation_id = ?1",
-            [conversation_id],
-        )?;
-        conn.execute(
-            "DELETE FROM plan_snapshots WHERE conversation_id = ?1",
-            [conversation_id],
-        )?;
-        conn.execute(
-            "DELETE FROM plans WHERE conversation_id = ?1",
-            [conversation_id],
-        )?;
-        conn.execute("DELETE FROM conversations WHERE id = ?1", [conversation_id])?;
-        // 分叉是独立会话：来源没了，分叉照旧可用，只是不再有「返回原会话」可指。
-        conn.execute(
-            "UPDATE conversations SET forked_from_id = NULL WHERE forked_from_id = ?1",
-            [conversation_id],
-        )?;
+        // 五条语句一个事务（原来逐条自动提交 = 每条一次 fsync；删除整个会话树时
+        // 事务数乘以节点数，全在元数据上耗时间）。
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        Self::delete_conversation_rows(&tx, &[conversation_id.to_string()])?;
+        tx.commit()?;
         drop(conn);
         self.invalidate_readable_history(conversation_id);
         if let Some(parent) = parent_id.as_deref() {
@@ -336,11 +323,80 @@ impl ConversationDb {
         conversation_id: &str,
     ) -> RusqliteResult<Vec<String>> {
         let to_delete = self.collect_descendants(conversation_id)?;
-        // 先删子对话再删自身（顺序无硬性要求，逐个走完整清理逻辑）
-        for id in to_delete.iter().rev() {
-            self.delete_conversation(id)?;
+
+        // 树成员的树外 parent（删完就查不到）：其「派发过子对话」判据可能回落，
+        // 缓存要在删之前拿到一并失效。树内互为父子的一起删，无需失效。
+        let parent_ids: Vec<String> = {
+            let conn = self.conn.lock().unwrap();
+            let placeholders = to_delete.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT DISTINCT parent_conversation_id FROM conversations
+                 WHERE parent_conversation_id IS NOT NULL AND id IN ({placeholders})"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&str> = to_delete.iter().map(|s| s.as_str()).collect();
+            let rows: Vec<String> = stmt
+                .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows.into_iter()
+                .filter(|p| !to_delete.contains(p))
+                .collect()
+        };
+
+        // 整棵树一个事务（原来每个成员各一个事务 = 节点数 × 5 条自动提交）。
+        {
+            let mut conn = self.conn.lock().unwrap();
+            let tx = conn.transaction()?;
+            Self::delete_conversation_rows(&tx, &to_delete)?;
+            tx.commit()?;
+        }
+        for id in &to_delete {
+            self.invalidate_readable_history(id);
+            // 图片目录在库外（image_store 分桶），逐个删、保持原清理语义。
+            crate::agent::image_store::delete_conversation_images(id);
+        }
+        for parent in &parent_ids {
+            self.invalidate_readable_history(parent);
         }
         Ok(to_delete)
+    }
+
+    /// 在**调用方事务**里删掉一组会话的全部库内行（消息 / plan 快照 / plan /
+    /// 会话行 / 分叉引用置空）。图片目录在库外，由调用方处理。
+    fn delete_conversation_rows(
+        tx: &rusqlite::Transaction<'_>,
+        ids: &[String],
+    ) -> RusqliteResult<()> {
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let params: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        let pl = rusqlite::params_from_iter(params);
+        tx.execute(
+            &format!("DELETE FROM messages WHERE conversation_id IN ({placeholders})"),
+            pl,
+        )?;
+        let params: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        tx.execute(
+            &format!("DELETE FROM plan_snapshots WHERE conversation_id IN ({placeholders})"),
+            rusqlite::params_from_iter(params),
+        )?;
+        let params: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        tx.execute(
+            &format!("DELETE FROM plans WHERE conversation_id IN ({placeholders})"),
+            rusqlite::params_from_iter(params),
+        )?;
+        let params: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        tx.execute(
+            &format!("DELETE FROM conversations WHERE id IN ({placeholders})"),
+            rusqlite::params_from_iter(params),
+        )?;
+        // 分叉是独立会话：来源没了，分叉照旧可用，只是不再有「返回原会话」可指。
+        let params: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        tx.execute(
+            &format!("UPDATE conversations SET forked_from_id = NULL WHERE forked_from_id IN ({placeholders})"),
+            rusqlite::params_from_iter(params),
+        )?;
+        Ok(())
     }
 
     /// 该会话 + 全部子agent对话的 id（含自身，BFS 防御多层残结构）。
