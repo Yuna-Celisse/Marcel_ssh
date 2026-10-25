@@ -1334,6 +1334,73 @@ button,
   animation: dropdownExit 120ms ease-in both;
 }
 
+/* 扫光揭示（SweepTransition）：新内容用渐变蒙版自左向右揭开，前沿带一道光。
+   --sweep 是蒙版前沿的位置，注册成 <percentage> 才能被关键帧插值。 */
+@property --sweep {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+@keyframes sweepReveal {
+  from {
+    --sweep: 0%;
+  }
+  to {
+    --sweep: 108%;
+  }
+}
+
+/* 新层：前沿以左显示；旧层（.sweep-hide）用互补蒙版，前沿以右显示——两层透明度之和恒为 1，
+   交界处是交叉淡化，不会出现两套字形叠在一起的重影 */
+.sweep-reveal {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(var(--sweep) - 8%), transparent var(--sweep));
+  mask-image: linear-gradient(90deg, #000 calc(var(--sweep) - 8%), transparent var(--sweep));
+  animation: sweepReveal 700ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.sweep-hide {
+  -webkit-mask-image: linear-gradient(90deg, transparent calc(var(--sweep) - 8%), #000 var(--sweep));
+  mask-image: linear-gradient(90deg, transparent calc(var(--sweep) - 8%), #000 var(--sweep));
+  animation: sweepReveal 700ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@keyframes sweepGlint {
+  from {
+    left: -4%;
+  }
+  to {
+    left: 104%;
+  }
+}
+
+/* 光带颜色取容器文字色的一小部分：深浅主题下都看得见 */
+.sweep-glint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+  pointer-events: none;
+  transform: translateX(-50%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, currentColor 26%, transparent),
+    transparent
+  );
+  animation: sweepGlint 700ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sweep-reveal,
+  .sweep-hide,
+  .sweep-glint {
+    animation: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .dropdown-enter {
     animation: none;

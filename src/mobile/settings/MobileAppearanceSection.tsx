@@ -7,6 +7,7 @@ import { useLiveSettingsPatch } from "@/components/settings/useLiveSettingsPatch
 import Toggle from "@/components/ui/Toggle";
 import { MobileSettingRow } from "./MobileSettingRow";
 import { UiThemeEditor } from "@/components/settings/UiThemeEditor";
+import { FontFamilyPicker } from "@/components/settings/FontFamilyPicker";
 
 /** Touch-first terminal appearance settings for the mobile shell. */
 export function MobileAppearanceSection() {
@@ -48,8 +49,8 @@ export function MobileAppearanceSection() {
 
       {/* Font size */}
       <MobileSettingRow
-        label="字号"
-        description="终端字体大小"
+        label="终端字号"
+        description="只影响终端，不影响界面文字和代码编辑器"
         trailing={
           <span className="w-12 text-right font-mono text-sm text-indigo-300">
             {settings.fontSize}px
@@ -68,17 +69,15 @@ export function MobileAppearanceSection() {
 
       {/* Font family */}
       <MobileSettingRow
-        label="字体"
-        description="终端字体族；Nerd Fonts 图标已内置"
+        label="终端字体"
+        description="只影响终端；Nerd Fonts 图标已内置"
       >
-        <input
-          type="text"
+        <FontFamilyPicker
+          variant="mobile"
           value={preview?.fontFamily ?? liveSettings.fontFamily}
-          onChange={(e) => liveUpdate({ fontFamily: e.target.value })}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          className="mt-1 w-full rounded-lg border border-edge bg-zinc-800 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none focus:border-indigo-500"
+          fontSize={preview?.fontSize ?? liveSettings.fontSize}
+          terminalColors={colors}
+          onChange={(fontFamily) => liveUpdate({ fontFamily })}
         />
       </MobileSettingRow>
 

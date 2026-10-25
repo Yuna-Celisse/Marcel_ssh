@@ -2,6 +2,7 @@ import { Card, SettingItem } from "./helpers";
 import { useLiveSettingsPatch } from "./useLiveSettingsPatch";
 import { UiThemeEditor } from "./UiThemeEditor";
 import { FontSizeInput } from "./FontSizeInput";
+import { FontFamilyPicker } from "./FontFamilyPicker";
 
 /**
  * 应用主题分区（桌面）：界面主题 + 终端外观（终端颜色 / 字号 / 字体）。
@@ -56,8 +57,8 @@ export function ThemeSection() {
       </SettingItem>
       <SettingItem
         id="font-size"
-        label="字号"
-        description="终端字体大小"
+        label="终端字号"
+        description="只影响终端，不影响界面文字和代码编辑器"
         sectionId="settings-theme"
         keywords={["font", "size", "字体大小", "界面", "终端外观"]}
       >
@@ -68,8 +69,8 @@ export function ThemeSection() {
       </SettingItem>
       <SettingItem
         id="font-family"
-        label="字体"
-        description="终端字体族；Nerd Fonts 图标已内置，无需自己安装"
+        label="终端字体"
+        description="只影响终端；从本机已安装的等宽字体里选，Nerd Fonts 图标已内置，无需自己安装"
         sectionId="settings-theme"
         keywords={[
           "font",
@@ -81,11 +82,12 @@ export function ThemeSection() {
           "终端外观",
         ]}
       >
-        <input
-          type="text"
+        <FontFamilyPicker
+          variant="desktop"
           value={fontFamily}
-          onChange={(e) => liveUpdate({ fontFamily: e.target.value })}
-          className="flex-1 rounded-lg bg-zinc-800 border border-edge px-3 py-1.5 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500"
+          fontSize={fontSize}
+          terminalColors={terminalColors}
+          onChange={(fontFamily) => liveUpdate({ fontFamily })}
         />
       </SettingItem>
     </Card>

@@ -915,6 +915,17 @@ let latestTheme: UiThemeSettings | null = null;
 /** 上一次应用的「预设 + 明暗」：落到另一个在册预设时才值得揭开。 */
 let lastAppliedKey: string | null = null;
 
+/* 「主题已写进 DOM」通知：不是 CSS 变量、而是来自 React 状态的颜色（终端配色预览之类）
+   靠它跟着主题揭开的节奏换色，见 hooks/useThemeSynced。 */
+const themeWriteListeners = new Set<() => void>();
+
+export function onThemeWritten(listener: () => void): () => void {
+  themeWriteListeners.add(listener);
+  return () => {
+    themeWriteListeners.delete(listener);
+  };
+}
+
 function writeThemeToDom(theme: UiThemeSettings): void {
   const root = document.documentElement;
   for (const [name, value] of Object.entries(resolveThemeVars(theme))) {
@@ -926,6 +937,7 @@ function writeThemeToDom(theme: UiThemeSettings): void {
   // index.html 的内联脚本给了 <html> 一个字面色防冷启动白闪；接管后改成跟变量走，
   // 之后换主题 / 拖颜色，页面边缘与过渡快照的底色都不会停在旧色上。
   root.style.backgroundColor = "var(--color-zinc-950)";
+  for (const listener of [...themeWriteListeners]) listener();
 }
 
 /** DOM 应用：写变量、切 color-scheme、同步 data-marcel-theme（终端配色联动读它）。
