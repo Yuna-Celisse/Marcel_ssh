@@ -1304,6 +1304,47 @@ button,
   animation: mobilePopoverExit 160ms ease-in both;
 }
 
+/* 锚定在触发按钮下方的下拉面板（Select、字体选择器等共用，配合 useAnimatedPresence 延迟卸载）。
+   必须排在上面 `[role="listbox"]` 的通用入场规则之后，同一元素上才能盖过它。 */
+@keyframes dropdownEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dropdownExit {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+
+.dropdown-enter {
+  transform-origin: top center;
+  animation: dropdownEnter 150ms var(--spring-smooth, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+.dropdown-exit {
+  transform-origin: top center;
+  animation: dropdownExit 120ms ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdown-enter {
+    animation: none;
+  }
+
+  /* 退出动画保留 1ms：useAnimatedPresence 依赖 animationend 事件卸载 */
+  .dropdown-exit {
+    animation-duration: 1ms;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mobile-sheet-enter,
   .mobile-backdrop-enter,

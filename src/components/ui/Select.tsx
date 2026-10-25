@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useAnimatedPresence } from '@/hooks/useAnimatedPresence';
 
 export interface SelectOption<T extends string = string> {
   value: T;
@@ -44,6 +45,7 @@ export default function Select<T extends string = string>({
   className = '',
 }: Props<T>) {
   const [open, setOpen] = useState(false);
+  const presence = useAnimatedPresence(open);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [focusIdx, setFocusIdx] = useState(-1);
@@ -206,13 +208,15 @@ export default function Select<T extends string = string>({
         </span>
       </button>
 
-      {open && (
+      {presence.mounted && (
         <div
           ref={listRef}
           role="listbox"
+          onAnimationEnd={presence.onAnimationEnd}
           className={`
             absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-auto
             rounded-lg border border-edge bg-zinc-800 shadow-2xl
+            ${presence.phase === 'exit' ? 'dropdown-exit pointer-events-none' : 'dropdown-enter'}
           `}
           style={{ top: '100%' }}
         >
