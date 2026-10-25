@@ -47,9 +47,11 @@
 //!
 //! # 改 X 要动哪里
 //!
-//! - 需求澄清 / 沟通风格 / 结论放哪 / 上下文管理 → `templates/agent/沟通.hbs`
-//!   （仅主 agent，见 `render_agent_prompt` 的 `audience` 门控）
-//! - 人设、主动性、惯例、操作纪律、后台作业、停止命令与残余进程 → `templates/agent/角色.hbs`
+//! - 运行模式 / 需求澄清 / 沟通风格 / 结论放哪 / 风险分级 / 上下文管理 / 收尾
+//!   → `templates/agent/沟通.hbs`（仅主 agent，见 `render_agent_prompt` 的 `audience` 门控）
+//! - 人设、规则优先级、语言与风格、主动性、做事方式、命令规范、文档同步、临时文件清理、
+//!   后台作业、停止命令与残余进程 → `templates/agent/角色.hbs`（各段用无编号标题，
+//!   不要在文本里写「第 N 节」式交叉引用：段落会按门控增减）
 //! - **工具作用在哪一侧**（远端 / 用户本机 / 两端 / 应用内）→ 各工具自己的
 //!   `description()`，权威在那里；提示词里只允许说"以工具说明为准"，不得复述
 //!   工具清单（`tools::ToolSide` 必填 + `acting_tools_state_their_side` 测试：
