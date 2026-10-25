@@ -107,9 +107,8 @@ describe('agentStatusSelectors', () => {
       // 主对话行的结果必须与单查版逐条一致。
       const map = buildConversationAgentStatusMap(tasks, unread);
       for (const id of ['main-a', 'main-b', 'main-c']) {
-        expect(map.get(id) ?? 'idle').toBe(
+        expect(map.get(id) ?? 'idle', `映射版与单查版在 ${id} 上不一致`).toBe(
           getConversationAgentStatus(id, tasks, unread),
-          `映射版与单查版在 ${id} 上不一致`,
         );
       }
       // 子对话不占条目（它们的任务/未读已归并进父对话）。
