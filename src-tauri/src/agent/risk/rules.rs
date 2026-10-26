@@ -65,6 +65,31 @@ pub struct RuleDef {
     /// 豁免恒为 `Allow`。
     pub default_level: Disposition,
     pub lists: &'static [ListDef],
+    /// 命中时回给模型 / 显示在弹窗里的默认说明（模板，`{名}` 在命中时换成实际值）。
+    /// 设置页把它原样预填进「拒绝说明」输入框，用户在它的基础上改；检测代码**只从这里取**默认说明
+    /// （`RuleConfig::verdict_default`），不再另写一份。同一条规则里措辞不同的少数分支
+    /// （如 `win_accounts` 的「加入管理员组」）由检测代码就地写，这里放的是最常见的那一种。
+    /// 豁免没有说明。
+    pub reason: &'static str,
+    /// 模板里能用的占位名与含义（设置页在输入框下面列出来）。
+    pub reason_vars: &'static [(&'static str, &'static str)],
+}
+
+/// 自定义规则的默认说明模板与占位（设置页预填「拒绝说明」用，经目录命令下发，前端不抄）。
+pub const CUSTOM_REASON: &str = "命中自定义规则「{规则}」";
+pub const CUSTOM_REASON_VARS: &[(&str, &str)] = &[
+    ("规则", "这条规则的名字（命令 + 参数）"),
+    ("命令", "规则里写的命令名"),
+    ("参数", "规则里写的参数关键字（没写则为空）"),
+];
+
+/// 把模板里的 `{名}` 换成实际值；认不得的 `{…}` 原样留着。
+pub fn fill_template(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (name, value) in vars {
+        out = out.replace(&format!("{{{name}}}"), value);
+    }
+    out
 }
 
 const SYSTEM_LEVEL_COMMANDS: &[&str] = &[
@@ -161,6 +186,8 @@ pub const RULES: &[RuleDef] = &[
     // ──────────── 无法静态检查的写法（默认直接拒绝） ────────────
     RuleDef {
         id: "fork_bomb",
+        reason: "检测到 fork bomb",
+        reason_vars: &[],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "fork bomb",
@@ -171,6 +198,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "unparsable",
+        reason: "无法解析这条命令（{原因}），所以没有执行 —— 看不懂的写法不猜。请改写成可以被静态检查的形式后重发：去掉 $( ) / 反引号 / <( ) 这类替换，并确认引号成对。",
+        reason_vars: &[("原因", "解析器给出的具体原因，如「引号没有闭合」")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "解析不了的写法",
@@ -181,6 +210,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "pipe_to_shell",
+        reason: "命令把内容直接管道给 shell 解释器执行，内容无法静态检查 —— 请先下载到文件（如 `curl -o`）确认后再执行",
+        reason_vars: &[],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "管道喂给 shell 执行",
@@ -191,6 +222,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "source_dot",
+        reason: "`source`/`.` 会在当前 shell 执行脚本内容，内容无法静态检查 —— 请改用 `bash <脚本>` 执行，或把要做的事写成明确命令",
+        reason_vars: &[],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "source / . 加载脚本",
@@ -201,6 +234,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "command_in_variable",
+        reason: "要执行的内容藏在变量里，无法静态检查 —— 请把要执行的命令原文写出来",
+        reason_vars: &[],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "命令写在变量里",
@@ -212,6 +247,8 @@ pub const RULES: &[RuleDef] = &[
     // ──────────── 破坏性操作 ────────────
     RuleDef {
         id: "rm_catastrophic",
+        reason: "递归删除危险路径 `{路径}`",
+        reason_vars: &[("路径", "被删的那个路径")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "递归删除根与系统目录",
@@ -238,6 +275,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "rm_home",
+        reason: "递归删除危险路径 `{路径}`",
+        reason_vars: &[("路径", "被删的那个路径")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "递归删除家目录",
@@ -248,6 +287,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "rm_system_tree",
+        reason: "递归删除系统目录下的 `{路径}`，范围和影响需要确认",
+        reason_vars: &[("路径", "被删的那个路径")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "递归删除 /usr、/var 下的内容",
@@ -263,6 +304,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "block_device_write",
+        reason: "`{命令}` 直接作用于块设备 `{设备}`",
+        reason_vars: &[("命令", "命中的命令名"), ("设备", "被写的设备")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "写真实磁盘设备",
@@ -273,6 +316,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "disk_tools",
+        reason: "`{命令}` 直接操作磁盘，数据无法恢复",
+        reason_vars: &[("命令", "命中的命令名")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "磁盘工具",
@@ -290,6 +335,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "name_based_kill",
+        reason: "`{命令}` 按名字批量杀进程，误伤面不可控 —— 请用 `ps`/`pgrep` 查到 PID 后 `kill <PID>`，或用 `systemctl` 管理服务",
+        reason_vars: &[("命令", "命中的命令名")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "按名字批量杀进程",
@@ -306,6 +353,8 @@ pub const RULES: &[RuleDef] = &[
     // ──────────── 系统级命令与受保护路径 ────────────
     RuleDef {
         id: "system_level_commands",
+        reason: "`{命令}` 是系统级命令，影响整台机器",
+        reason_vars: &[("命令", "命中的命令名")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "系统级命令",
@@ -325,6 +374,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "sudo_wrapper",
+        reason: "命令经 sudo 提权执行",
+        reason_vars: &[],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "sudo 提权",
@@ -335,6 +386,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "protected_paths",
+        reason: "命令会改动受保护路径 `{路径}`",
+        reason_vars: &[("路径", "命中的受保护路径")],
         kind: RuleKind::Rule,
         scope: RuleScope::Posix,
         title: "写入受保护路径",
@@ -352,6 +405,8 @@ pub const RULES: &[RuleDef] = &[
     // ──────────── Windows ────────────
     RuleDef {
         id: "win_disk_format",
+        reason: "`{命令}` {说明} —— 请先确认要操作的是哪个盘符/分区/磁盘编号",
+        reason_vars: &[("命令", "命中的命令名"), ("说明", "这条命令具体会做什么")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "格式化 / 改分区表",
@@ -362,6 +417,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "win_boot_config",
+        reason: "`{命令}` 会改写启动配置（BCD），改错会让系统无法启动 —— 请确认要改的启动项与取值",
+        reason_vars: &[("命令", "命中的命令名")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "改写启动配置",
@@ -375,6 +432,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "win_recursive_delete",
+        reason: "`{命令}` 递归删除 `{目标}`（{说明}）—— 命令删除不进回收站、无法恢复，影响范围远超当前工作目录",
+        reason_vars: &[("命令", "命中的命令名"), ("目标", "被删的路径"), ("说明", "这个路径为什么危险")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "递归删除盘根 / 系统目录",
@@ -389,6 +448,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "win_registry_delete",
+        reason: "`{命令} delete {分支}` 会删除系统注册表 hive（HKLM/HKU）下的键 —— 影响整台机器而不只是当前用户，删错可能让系统或软件起不来",
+        reason_vars: &[("命令", "命中的命令名"), ("分支", "被删的注册表分支")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "删除系统注册表",
@@ -399,6 +460,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "win_power",
+        reason: "`{命令}` 会立刻关机/重启这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
+        reason_vars: &[("命令", "命中的命令（含关机/重启参数）")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "关机 / 重启",
@@ -409,6 +472,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "win_accounts",
+        reason: "`{命令}` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
+        reason_vars: &[("命令", "命中的命令名")],
         kind: RuleKind::Rule,
         scope: RuleScope::Windows,
         title: "新建账号 / 加管理员",
@@ -423,6 +488,8 @@ pub const RULES: &[RuleDef] = &[
     // ──────────── 豁免 ────────────
     RuleDef {
         id: "system_query_exempt",
+        reason: "",
+        reason_vars: &[],
         kind: RuleKind::Exemption,
         scope: RuleScope::Posix,
         title: "放过系统命令的查询形态",
@@ -433,6 +500,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "disk_listing_exempt",
+        reason: "",
+        reason_vars: &[],
         kind: RuleKind::Exemption,
         scope: RuleScope::Posix,
         title: "放过磁盘工具的只列不写",
@@ -443,6 +512,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "read_only_exempt",
+        reason: "",
+        reason_vars: &[],
         kind: RuleKind::Exemption,
         scope: RuleScope::Posix,
         title: "放过只读命令读受保护路径",
@@ -458,6 +529,8 @@ pub const RULES: &[RuleDef] = &[
     },
     RuleDef {
         id: "virtual_device_exempt",
+        reason: "",
+        reason_vars: &[],
         kind: RuleKind::Exemption,
         scope: RuleScope::Posix,
         title: "放过 /dev/null 等虚拟设备",
@@ -571,14 +644,22 @@ pub struct CustomRiskRule {
 }
 
 impl CustomRiskRule {
-    /// 命中时给模型 / 弹窗看的原因：直接拒绝且写了说明用说明，否则「命中自定义规则「名称」」。
+    /// 命中时给模型 / 弹窗看的原因：直接拒绝且写了说明用说明，否则默认模板；占位按这条规则填。
     fn verdict_reason(&self) -> String {
         let message = self.message.trim();
-        if self.level == Disposition::Deny && !message.is_empty() {
-            message.to_string()
+        let template = if self.level == Disposition::Deny && !message.is_empty() {
+            message
         } else {
-            format!("命中自定义规则「{}」", self.display_name())
-        }
+            CUSTOM_REASON
+        };
+        fill_template(
+            template,
+            &[
+                ("规则", &self.display_name()),
+                ("命令", self.command.trim()),
+                ("参数", self.arg_contains.trim()),
+            ],
+        )
     }
 
     /// 「这个命令要问一次」的最简规则：不限参数、档位「请求审批」。默认规则与旧命令名单的
@@ -672,6 +753,22 @@ impl RuleConfig {
 
     /// 命中规则 `id` 时的评估结论：关闭或被调成「放行」= 无意见。
     pub fn verdict(&self, id: &str, reason: impl Into<String>) -> Assessment {
+        self.verdict_with(id, reason, &[])
+    }
+
+    /// 用规则表里的默认说明模板出结论，`vars` 填占位（命令、路径……）。
+    pub fn verdict_default(&self, id: &str, vars: &[(&str, &str)]) -> Assessment {
+        let template = rule_def(id).map_or("", |d| d.reason);
+        self.verdict_with(id, fill_template(template, vars), vars)
+    }
+
+    /// 同 [`Self::verdict`]，另带占位值：用户写了「拒绝说明」时用它填说明里的 `{名}`。
+    pub fn verdict_with(
+        &self,
+        id: &str,
+        reason: impl Into<String>,
+        vars: &[(&str, &str)],
+    ) -> Assessment {
         if !self.enabled(id) {
             return Assessment::allow();
         }
@@ -681,7 +778,7 @@ impl RuleConfig {
         }
         // 直接拒绝的话是回给模型的，用户写了自己的说明就用它，不再用规则自带的那句。
         let reason = match self.deny_message(id).filter(|_| level == Disposition::Deny) {
-            Some(message) => message.to_string(),
+            Some(message) => fill_template(message, vars),
             None => reason.into(),
         };
         Assessment::at(level, reason).with_rule(id)

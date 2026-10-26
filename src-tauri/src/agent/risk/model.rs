@@ -22,7 +22,7 @@ pub fn base_assessment(parsed: &ParsedSegment, rules: &RuleConfig) -> Assessment
     // 判据是"里面跑了什么"，不是"有没有 sudo"。`-n` 只是非交互（要密码就失败），
     // 不改变提权这件事本身，也不额外加重。
     let mut worst = if parsed.sudo_wrapped {
-        rules.verdict("sudo_wrapper", "命令经 sudo 提权执行")
+        rules.verdict_default("sudo_wrapper", &[])
     } else {
         Assessment::allow()
     };
@@ -30,38 +30,28 @@ pub fn base_assessment(parsed: &ParsedSegment, rules: &RuleConfig) -> Assessment
     // 展开成什么运行时才知道，静态判定评的是假命令。直接拒绝并要求写明原文。
     // 参数位置的变量（`echo $HOME`）不在此列。
     if base.starts_with('$') {
-        worst = worst.worst(rules.verdict(
+        // 与 policy.rs 里「包装却没有内层」那一支措辞不同，规则表里放的是后者；这里就地写。
+        worst = worst.worst(rules.verdict_with(
             "command_in_variable",
             "命令写在了变量里（$…），展开后的内容无法静态判定 —— 请把要执行的命令原文写出来",
+            &[],
         ));
     }
     // 按名字批量杀进程：命中面由名字匹配决定（`pkill -f ssh` 连自己的 SSH 会话都能
     // 一起带走），而且几乎总有更精确的替代 —— 理由里写明替代写法，模型会照着换。
     if rules.list_has("name_based_kill_commands", base) {
-        worst = worst.worst(rules.verdict(
-            "name_based_kill",
-            format!(
-                "`{}` 按名字批量杀进程，误伤面不可控 —— 请用 `ps`/`pgrep` 查到 PID 后 `kill <PID>`，或用 `systemctl` 管理服务",
-                base
-            ),
-        ));
+        worst = worst.worst(rules.verdict_default("name_based_kill", &[("命令", base)]));
     }
     if rules.list_has("system_level_commands", base) {
         // `systemctl status` / `service x status` / 裸 `mount` / `crontab -l` 这类
         // 查询形态什么也不改，别把它们和 `restart` / `umount` 一起抬档。
         if !is_read_only_system_query(base, &parsed.args, rules) {
-            worst = worst.worst(rules.verdict(
-                "system_level_commands",
-                format!("`{}` 是系统级命令，影响整台机器", base),
-            ));
+            worst = worst.worst(rules.verdict_default("system_level_commands", &[("命令", base)]));
         }
     } else if is_mkfs(base) || rules.list_has("disk_commands", base) {
         // `fdisk -l` / `parted --list` 只是把分区表打出来看，没有写盘动作。
         if !is_listing_only(base, &parsed.args, rules) {
-            worst = worst.worst(rules.verdict(
-                "disk_tools",
-                format!("`{}` 直接操作磁盘，数据无法恢复", base),
-            ));
+            worst = worst.worst(rules.verdict_default("disk_tools", &[("命令", base)]));
         }
     }
     worst

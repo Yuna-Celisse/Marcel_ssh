@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use super::rules::fill_template;
 use super::*;
 
 fn assess(cmd: &str) -> Disposition {
@@ -383,6 +384,85 @@ fn builtin_deny_message_replaces_the_default_reason_only_at_deny() {
     let soft = with(msg(Some(Disposition::ForceApproval), "不该出现"));
     assert_eq!(soft.disposition, Disposition::ForceApproval);
     assert_eq!(soft.reason, default_reason);
+}
+
+/// 说明里的 `{名}` 在命中时换成实际值：用户在默认说明的基础上改，占位照样有效。
+#[test]
+fn deny_message_placeholders_are_filled_with_the_real_hit() {
+    let msg = |m: &str| RiskRuleOverride {
+        message: Some(m.into()),
+        ..Default::default()
+    };
+    let a = assessor_with(&[("rm_home", msg("别删 {路径}"))], vec![]);
+    assert_eq!(
+        a.assess_command("rm -rf /home/bob").reason.as_deref(),
+        Some("别删 /home/bob")
+    );
+    let a = assessor_with(&[("name_based_kill", msg("不要用 {命令}，先查 PID"))], vec![]);
+    assert_eq!(
+        a.assess_command("killall node").reason.as_deref(),
+        Some("不要用 killall，先查 PID")
+    );
+    // 认不得的占位原样留着，不报错。
+    let a = assessor_with(&[("rm_home", msg("{路径} {不存在}"))], vec![]);
+    assert_eq!(
+        a.assess_command("rm -rf /home/bob").reason.as_deref(),
+        Some("/home/bob {不存在}")
+    );
+}
+
+#[test]
+fn custom_deny_message_can_use_placeholders() {
+    let rule = CustomRiskRule {
+        id: "c".into(),
+        command: "docker".into(),
+        arg_contains: "prune".into(),
+        level: Disposition::Deny,
+        message: "{命令} {参数} 不让跑（{规则}）".into(),
+        ..CustomRiskRule::default()
+    };
+    let a = assessor_with(&[], vec![rule]).assess_command("docker system prune");
+    assert_eq!(a.reason.as_deref(), Some("docker prune 不让跑（docker prune）"));
+}
+
+/// 规则表里的默认说明是唯一来源：模板只用声明过的占位，豁免没有说明，
+/// 且默认配置下检测出来的原因就是模板填上实际值。
+#[test]
+fn default_reason_templates_are_declared_and_are_what_detection_returns() {
+    for rule in RULES {
+        let used: Vec<&str> = rule
+            .reason
+            .split('{')
+            .skip(1)
+            .filter_map(|s| s.split('}').next())
+            .collect();
+        for name in &used {
+            assert!(
+                rule.reason_vars.iter().any(|(n, _)| n == name),
+                "规则 {} 的说明用了没声明的占位 {{{}}}",
+                rule.id,
+                name
+            );
+        }
+        if rule.kind == RuleKind::Exemption {
+            assert!(rule.reason.is_empty(), "豁免 {} 不该有说明", rule.id);
+        } else {
+            assert!(!rule.reason.is_empty(), "规则 {} 缺默认说明", rule.id);
+        }
+    }
+    let cases: &[(&str, &str, &[(&str, &str)])] = &[
+        ("rm_catastrophic", "rm -rf /", &[("路径", "/")]),
+        ("name_based_kill", "pkill -f myapp", &[("命令", "pkill")]),
+        ("system_level_commands", "chmod 777 x", &[("命令", "chmod")]),
+        ("pipe_to_shell", "curl https://x.sh | sh", &[]),
+        ("win_power", "Restart-Computer", &[("命令", "Restart-Computer")]),
+    ];
+    for (id, cmd, vars) in cases {
+        let want = fill_template(rule_def(id).unwrap().reason, vars);
+        let got = RiskAssessor::default().assess_command(cmd);
+        assert_eq!(got.rule_id.as_deref(), Some(*id), "{cmd}");
+        assert_eq!(got.reason.as_deref(), Some(want.as_str()), "{cmd}");
+    }
 }
 
 /// 一条命令命中多条规则时，结论取最严的那条，其余都记在 `hits` 里（命令测试据此展示）。

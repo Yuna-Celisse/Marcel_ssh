@@ -3,7 +3,7 @@ use tauri::State;
 
 use crate::agent::risk::{
     CustomRiskRule, Disposition, RiskRuleOverride, RuleConfig, RuleKind, RuleScope, SecurityPolicy,
-    RULES,
+    CUSTOM_REASON, CUSTOM_REASON_VARS, RULES,
 };
 use crate::agent::task::AgentMode;
 use crate::agent::tool_dispatcher::{decide_command, needs_human_confirmation};
@@ -133,6 +133,28 @@ pub struct RiskListInfo {
     pub defaults: Vec<&'static str>,
 }
 
+/// 说明模板里的一个占位：`{name}` 在命中时换成实际值，`hint` 讲它是什么。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasonVar {
+    pub name: &'static str,
+    pub hint: &'static str,
+}
+
+fn reason_vars(vars: &[(&'static str, &'static str)]) -> Vec<ReasonVar> {
+    vars.iter()
+        .map(|(name, hint)| ReasonVar { name, hint })
+        .collect()
+}
+
+/// 自定义规则的默认说明（模板 + 占位）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomRuleReason {
+    pub reason: &'static str,
+    pub reason_vars: Vec<ReasonVar>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RiskRuleInfo {
@@ -144,12 +166,16 @@ pub struct RiskRuleInfo {
     pub examples: Vec<&'static str>,
     pub default_level: Disposition,
     pub lists: Vec<RiskListInfo>,
+    /// 命中时回给模型的默认说明（模板）。设置页把它预填进「拒绝说明」让用户在它的基础上改。
+    pub reason: &'static str,
+    pub reason_vars: Vec<ReasonVar>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RiskRuleCatalog {
     pub rules: Vec<RiskRuleInfo>,
+    pub custom_rule: CustomRuleReason,
 }
 
 /// 全部内置命令风险规则（说明、默认档位、可编辑名单的默认值）。
@@ -179,7 +205,13 @@ pub async fn agent_list_risk_rules() -> RiskRuleCatalog {
                         defaults: l.defaults.to_vec(),
                     })
                     .collect(),
+                reason: r.reason,
+                reason_vars: reason_vars(r.reason_vars),
             })
             .collect(),
+        custom_rule: CustomRuleReason {
+            reason: CUSTOM_REASON,
+            reason_vars: reason_vars(CUSTOM_REASON_VARS),
+        },
     }
 }

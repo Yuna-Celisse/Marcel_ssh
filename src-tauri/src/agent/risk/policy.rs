@@ -165,7 +165,7 @@ impl RiskAssessor {
         // 档位是规则表说了算：被用户调低到「拒绝」以下时不能就此收工 —— 后面的
         // 逐段分析照常做，调低的只是这一条规则自己。
         if is_fork_bomb(trimmed) {
-            worst = worst.worst(rules.verdict("fork_bomb", "检测到 fork bomb"));
+            worst = worst.worst(rules.verdict_default("fork_bomb", &[]));
             if worst.disposition == Disposition::Deny {
                 return worst;
             }
@@ -206,10 +206,7 @@ impl RiskAssessor {
             // 无从看起。默认不弹窗 —— 这类写法有等价且可检查的替代（先下载成文件再
             // 执行），直接拒绝并把替代写法回给模型，用户零打扰。
             if has_pipe && is_bare_shell(&parsed) {
-                worst = worst.worst(rules.verdict(
-                    "pipe_to_shell",
-                    "命令把内容直接管道给 shell 解释器执行，内容无法静态检查 —— 请先下载到文件（如 `curl -o`）确认后再执行",
-                ));
+                worst = worst.worst(rules.verdict_default("pipe_to_shell", &[]));
             }
 
             if let Some((kind, inner)) = &parsed.embedded_eval {
@@ -228,10 +225,7 @@ impl RiskAssessor {
             }
 
             if let Some(path) = self.protected_path_hit(&parsed) {
-                worst = worst.worst(rules.verdict(
-                    "protected_paths",
-                    format!("命令会改动受保护路径 `{}`", path),
-                ));
+                worst = worst.worst(rules.verdict_default("protected_paths", &[("路径", path.as_str())]));
             }
 
             // 用户自己加的规则：与内置规则同层、同样取最严。
@@ -252,14 +246,9 @@ impl RiskAssessor {
     /// 拦丢了。看不懂的东西不猜，也不能放行：回给模型，让它改写成静态可判定的形式重发。
     fn unparsable(&self, err: &ParseError, cmd: &str) -> Assessment {
         log::warn!("命令无法解析：{} —— {}", err, cmd);
-        self.policy.rules.verdict(
-            "unparsable",
-            format!(
-                "无法解析这条命令（{}），所以没有执行 —— 看不懂的写法不猜。\
-                 请改写成可以被静态检查的形式后重发：去掉 $( ) / 反引号 / <( ) 这类替换，并确认引号成对。",
-                err.explain()
-            ),
-        )
+        self.policy
+            .rules
+            .verdict_default("unparsable", &[("原因", err.explain())])
     }
 
     /// 内嵌的 `bash -c "…"` / `eval …` / `source x`：里层当独立命令再判一次。
@@ -269,18 +258,12 @@ impl RiskAssessor {
             // `source` / `.` 的正文没法静态看，且等价替代零成本（`bash <脚本>`）
             // —— 默认直接拒绝并指路，不弹窗。
             ("source", _) | (".", _) => {
-                rules.verdict(
-                    "source_dot",
-                    "`source`/`.` 会在当前 shell 执行脚本内容，内容无法静态检查 —— 请改用 `bash <脚本>` 执行，或把要做的事写成明确命令",
-                )
+                rules.verdict_default("source_dot", &[])
             }
             (_, Some(s)) => self.assess_command(s),
             // 有包装却没有内层字符串：同样看不懂（今天解析器不会产出这种形态，
             // `bash -c "$CMD"` 走的是上面递归后的「命令写在变量里」；留着是兜底）。
-            _ => rules.verdict(
-                "command_in_variable",
-                "要执行的内容藏在变量里，无法静态检查 —— 请把要执行的命令原文写出来",
-            ),
+            _ => rules.verdict_default("command_in_variable", &[]),
         }
     }
 

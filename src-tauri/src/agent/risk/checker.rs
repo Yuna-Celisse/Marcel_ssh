@@ -106,13 +106,12 @@ fn rm_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Assessment {
     for p in &paths {
         let verdict = match classify_rm_target(p, rules) {
             RmTargetClass::Catastrophic => {
-                rules.verdict("rm_catastrophic", format!("递归删除危险路径 `{}`", p))
+                rules.verdict_default("rm_catastrophic", &[("路径", p.as_str())])
             }
-            RmTargetClass::HomeDir => rules.verdict("rm_home", format!("递归删除危险路径 `{}`", p)),
-            RmTargetClass::SystemTree => rules.verdict(
-                "rm_system_tree",
-                format!("递归删除系统目录下的 `{}`，范围和影响需要确认", p),
-            ),
+            RmTargetClass::HomeDir => rules.verdict_default("rm_home", &[("路径", p.as_str())]),
+            RmTargetClass::SystemTree => {
+                rules.verdict_default("rm_system_tree", &[("路径", p.as_str())])
+            }
             RmTargetClass::Safe => continue,
         };
         worst = worst.worst(verdict);
@@ -447,9 +446,9 @@ pub fn hard_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Option<Assess
 
     let mut worst = rm_verdict(parsed, rules);
     if let Some(dev) = block_device_target(base, &parsed.args, rules) {
-        worst = worst.worst(rules.verdict(
+        worst = worst.worst(rules.verdict_default(
             "block_device_write",
-            format!("`{}` 直接作用于块设备 `{}`", base, dev),
+            &[("命令", base), ("设备", dev.as_str())],
         ));
     }
     (worst.disposition != Disposition::Allow).then_some(worst)

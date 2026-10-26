@@ -77,8 +77,16 @@ pub(super) fn windows_verdict(parsed: &ParsedSegment, rules: &RuleConfig) -> Opt
 }
 
 /// 按规则表出结论：规则关闭、或被调成「放行」时返回 `None`（这一层没意见）。
-fn win(rules: &RuleConfig, id: &str, reason: String) -> Option<Assessment> {
-    let verdict = rules.verdict(id, reason);
+/// 默认说明取规则表里的模板（`vars` 填占位）。
+fn win_default(rules: &RuleConfig, id: &str, vars: &[(&str, &str)]) -> Option<Assessment> {
+    let verdict = rules.verdict_default(id, vars);
+    (verdict.disposition != Disposition::Allow).then_some(verdict)
+}
+
+/// 同 [`win_default`]，但措辞与规则表里那一种不同的分支（如 `net localgroup administrators`）
+/// 就地写说明；用户写了「拒绝说明」时同样由它替换，占位用 `vars`。
+fn win_with(rules: &RuleConfig, id: &str, reason: String, vars: &[(&str, &str)]) -> Option<Assessment> {
+    let verdict = rules.verdict_with(id, reason, vars);
     (verdict.disposition != Disposition::Allow).then_some(verdict)
 }
 
@@ -131,13 +139,10 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
             } else {
                 "会格式化磁盘/分区，目标卷上的数据全部丢失且无法恢复"
             };
-            win(
+            win_default(
                 rules,
                 "win_disk_format",
-                format!(
-                    "`{}` {} —— 请先确认要操作的是哪个盘符/分区/磁盘编号",
-                    head, what
-                ),
+                &[("命令", head.as_str()), ("说明", what)],
             )
         }
 
@@ -149,14 +154,7 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
             if bcdedit_is_display(args) {
                 return None;
             }
-            win(
-                rules,
-                "win_boot_config",
-                format!(
-                    "`{}` 会改写启动配置（BCD），改错会让系统无法启动 —— 请确认要改的启动项与取值",
-                    head
-                ),
-            )
+            win_default(rules, "win_boot_config", &[("命令", head.as_str())])
         }
         // 裸跑与 `/?` / `/scanos` 都不写盘；`/fixmbr` / `/fixboot` / `/rebuildbcd` 才动
         // 引导记录与 BCD。
@@ -164,10 +162,15 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
             if !has_flag(args, BOOTREC_WRITE_FLAGS) {
                 return None;
             }
-            win(rules, "win_boot_config", format!(
-                "`{}` 会重写引导记录或重建启动配置（/fixmbr、/fixboot、/rebuildbcd），写错会让系统无法启动",
-                head
-            ))
+            win_with(
+                rules,
+                "win_boot_config",
+                format!(
+                    "`{}` 会重写引导记录或重建启动配置（/fixmbr、/fixboot、/rebuildbcd），写错会让系统无法启动",
+                    head
+                ),
+                &[("命令", head.as_str())],
+            )
         }
 
         // ──────────── 递归删除 ────────────
@@ -186,13 +189,14 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
             }
             let (target, what) =
                 target_args(args).find_map(|t| catastrophic_target(t).map(|what| (t, what)))?;
-            win(
+            win_default(
                 rules,
                 "win_recursive_delete",
-                format!(
-                "`{}` 递归删除 `{}`（{}）—— 命令删除不进回收站、无法恢复，影响范围远超当前工作目录",
-                head, target, what
-            ),
+                &[
+                    ("命令", head.as_str()),
+                    ("目标", target),
+                    ("说明", what),
+                ],
             )
         }
 
@@ -206,35 +210,33 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
                 return None;
             }
             let hive = args.iter().skip(1).find(|a| is_system_hive(a, true))?;
-            win(rules, "win_registry_delete", format!(
-                "`{} delete {}` 会删除系统注册表 hive（HKLM/HKU）下的键 —— 影响整台机器而不只是当前用户，删错可能让系统或软件起不来",
-                head, hive
-            ))
+            win_default(
+                rules,
+                "win_registry_delete",
+                &[("命令", head.as_str()), ("分支", hive.as_str())],
+            )
         }
 
         // ──────────── 关机 / 重启 ────────────
         //
         // 本机执行时这就是用户自己的电脑：没保存的东西会丢。关机/重启没有"看错了"的
         // 余地，只有明确带重启/关机参数才拦（`shutdown /?`、`-a` 不拦）。
-        "stop-computer" | "restart-computer" => win(
-            rules,
-            "win_power",
-            format!(
-                "`{}` 会立刻关机/重启这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
-                head
-            ),
-        ),
+        "stop-computer" | "restart-computer" => {
+            win_default(rules, "win_power", &[("命令", head.as_str())])
+        }
         "shutdown" => {
             let flag = args
                 .iter()
                 .find(|a| matches_flag(a, SHUTDOWN_POWER_FLAGS))?;
-            win(
+            let what = format!("{} {}", head, flag);
+            win_with(
                 rules,
                 "win_power",
                 format!(
-                "`{} {}` 会重启/关机这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
-                head, flag
-            ),
+                    "`{}` 会重启/关机这台电脑 —— 本机执行时就是用户自己的机器，未保存的工作会丢失",
+                    what
+                ),
+                &[("命令", what.as_str())],
             )
         }
 
@@ -256,28 +258,31 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
                 .map(|s| s.to_ascii_lowercase())
                 .unwrap_or_default();
             if first == "user" {
-                return win(rules, "win_accounts", format!(
-                    "`{} user … /add` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
-                    head
-                ));
+                return win_with(
+                    rules,
+                    "win_accounts",
+                    format!(
+                        "`{} user … /add` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
+                        head
+                    ),
+                    &[("命令", head.as_str())],
+                );
             }
             if first == "localgroup" && second == "administrators" {
-                return win(rules, "win_accounts", format!(
-                    "`{} localgroup administrators … /add` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
-                    head
-                ));
+                return win_with(
+                    rules,
+                    "win_accounts",
+                    format!(
+                        "`{} localgroup administrators … /add` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
+                        head
+                    ),
+                    &[("命令", head.as_str())],
+                );
             }
             None
         }
         // PowerShell 的原生等价形态（`net user` / `net localgroup administrators`）。
-        "new-localuser" => win(
-            rules,
-            "win_accounts",
-            format!(
-                "`{}` 会在本机新建一个账号 —— 这是整台机器的状态改动，请确认要建的账号与用途",
-                head
-            ),
-        ),
+        "new-localuser" => win_default(rules, "win_accounts", &[("命令", head.as_str())]),
         "add-localgroupmember" => {
             // 只有加进 Administrators 才是提权；加进普通组不抬档。
             let admin = args
@@ -286,13 +291,14 @@ fn verdict_for_line(line: &str, depth: u8, rules: &RuleConfig) -> Option<Assessm
             if !admin {
                 return None;
             }
-            win(
+            win_with(
                 rules,
                 "win_accounts",
                 format!(
                     "`{}` 会把账号加进本机管理员组（等于提权）—— 请确认要加入的账号",
                     head
                 ),
+                &[("命令", head.as_str())],
             )
         }
 
