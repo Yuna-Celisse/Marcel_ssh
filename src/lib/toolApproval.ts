@@ -8,7 +8,21 @@
  */
 import type { Disposition } from './types';
 
-/** 可以被点名审批的内置工具（命令类工具不在这里：它们的审批由命令规则与名单管）。 */
+/**
+ * 命令类工具：它的审批完全由命令规则与命令确认方式决定，不读档位表。
+ * 「需要审批的工具」里它永远排第一行、只读，点一下去看命令规则（与后端
+ * `resolve_call_disposition` 对命令类工具不读档位表一致）。
+ */
+export const COMMAND_TOOL = { name: 'bash', label: '执行命令' } as const;
+
+export const isCommandTool = (name: string): boolean =>
+  toolKey(name) === COMMAND_TOOL.name;
+
+function toolKey(name: string): string {
+  return name.replace(/^local_/, '');
+}
+
+/** 可以被点名审批的内置工具（命令类工具不在这里，见 `COMMAND_TOOL`）。 */
 export const APPROVABLE_TOOLS: readonly { name: string; label: string }[] = [
   { name: 'edit_file', label: '编辑文件' },
   { name: 'write_file', label: '写入文件' },
@@ -46,7 +60,10 @@ export function listedTools(levels: ToolApprovalLevels): string[] {
   );
   const extra = Object.keys(levels)
     .filter(
-      (n) => !APPROVABLE_TOOLS.some((t) => t.name === n) && isListed(levels, n),
+      (n) =>
+        !APPROVABLE_TOOLS.some((t) => t.name === n) &&
+        !isCommandTool(n) &&
+        isListed(levels, n),
     )
     .sort();
   return [...known, ...extra];

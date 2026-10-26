@@ -7,10 +7,11 @@ import { setNotificationVolume } from '@/lib/notificationSound';
 import { emptyRegistry, emptySlots, defaultNetPolicy, dedupeModelEntries } from '@/lib/llmRegistry';
 import { normalizeUpdateMode } from '@/lib/updateMode';
 import { normalizeUiTheme } from '@/lib/uiTheme';
+import { defaultCustomRiskRules } from '@/lib/riskRules';
 
 const DEFAULT_AGENT_MODE_SETTINGS: AgentModeSettings = {
   listMode: 'denylist',
-  commandList: ['rm', 'mkfs', 'dd', 'shutdown', 'reboot'],
+  allowCommands: [],
   confirmEachCommand: true,
   planModeRequiresApproval: false,
   enableModelCommandApproval: false,
@@ -141,7 +142,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   uiTheme: normalizeUiTheme(undefined),
   customProtectedPaths: [],
   riskRuleOverrides: {},
-  customRiskRules: [],
+  customRiskRules: defaultCustomRiskRules(),
   commandTimeoutSecs: 180,
   hasCompletedOnboarding: false,
   disabledPlugins: [],

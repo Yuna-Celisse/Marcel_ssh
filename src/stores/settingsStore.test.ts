@@ -49,7 +49,7 @@ describe('settingsStore', () => {
   it('default agent mode settings are correct', () => {
     const am = useSettingsStore.getState().settings.agentModeSettings;
     expect(am.listMode).toBe('denylist');
-    expect(am.commandList).toContain('rm');
+    expect(am.allowCommands).toEqual([]);
     expect(am.confirmEachCommand).toBe(true);
     expect(am.planModeRequiresApproval).toBe(false);
     expect(am.enableModelCommandApproval).toBe(false);
@@ -293,7 +293,7 @@ describe('settingsStore', () => {
   it('旧配置缺审批引擎字段时落回 model，其余字段原样保留', () => {
     const legacyAgent = {
       listMode: 'denylist',
-      commandList: ['rm'],
+      allowCommands: ['ls'],
       confirmEachCommand: true,
       enableModelCommandApproval: true,
       modelApprovalPrompt: '老提示词',
@@ -325,7 +325,7 @@ describe('settingsStore', () => {
     // 旧字段一个都没被新字段挤掉。
     expect(am.enableModelCommandApproval).toBe(true);
     expect(am.modelApprovalPrompt).toBe('老提示词');
-    expect(am.commandList).toEqual(['rm']);
+    expect(am.allowCommands).toEqual(['ls']);
   });
 
   it('自定义根地址在 hydrate 后保留（不能被默认值覆盖回空）', () => {

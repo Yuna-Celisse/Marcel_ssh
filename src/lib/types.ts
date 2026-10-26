@@ -649,11 +649,13 @@ export type CommandListMode = 'allowlist' | 'denylist';
 export type CommandApprovalEngine = 'model' | 'jev';
 
 export interface AgentModeSettings {
+  /** 「按规则」（denylist）/ 白名单（allowlist）二选一；「每条都确认」是下面的 confirmEachCommand。 */
   listMode: CommandListMode;
-  commandList: string[];
+  /** 白名单模式下「不问」的命令（基础命令名）；按规则模式不读它。 */
+  allowCommands: string[];
   confirmEachCommand: boolean;
   /**
-   * Plan 模式也走命令名单与「每条都手动确认」的人审（旧行为）。
+   * Plan 模式也走命令确认方式（每条都确认 / 白名单）与规则的人审（旧行为）。
    *
    * 默认 false：Plan 的命令审批语义与 AUTO 一致 —— 不弹人工审批，只有
    * `ForceApproval`（系统级命令 / 受保护路径 / sudo…）与 `Deny` 两档照旧拦。
@@ -1443,7 +1445,7 @@ export interface CommandCheckResult {
   requiresConfirmation: boolean;
   disposition: Disposition;
   reason: string;
-  /** 决定档位的那条规则；档位来自命令名单、或没有规则命中时为 null。 */
+  /** 决定档位的那条规则；档位来自白名单、或没有规则命中时为 null。 */
   ruleId: string | null;
   /** 命中的全部风险规则。 */
   hits: CommandRuleHit[];
@@ -1456,6 +1458,8 @@ export interface RiskRuleOverride {
   level?: Disposition;
   /** 名单参数：key → 完整条目表（整体替换默认，不是增量）。 */
   lists?: Record<string, string[]>;
+  /** 档位是「直接拒绝」时回给 Agent 的话（替换规则自带的说明）；留空 = 默认。 */
+  message?: string;
 }
 
 /** 用户自定义的风险规则：命令名（可再限定参数关键字）→ 档位。 */
@@ -1468,6 +1472,8 @@ export interface CustomRiskRule {
   argContains: string;
   level: Disposition;
   enabled: boolean;
+  /** 档位是「直接拒绝」时回给 Agent 的话；留空 = 默认的「命中自定义规则…」。 */
+  message: string;
 }
 
 export type RiskRuleKind = 'rule' | 'exemption';

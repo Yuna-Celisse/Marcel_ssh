@@ -7,7 +7,7 @@ import {
 import { PROTECTED_PATHS_RULE, modifiedRuleCount } from '@/lib/riskRules';
 import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
 import { useCommandCheck } from '@/hooks/useCommandCheck';
-import { flashCustomRule } from '@/lib/riskRuleNav';
+import { flashCustomRule, scrollToCustomRules } from '@/lib/riskRuleNav';
 import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
 import { CommandCheckResultCard } from './CommandCheckResultCard';
 import { CustomRiskRulesEditor } from './CustomRiskRulesEditor';
@@ -43,10 +43,14 @@ export function needsUrlScheme(raw: string | undefined): boolean {
   return !/^https?:\/\//i.test(v);
 }
 
-/** 命令确认方式：「每条都确认」是 `confirmEachCommand`，黑 / 白名单是 `listMode`（见 `commandConfirmMode`）。 */
+/**
+ * 命令确认方式：「每条都确认」是 `confirmEachCommand`，「按规则」/ 白名单是 `listMode`
+ * （`denylist` / `allowlist`）。「按规则」下没有单独的名单：要问哪些命令全由下面的自定义规则
+ * 与内置规则决定；只有白名单有一份「不问」的命令名单。
+ */
 const CONFIRM_MODE_OPTIONS = [
-  { value: 'each', label: '每条都确认', title: '每条命令都问你，名单不起作用' },
-  { value: 'denylist', label: '黑名单', title: '只问名单里的命令' },
+  { value: 'each', label: '每条都确认', title: '每条命令都问你' },
+  { value: 'denylist', label: '按规则', title: '只问命中下面规则的命令' },
   { value: 'allowlist', label: '白名单', title: '名单里的命令不问，其余都问' },
 ] as const;
 
@@ -106,14 +110,16 @@ export function AgentPolicySection() {
   const handleAddCommand = () => {
     const v = newCommand.trim();
     if (!v) return;
-    if (!agent.commandList.includes(v)) {
-      updateAgent({ commandList: [...agent.commandList, v] });
+    if (!agent.allowCommands.includes(v)) {
+      updateAgent({ allowCommands: [...agent.allowCommands, v] });
     }
     setNewCommand('');
   };
 
   const handleRemoveCommand = (cmd: string) => {
-    updateAgent({ commandList: agent.commandList.filter((c) => c !== cmd) });
+    updateAgent({
+      allowCommands: agent.allowCommands.filter((c) => c !== cmd),
+    });
   };
 
   const confirmMode = agent.confirmEachCommand ? 'each' : agent.listMode;
@@ -175,8 +181,8 @@ export function AgentPolicySection() {
       >
         <SettingItem
           id="cmd-list-mode"
-          label="列表模式"
-          description="每条都问，或只问名单里的"
+          label="命令确认方式"
+          description="哪些命令要先问你"
           sectionId="settings-command-policy"
           keywords={[
             'confirm',
@@ -185,6 +191,7 @@ export function AgentPolicySection() {
             'mode',
             '黑名单',
             '白名单',
+            '按规则',
             '每条都手动确认',
             '命令执行策略',
             'Agent',
@@ -203,11 +210,11 @@ export function AgentPolicySection() {
             options={CONFIRM_MODE_OPTIONS}
           />
         </SettingItem>
-        {!agent.confirmEachCommand && (
+        {!agent.confirmEachCommand && agent.listMode === 'allowlist' && (
           <SettingItem
             id="cmd-list"
-            label={agent.listMode === 'allowlist' ? '允许的命令' : '禁止的命令'}
-            description="按基础命令名匹配（不含路径或参数）"
+            label="允许的命令"
+            description="这些命令不再问你，其余都问；按基础命令名匹配"
             sectionId="settings-command-policy"
             keywords={['command', 'list', '命令列表', '命令执行策略', 'Agent']}
           >
@@ -228,18 +235,18 @@ export function AgentPolicySection() {
                 />
                 <Button
                   variant="secondary"
-                  size="sm"
+                  size="md"
                   onClick={handleAddCommand}
                   disabled={!newCommand.trim()}
                 >
                   添加
                 </Button>
               </div>
-              {agent.commandList.length === 0 ? (
+              {agent.allowCommands.length === 0 ? (
                 <p className="text-xs text-zinc-500 italic px-1">列表为空</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
-                  {agent.commandList.map((cmd) => (
+                  {agent.allowCommands.map((cmd) => (
                     <span
                       key={cmd}
                       className="group inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-zinc-800 border border-edge text-xs font-mono text-zinc-200"
@@ -259,6 +266,20 @@ export function AgentPolicySection() {
             </div>
           </SettingItem>
         )}
+        <SettingItem
+          id="cmd-custom-rules"
+          label="自定义规则"
+          description="命令命中就按所选档位处理，多条命中取最严"
+          sectionId="settings-command-policy"
+          keywords={['custom', 'rule', '自定义', '规则', '命令执行策略', 'Agent']}
+        >
+          <div className="flex-1 min-w-0">
+            <CustomRiskRulesEditor
+              rules={customRules}
+              onChange={(next) => update({ customRiskRules: next })}
+            />
+          </div>
+        </SettingItem>
         <SettingItem
           id="cmd-plan-mode-approval"
           label="Plan 模式也需要审批"
@@ -314,7 +335,7 @@ export function AgentPolicySection() {
         <SettingItem
           id="cmd-tool-approval"
           label="需要审批的工具"
-          description="这些工具执行前按所选档位处理"
+          description="这些工具执行前按所选档位处理；命令由规则决定"
           sectionId="settings-command-policy"
           keywords={[
             'edit',
@@ -335,20 +356,7 @@ export function AgentPolicySection() {
             <ToolApprovalEditor
               levels={agent.toolApprovalLevels ?? {}}
               onChange={(next) => updateAgent({ toolApprovalLevels: next })}
-            />
-          </div>
-        </SettingItem>
-        <SettingItem
-          id="cmd-custom-rules"
-          label="自定义规则"
-          description="按命令名自己定档位"
-          sectionId="settings-command-policy"
-          keywords={['custom', 'rule', '自定义', '规则', '命令执行策略', 'Agent']}
-        >
-          <div className="flex-1 min-w-0">
-            <CustomRiskRulesEditor
-              rules={customRules}
-              onChange={(next) => update({ customRiskRules: next })}
+              onOpenCommandRules={scrollToCustomRules}
             />
           </div>
         </SettingItem>

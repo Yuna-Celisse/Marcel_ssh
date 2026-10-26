@@ -18,11 +18,13 @@ import {
   setExemptionOn,
   setRuleLevel,
   setRuleList,
+  setRuleMessage,
   type RiskRuleOverrides,
 } from '@/lib/riskRules';
 import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
 import Toggle from '@/components/ui/Toggle';
 import { LevelSelect } from './RiskLevelSelect';
+import { DenyMessageField } from './DenyMessageField';
 
 /** 只给 Windows 规则打标：其余规则按 POSIX 写法判定，是默认，逐条标出来只是噪音。 */
 const SCOPE_LABEL: Record<string, string> = {
@@ -299,6 +301,14 @@ function RuleRow({
                 compact={compact}
               />
             ),
+          )}
+          {!isExemption && level === 'Deny' && (
+            <DenyMessageField
+              value={override?.message ?? ''}
+              onChange={(m) => emit((o) => setRuleMessage(o, rule, m))}
+              ariaLabel={`${rule.title}：拒绝说明`}
+              compact={compact}
+            />
           )}
         </div>
       )}

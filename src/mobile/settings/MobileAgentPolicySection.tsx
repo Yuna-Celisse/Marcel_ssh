@@ -12,7 +12,7 @@ import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
 import { CommandCheckResultCard } from '@/components/settings/CommandCheckResultCard';
 import { CustomRiskRulesEditor } from '@/components/settings/CustomRiskRulesEditor';
 import { ProtectedPathsEditor } from '@/components/settings/ProtectedPathsEditor';
-import { flashCustomRule } from '@/lib/riskRuleNav';
+import { flashCustomRule, scrollToCustomRules } from '@/lib/riskRuleNav';
 import { ToolApprovalEditor } from '@/components/settings/ToolApprovalEditor';
 import Toggle from '@/components/ui/Toggle';
 import SegmentedControl from '@/components/ui/SegmentedControl';
@@ -73,8 +73,8 @@ export function MobileAgentPolicySection() {
   const handleAddCommand = () => {
     const v = newCommand.trim();
     if (!v) return;
-    if (!agent.commandList.includes(v)) {
-      updateAgent({ commandList: [...agent.commandList, v] });
+    if (!agent.allowCommands.includes(v)) {
+      updateAgent({ allowCommands: [...agent.allowCommands, v] });
     }
     setNewCommand('');
   };
@@ -119,10 +119,10 @@ export function MobileAgentPolicySection() {
         />
       </MobileSettingRow>
 
-      {/* 列表模式：「每条都确认」并在这里，选了就不再有名单 */}
+      {/* 命令确认方式：「每条都确认」并在这里；只有白名单有一份「不问」的命令名单 */}
       <MobileSettingRow
-        label="列表模式"
-        description="每条都问，或只问名单里的"
+        label="命令确认方式"
+        description="哪些命令要先问你"
       >
         <div className="mt-2 space-y-2">
           <SegmentedControl
@@ -137,15 +137,14 @@ export function MobileAgentPolicySection() {
             }
             options={[
               { value: 'each', label: '每条都确认' },
-              { value: 'denylist', label: '黑名单' },
+              { value: 'denylist', label: '按规则' },
               { value: 'allowlist', label: '白名单' },
             ]}
           />
-          {!agent.confirmEachCommand && (
+          {!agent.confirmEachCommand && agent.listMode === 'allowlist' && (
             <>
               <p className="text-xs text-zinc-500">
-                {agent.listMode === 'allowlist' ? '允许的命令' : '禁止的命令'}
-                ，按基础命令名匹配（不含路径或参数）
+                允许的命令：这些命令不再问你，其余都问；按基础命令名匹配（不含路径或参数）
               </p>
               <div className="flex gap-2">
                 <input
@@ -173,11 +172,11 @@ export function MobileAgentPolicySection() {
                   添加
                 </button>
               </div>
-              {agent.commandList.length === 0 ? (
+              {agent.allowCommands.length === 0 ? (
                 <p className="px-1 text-xs italic text-zinc-500">列表为空</p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
-                  {agent.commandList.map((cmd) => (
+                  {agent.allowCommands.map((cmd) => (
                     <span
                       key={cmd}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-zinc-800 px-2.5 py-1.5 font-mono text-xs text-zinc-200"
@@ -187,7 +186,7 @@ export function MobileAgentPolicySection() {
                         type="button"
                         onClick={() =>
                           updateAgent({
-                            commandList: agent.commandList.filter((c) => c !== cmd),
+                            allowCommands: agent.allowCommands.filter((c) => c !== cmd),
                           })
                         }
                         className="-mr-0.5 px-0.5 text-zinc-500 active:text-red-400"
@@ -203,9 +202,20 @@ export function MobileAgentPolicySection() {
           )}
         </div>
       </MobileSettingRow>
+      {/* 自定义规则 */}
+      <MobileSettingRow label="自定义规则" description="命令命中就按所选档位处理，多条命中取最严">
+        <div className="mt-2">
+          <CustomRiskRulesEditor
+            rules={customRules}
+            onChange={(next) => update({ customRiskRules: next })}
+            compact
+          />
+        </div>
+      </MobileSettingRow>
+
       <MobileSettingRow
         label="Plan 模式也需要审批"
-        description="默认关闭，与 AUTO 一致；开启后走命令名单与逐条确认"
+        description="默认关闭，与 AUTO 一致；开启后按命令确认方式与规则审批"
         trailing={
           <Toggle
             checked={agent.planModeRequiresApproval ?? false}
@@ -420,23 +430,13 @@ export function MobileAgentPolicySection() {
       {/* 需要审批的工具 */}
       <MobileSettingRow
         label="需要审批的工具"
-        description="这些工具执行前按所选档位处理"
+        description="这些工具执行前按所选档位处理；命令由规则决定"
       >
         <div className="mt-2">
           <ToolApprovalEditor
             levels={agent.toolApprovalLevels ?? {}}
             onChange={(next) => updateAgent({ toolApprovalLevels: next })}
-            compact
-          />
-        </div>
-      </MobileSettingRow>
-
-      {/* 自定义规则 */}
-      <MobileSettingRow label="自定义规则" description="按命令名自己定档位">
-        <div className="mt-2">
-          <CustomRiskRulesEditor
-            rules={customRules}
-            onChange={(next) => update({ customRiskRules: next })}
+            onOpenCommandRules={scrollToCustomRules}
             compact
           />
         </div>

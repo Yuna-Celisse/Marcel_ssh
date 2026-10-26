@@ -128,6 +128,10 @@ async function choose(label: string, optionText: string) {
   });
 }
 
+function ruleRow(id: string): HTMLElement {
+  return host!.querySelector<HTMLElement>(`#risk-rule-${id}`)!;
+}
+
 function buttonByText(text: string): HTMLButtonElement {
   const el = Array.from(host!.querySelectorAll('button')).find((b) =>
     b.textContent?.includes(text),
@@ -293,5 +297,38 @@ describe('RiskRulesEditor', () => {
     const text = host!.textContent ?? '';
     expect(text).toContain('按名字批量杀进程');
     expect(text).not.toContain('放过只读命令读受保护路径');
+  });
+});
+
+describe('refusal message on built-in rules', () => {
+  const messageBox = () =>
+    host!.querySelector<HTMLTextAreaElement>('textarea[aria-label$="拒绝说明"]');
+  const expand = async (id: string) =>
+    act(async () => {
+      ruleRow(id).querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
+    });
+
+  it('shows the box for a rule at 直接拒绝, and writes it as a difference', async () => {
+    await mount();
+    await expand('name_based_kill');
+    const area = messageBox()!;
+    expect(area).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!;
+      setter.call(area, '请指定进程号再杀');
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(last()).toEqual({ name_based_kill: { message: '请指定进程号再杀' } });
+  });
+
+  it('has no box for a rule below 直接拒绝, nor for an exemption', async () => {
+    await mount();
+    await expand('protected_paths');
+    expect(messageBox()).toBeNull();
+    await expand('read_only_exempt');
+    expect(messageBox()).toBeNull();
   });
 });

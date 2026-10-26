@@ -32,11 +32,39 @@ export function openRiskRule(ruleId: string): void {
 /** 自定义规则行的 DOM id（命令测试里点命中的自定义规则时，据此滚过去）。 */
 export const customRuleDomId = (id: string) => `risk-rule-${id}`;
 
-/** 滚到「命令执行策略」主页面里的某条自定义规则并短暂高亮。内置规则不走这里（它们在二级页）。 */
-export function flashCustomRule(id: string): void {
-  const el = document.getElementById(customRuleDomId(id));
+/** 自定义规则整块的 DOM id（「需要审批的工具」里 bash 那行点「按命令规则」时据此滚过去）。 */
+export const CUSTOM_RULES_DOM_ID = 'custom-risk-rules';
+
+export function scrollAndFlash(el: HTMLElement | null): void {
   if (!el) return;
   el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   el.classList.add('bg-indigo-500/10');
   window.setTimeout(() => el.classList.remove('bg-indigo-500/10'), 1800);
+}
+
+/**
+ * 要求自定义规则编辑器露出某条规则（或整块）。编辑器默认是收起的，目标行此时还不在 DOM 里，
+ * 所以不能直接 `getElementById` 去滚：改发事件，由编辑器自己展开、渲染完再滚过去高亮。
+ * `id` 为 null 表示只定位到整块。
+ */
+export const CUSTOM_RULE_REVEAL_EVENT = 'marcel:reveal-custom-rule';
+export interface CustomRuleRevealDetail {
+  id: string | null;
+}
+function revealCustomRule(id: string | null): void {
+  window.dispatchEvent(
+    new CustomEvent<CustomRuleRevealDetail>(CUSTOM_RULE_REVEAL_EVENT, {
+      detail: { id },
+    }),
+  );
+}
+
+/** 展开「命令执行策略」主页面里的某条自定义规则、滚过去并短暂高亮。内置规则不走这里（它们在二级页）。 */
+export function flashCustomRule(id: string): void {
+  revealCustomRule(id);
+}
+
+/** 展开自定义规则那一块、滚过去并短暂高亮。 */
+export function scrollToCustomRules(): void {
+  revealCustomRule(null);
 }

@@ -8,6 +8,8 @@ import {
   removeTool,
   setToolLevel,
   toolLabel,
+  COMMAND_TOOL,
+  isCommandTool,
 } from './toolApproval';
 
 describe('toolApproval', () => {
@@ -21,6 +23,17 @@ describe('toolApproval', () => {
         zz_plugin: 'Approval',
       }),
     ).toEqual(['edit_file', 'write_file', 'zz_plugin']);
+  });
+
+  it('bash is never an entry of the table: it is shown separately and read-only', () => {
+    expect(isCommandTool(COMMAND_TOOL.name)).toBe(true);
+    expect(isCommandTool('local_bash')).toBe(true);
+    expect(isCommandTool('edit_file')).toBe(false);
+    // 手改配置文件写进去的 bash 不会混进可调的列表（后端对命令类工具也不读这张表）。
+    expect(listedTools({ bash: 'Approval', edit_file: 'Approval' })).toEqual([
+      'edit_file',
+    ]);
+    expect(addableTools({}).map((t) => t.name)).not.toContain('bash');
   });
 
   it('an `Allow` entry is the same as not listed (matches the backend)', () => {

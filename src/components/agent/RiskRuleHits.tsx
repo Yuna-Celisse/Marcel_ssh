@@ -1,12 +1,13 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
+import { customRuleLabel } from '@/lib/riskRules';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * 审批弹窗里的「命中的风险规则」：告诉用户是哪几条规则要他点头，并给出调整入口。
  *
  * 规则名取自后端规则目录（内置）或设置里的自定义规则，不在前端抄一份。
- * 没有命中任何规则（档位来自命令名单、模型审批、插件声明……）就不渲染 ——
+ * 没有命中任何规则（档位来自白名单、模型审批、插件声明……）就不渲染 ——
  * 此时没有"规则"可调，别造一个空块。桌面审批弹窗与手机审批底部面板共用。
  */
 export function RiskRuleHits({
@@ -25,7 +26,7 @@ export function RiskRuleHits({
 
   const titleOf = (id: string): string =>
     catalog?.rules.find((r) => r.id === id)?.title ??
-    custom?.find((c) => c.id === id)?.name?.trim() ??
+    custom?.filter((c) => c.id === id).map(customRuleLabel)[0] ??
     id;
 
   return (

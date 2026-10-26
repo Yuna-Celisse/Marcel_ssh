@@ -37,7 +37,7 @@ export function LevelSelect({
         aria-label={ariaLabel}
         value={value}
         onChange={(e) => onChange(e.target.value as Disposition)}
-        className={`flex-shrink-0 rounded-lg border bg-zinc-800 px-2.5 py-2 text-sm text-zinc-100 outline-none focus:border-indigo-500 ${RULE_LEVEL_TONE[value]}`}
+        className={`min-h-11 flex-shrink-0 rounded-lg border bg-zinc-800 px-3 text-sm text-zinc-100 outline-none focus:border-indigo-500 ${RULE_LEVEL_TONE[value]}`}
       >
         {options.map((l) => (
           <option key={l} value={l} className="bg-zinc-800 text-zinc-100">

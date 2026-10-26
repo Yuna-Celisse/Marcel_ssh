@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CustomRiskRule, RiskRuleCatalog, RiskRuleInfo } from './types';
 import {
+  customRuleLabel,
+  defaultCustomRiskRules,
   effectiveLevel,
   effectiveList,
   effectiveListByKey,
@@ -16,6 +18,7 @@ import {
   setExemptionOn,
   setRuleLevel,
   setRuleList,
+  setRuleMessage,
   validateCustomRule,
 } from './riskRules';
 
@@ -191,5 +194,54 @@ describe('命令测试的结论', () => {
       { mode: 'auto', result: r(false, false) },
     ]);
     expect(same).toEqual([{ outcome: 'deny', modes: ['Agent', 'Plan', 'Auto'], all: true }]);
+  });
+});
+
+describe('custom rule naming and defaults', () => {
+  it('shows the command plus argument when no name is set (matches the backend)', () => {
+    const rule = { ...emptyCustomRule(), command: 'docker' };
+    expect(customRuleLabel(rule)).toBe('docker');
+    expect(customRuleLabel({ ...rule, argContains: 'prune' })).toBe(
+      'docker prune',
+    );
+    expect(customRuleLabel({ ...rule, name: '清理镜像' })).toBe('清理镜像');
+  });
+
+  it('ships the five old denylist commands as ordinary rules at 请求审批', () => {
+    const rules = defaultCustomRiskRules();
+    expect(rules.map((r) => r.command)).toEqual([
+      'rm',
+      'mkfs',
+      'dd',
+      'shutdown',
+      'reboot',
+    ]);
+    expect(rules.every((r) => r.level === 'Approval' && r.enabled)).toBe(true);
+    expect(rules.map((r) => r.id)).toEqual([
+      'default-rm',
+      'default-mkfs',
+      'default-dd',
+      'default-shutdown',
+      'default-reboot',
+    ]);
+  });
+});
+
+describe('setRuleMessage', () => {
+  it('stores the text as a difference, and a blank text removes it again', () => {
+    const written = setRuleMessage({}, kill, '改用 systemctl 重启指定服务');
+    expect(written).toEqual({
+      name_based_kill: { message: '改用 systemctl 重启指定服务' },
+    });
+    expect(setRuleMessage(written, kill, '   ')).toEqual({});
+  });
+
+  it('keeps what is typed as typed (no trimming while the user is still typing)', () => {
+    expect(setRuleMessage({}, kill, 'a ').name_based_kill?.message).toBe('a ');
+  });
+
+  it('counts as a modification, so the row shows 已改 and 恢复默认', () => {
+    expect(isRuleModified({ message: '别用' })).toBe(true);
+    expect(isRuleModified({ message: '  ' })).toBe(false);
   });
 });

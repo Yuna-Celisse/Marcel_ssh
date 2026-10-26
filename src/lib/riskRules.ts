@@ -76,12 +76,18 @@ export function isLoosened(
   return LEVEL_RANK[level] < LEVEL_RANK[defaultLevel];
 }
 
+/** 说明只含空白等于没写（与后端一致：trim 后为空就用默认说明）。 */
+function isBlank(s: string | undefined): boolean {
+  return !s || s.trim() === '';
+}
+
 /** 一条覆盖项是否真的改了东西（空对象等同于没改）。 */
 export function isOverrideEmpty(o: RiskRuleOverride | undefined): boolean {
   if (!o) return true;
   return (
     o.enabled === undefined &&
     o.level === undefined &&
+    isBlank(o.message) &&
     (!o.lists || Object.keys(o.lists).length === 0)
   );
 }
@@ -164,6 +170,8 @@ function tidy(
   const next: RiskRuleOverride = { ...o };
   if (next.level === rule.defaultLevel) delete next.level;
   if (next.enabled === true) delete next.enabled;
+  // 不 trim 存进去的文本：用户正在输入时末尾的空格不能被吃掉；只有纯空白才算「没写」。
+  if (isBlank(next.message)) delete next.message;
   if (next.lists) {
     const lists: Record<string, string[]> = {};
     for (const [key, items] of Object.entries(next.lists)) {
@@ -223,6 +231,16 @@ export function setRuleList(
   return put(overrides, rule, { ...cur, lists });
 }
 
+/** 写（或清空）一条内置规则的「拒绝说明」；只在档位是直接拒绝时生效，后端据此判断。 */
+export function setRuleMessage(
+  overrides: RiskRuleOverrides,
+  rule: RiskRuleInfo,
+  message: string,
+): RiskRuleOverrides {
+  const cur = overrides[rule.id] ?? {};
+  return put(overrides, rule, { ...cur, message });
+}
+
 export function resetRule(
   overrides: RiskRuleOverrides,
   ruleId: string,
@@ -240,6 +258,30 @@ export function newCustomRuleId(): string {
   return `custom-${rand}`;
 }
 
+/** 自定义规则给人看的名字：写了名称用名称，否则「命令 参数」（与后端 `display_name` 同口径）。 */
+export function customRuleLabel(rule: CustomRiskRule): string {
+  const name = (rule.name ?? '').trim();
+  if (name) return name;
+  const arg = rule.argContains.trim();
+  return arg ? `${rule.command.trim()} ${arg}` : rule.command.trim();
+}
+
+/**
+ * 出厂自带的自定义规则：原「禁止的命令」名单里的五个，现在是普通规则，看得到、删得掉。
+ * 与后端 `default_custom_risk_rules` 一致（id 也一致，规则命中时靠 id 对应）。
+ */
+export function defaultCustomRiskRules(): CustomRiskRule[] {
+  return ['rm', 'mkfs', 'dd', 'shutdown', 'reboot'].map((command) => ({
+    id: `default-${command}`,
+    name: '',
+    command,
+    argContains: '',
+    level: 'Approval',
+    enabled: true,
+    message: '',
+  }));
+}
+
 export function emptyCustomRule(): CustomRiskRule {
   return {
     id: newCustomRuleId(),
@@ -248,6 +290,7 @@ export function emptyCustomRule(): CustomRiskRule {
     argContains: '',
     level: 'ForceApproval',
     enabled: true,
+    message: '',
   };
 }
 

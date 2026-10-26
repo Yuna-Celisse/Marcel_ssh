@@ -6,6 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { CustomRiskRule, RiskRuleInfo } from '@/lib/types';
 import type { RiskRuleOverrides } from '@/lib/riskRules';
 import type { ToolApprovalLevels } from '@/lib/toolApproval';
+import { flashCustomRule } from '@/lib/riskRuleNav';
 import { CustomRiskRulesEditor } from './CustomRiskRulesEditor';
 import {
   ProtectedPathsEditor,
@@ -78,6 +79,27 @@ describe('ToolApprovalEditor', () => {
     );
   }
   const read = () => JSON.parse(host!.querySelector('output')!.textContent!);
+
+  it('always shows bash first as a read-only row pointing at the command rules', async () => {
+    const open = vi.fn();
+    await render(
+      <ToolApprovalEditor
+        levels={{ edit_file: 'Approval' }}
+        onChange={() => {}}
+        onOpenCommandRules={open}
+      />,
+    );
+    const text = host!.textContent!;
+    expect(text.indexOf('执行命令')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('执行命令')).toBeLessThan(text.indexOf('编辑文件'));
+    // 只读：没有给 bash 的档位下拉，也没有移除按钮。
+    expect(host!.querySelector('[aria-label^="执行命令：审批档位"]')).toBeNull();
+    expect(host!.querySelector('[aria-label="执行命令不再审批"]')).toBeNull();
+    await act(async () => {
+      buttonByText('按命令规则').click();
+    });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
 
   it('shows the named tools with their level, and nothing else', async () => {
     await render(
@@ -290,6 +312,62 @@ describe('CustomRiskRulesEditor', () => {
     expect(read()).toEqual([]);
   });
 
+  it('shows an example when there are no rules yet', async () => {
+    await render(<Harness />);
+    expect(host!.textContent).toContain('还没有规则');
+    expect(host!.textContent).toContain('docker');
+  });
+
+  describe('refusal message', () => {
+    function WithRule({ level }: { level: CustomRiskRule['level'] }) {
+      const [rules, setRules] = useState<CustomRiskRule[]>([
+        {
+          id: 'r1',
+          name: '',
+          command: 'docker',
+          argContains: 'prune',
+          level,
+          enabled: true,
+          message: '',
+        },
+      ]);
+      return (
+        <>
+          <CustomRiskRulesEditor rules={rules} onChange={setRules} />
+          <output>{JSON.stringify(rules)}</output>
+        </>
+      );
+    }
+    const openRule = async () =>
+      act(async () => {
+        host!.querySelector<HTMLButtonElement>('#risk-rule-r1')!.click();
+      });
+    const box = () =>
+      host!.querySelector<HTMLTextAreaElement>('textarea[aria-label$="拒绝说明"]');
+
+    it('has no message box at a level that asks instead of refusing', async () => {
+      await render(<WithRule level="ForceApproval" />);
+      await openRule();
+      expect(box()).toBeNull();
+    });
+
+    it('shows the message box at 直接拒绝 and saves what is typed', async () => {
+      await render(<WithRule level="Deny" />);
+      await openRule();
+      expect(box()).not.toBeNull();
+      const area = box()!;
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          'value',
+        )!.set!;
+        setter.call(area, '生产库禁止清理');
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(read()[0].message).toBe('生产库禁止清理');
+    });
+  });
+
   it('warns that a command with spaces will not take effect', async () => {
     await render(<Harness />);
     await act(async () => {
@@ -302,5 +380,72 @@ describe('CustomRiskRulesEditor', () => {
       'docker system',
     );
     expect(host!.textContent).toContain('这条规则不生效');
+  });
+});
+
+describe('CustomRiskRulesEditor chips', () => {
+  const rule = (id: string, command: string, extra: Partial<CustomRiskRule> = {}) =>
+    ({
+      id,
+      name: '',
+      command,
+      argContains: '',
+      level: 'Approval',
+      enabled: true,
+      ...extra,
+    }) as CustomRiskRule;
+
+  function Harness({ initial }: { initial: CustomRiskRule[] }) {
+    const [rules, setRules] = useState(initial);
+    return (
+      <>
+        <CustomRiskRulesEditor rules={rules} onChange={setRules} />
+        <output>{JSON.stringify(rules)}</output>
+      </>
+    );
+  }
+  const five = ['rm', 'mkfs', 'dd', 'shutdown', 'reboot'].map((c) => rule(`d-${c}`, c));
+  const chip = (id: string) =>
+    host!.querySelector<HTMLButtonElement>(`#risk-rule-${id}`)!;
+  const cmdInput = () =>
+    host!.querySelector<HTMLInputElement>('input[aria-label="自定义规则：命令名"]');
+
+  it('shows every rule as one chip and no inputs until one is opened', async () => {
+    await render(<Harness initial={five} />);
+    for (const c of ['rm', 'mkfs', 'dd', 'shutdown', 'reboot']) {
+      expect(chip(`d-${c}`).textContent).toBe(c);
+    }
+    expect(host!.querySelector('input')).toBeNull();
+  });
+
+  it('opens one rule at a time and closes it when the same chip is clicked again', async () => {
+    await render(<Harness initial={five} />);
+    await act(async () => {
+      chip('d-mkfs').click();
+    });
+    expect(cmdInput()!.value).toBe('mkfs');
+    await act(async () => {
+      chip('d-dd').click();
+    });
+    expect(host!.querySelectorAll('input[aria-label="自定义规则：命令名"]')).toHaveLength(1);
+    expect(cmdInput()!.value).toBe('dd');
+    await act(async () => {
+      chip('d-dd').click();
+    });
+    expect(cmdInput()).toBeNull();
+  });
+
+  it('marks a disabled rule on its chip', async () => {
+    await render(<Harness initial={[rule('a', 'rm'), rule('b', 'dd', { enabled: false })]} />);
+    expect(chip('b').title).toContain('已关闭');
+    expect(chip('a').title).toContain('请求审批');
+  });
+
+  it('a reveal request opens the named rule', async () => {
+    await render(<Harness initial={five} />);
+    await act(async () => {
+      flashCustomRule('d-shutdown');
+    });
+    expect(cmdInput()!.value).toBe('shutdown');
   });
 });
