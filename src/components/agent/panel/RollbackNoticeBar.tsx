@@ -1,3 +1,5 @@
+import { AgentContentBand } from './AgentContentBand';
+
 type RollbackNoticeBarProps = {
   notice: string;
   onDismiss: () => void;
@@ -9,9 +11,9 @@ type RollbackNoticeBarProps = {
 export function RollbackNoticeBar({ notice, onDismiss, variant = 'rollback' }: RollbackNoticeBarProps) {
   const isError = variant === 'error';
   return (
-    <div className="flex-shrink-0 border-t border-edge-subtle bg-zinc-900/90 backdrop-blur animate-fadeIn">
+    <AgentContentBand className="flex-shrink-0 border-t border-edge-subtle bg-zinc-900/90 backdrop-blur animate-fadeIn">
       <div
-        className={`flex items-center justify-between gap-2 px-3 py-2 text-xs ${
+        className={`flex items-center justify-between gap-2 py-2 text-xs ${
           isError ? 'text-red-200' : 'text-amber-200'
         }`}
       >
@@ -56,6 +58,6 @@ export function RollbackNoticeBar({ notice, onDismiss, variant = 'rollback' }: R
           </svg>
         </button>
       </div>
-    </div>
+    </AgentContentBand>
   );
 }

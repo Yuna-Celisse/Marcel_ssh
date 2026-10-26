@@ -1,3 +1,5 @@
+import { AgentContentBand } from "./AgentContentBand";
+
 type SubconversationBarProps = {
   subAgentMode: "plan" | "agent";
   isLocal: boolean;
@@ -13,7 +15,7 @@ export function SubconversationBar({
   onBack,
 }: SubconversationBarProps) {
   return (
-    <div className="p-3 border-t border-edge-subtle">
+    <AgentContentBand className="py-3 border-t border-edge-subtle">
       <div className="flex items-center gap-3 rounded-lg border border-edge/60 bg-zinc-800/40 px-3 py-2.5">
         <button
           type="button"
@@ -56,6 +58,6 @@ export function SubconversationBar({
           </div>
         </div>
       </div>
-    </div>
+    </AgentContentBand>
   );
 }

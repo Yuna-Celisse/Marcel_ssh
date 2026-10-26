@@ -1,3 +1,5 @@
+import { AgentContentBand } from './AgentContentBand';
+
 type ForkOriginBarProps = {
   /** 来源会话的标题。 */
   originTitle: string;
@@ -15,12 +17,12 @@ type ForkOriginBarProps = {
  */
 export function ForkOriginBar({ originTitle, onBack, mobile = false }: ForkOriginBarProps) {
   return (
-    <div
+    <AgentContentBand
       data-testid="fork-origin-bar"
       className="flex-shrink-0 border-b border-edge-subtle bg-zinc-900/90 backdrop-blur"
     >
       <div
-        className={`flex items-center gap-2 px-3 text-xs ${mobile ? 'min-h-11' : 'py-1.5'}`}
+        className={`flex items-center gap-2 text-xs ${mobile ? 'min-h-11' : 'py-1.5'}`}
       >
         <svg
           className="h-3.5 w-3.5 flex-shrink-0 text-indigo-400"
@@ -53,6 +55,6 @@ export function ForkOriginBar({ originTitle, onBack, mobile = false }: ForkOrigi
           返回原会话
         </button>
       </div>
-    </div>
+    </AgentContentBand>
   );
 }

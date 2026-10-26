@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTaskStore } from '@/stores/taskStore';
 import { useConversationStore } from '@/stores/conversationStore';
 import type { PlanItem, PlanItemStatus } from '@/lib/types';
+import { AgentContentBand } from './panel/AgentContentBand';
 
 // ────────────────────────── SVG Status Icons ──────────────────────────
 
@@ -126,13 +127,15 @@ export default function PlanList() {
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
-    <div className="min-h-0 flex-shrink overflow-hidden border-t border-edge-subtle/60">
+    <AgentContentBand className="min-h-0 flex-shrink overflow-hidden border-t border-edge-subtle/60">
+      {/* 内容列内整体向外探 4px（-mx-1 + 子项 px-1）：悬停底色比文字宽一圈，
+          文字左缘仍与下面的消息对齐。 */}
       {/* Header */}
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="w-full min-h-6 flex items-center justify-between px-3 py-0.5 hover:bg-state-soft/30 active:bg-state-soft/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 [@media(pointer:coarse)]:min-h-8 motion-reduce:transition-none"
+        className="-mx-1 w-[calc(100%+0.5rem)] min-h-6 flex items-center justify-between rounded px-1 py-0.5 hover:bg-state-soft/30 active:bg-state-soft/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400 [@media(pointer:coarse)]:min-h-8 motion-reduce:transition-none"
       >
         <div className="flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -154,7 +157,7 @@ export default function PlanList() {
       </button>
 
       {/* Progress bar (always visible) */}
-      <div className="px-3 pb-1.5">
+      <div className="pb-1.5">
         <div className="h-0.5 bg-zinc-800/60 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full bg-zinc-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
@@ -165,13 +168,13 @@ export default function PlanList() {
 
       {/* Steps list (collapsible) */}
       {!collapsed && (
-        <div className="px-2 pb-1 max-h-48 overflow-y-auto overflow-x-hidden">
+        <div className="-mx-1 pb-1 max-h-48 overflow-y-auto overflow-x-hidden">
           {plan.items.map((item) => (
             <StepItem key={item.id} item={item} />
           ))}
         </div>
       )}
-    </div>
+    </AgentContentBand>
   );
 }
 

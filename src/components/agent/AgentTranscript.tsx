@@ -140,19 +140,33 @@ export default memo(function AgentTranscript({
           {canInteract && loopRunning && conversationId && <AgentRunStatus conversationId={conversationId} />}
         </div>
       </div>
-      {shouldShowScrollToBottomFab(nearBottom, messages.length > 0) && (
+      {shouldShowScrollToBottomFab(nearBottom, messages.length > 0) && (mobile ? (
         <button
           type="button"
           onClick={() => scrollToBottom('smooth')}
           title="回到底部"
           aria-label="回到底部"
-          className={mobile
-            ? 'absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-edge-strong bg-zinc-800/95 px-3 py-1.5 text-xs font-medium text-zinc-100 shadow-lg backdrop-blur-sm active:bg-state-mid'
-            : 'absolute bottom-3 right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-edge-strong bg-zinc-800/95 text-zinc-100 shadow-lg backdrop-blur-sm transition-colors hover:bg-state-mid'}
+          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full border border-edge-strong bg-zinc-800/95 px-3 py-1.5 text-xs font-medium text-zinc-100 shadow-lg backdrop-blur-sm active:bg-state-mid"
         >
-          {mobile ? '回到底部' : <ArrowDown className="h-4 w-4" />}
+          回到底部
         </button>
-      )}
+      ) : (
+        // 桌面端贴内容列右缘而不是面板右缘：限宽布局下面板右缘在两侧留白里，会压在宽度把手上。
+        // 整层 pointer-events-none，只有按钮接事件，不挡下面的消息。
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 px-3">
+          <div className="agent-content-column flex justify-end">
+            <button
+              type="button"
+              onClick={() => scrollToBottom('smooth')}
+              title="回到底部"
+              aria-label="回到底部"
+              className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-edge-strong bg-zinc-800/95 text-zinc-100 shadow-lg backdrop-blur-sm transition-colors hover:bg-state-mid"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 });

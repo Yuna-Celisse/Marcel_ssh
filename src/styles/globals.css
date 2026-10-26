@@ -1562,12 +1562,14 @@ body.marcel-resizing-x * {
 /* ── 内容列宽度把手（左右一对，参考 DSH ui-conversation 的 WidthHandle）──
    只有 agentPrimary（Agent 占主区域）布局渲染：把手占住内容列两侧的留白，
    拖拽对称改变内容列宽度（向外 1px = 内容列 +2px）。辉光条随指针 Y 滑动，
-   hover / 拖拽中点亮。top: 44px 避开面板头部的按钮区。 */
+   hover / 拖拽中点亮。top: 44px 避开面板头部的按钮区。
+   层级压在抽屉遮罩（z-20）之下：抽屉开着时这两条带不该再截获点击、也不该透出光晕。
+   对话级内容都收在内容列里（见 panel/AgentContentBand），不会落进这两条带。 */
 .agent-width-handle {
   position: absolute;
   top: 44px;
   bottom: 0;
-  z-index: 20;
+  z-index: 15;
   width: min(
     40px,
     calc((100% - var(--agent-content-max, 0px)) / 2 - 24px - 24px)
