@@ -5,9 +5,7 @@ use crate::agent::jev_approval::JevApprover;
 use crate::agent::model_approval::{
     ApprovalJudgement, CommandApprover, ModelApprovalDecision, ModelApprover,
 };
-use crate::agent::risk::{
-    split_command_chain, Disposition, RiskAssessor, RuleHit, SecurityPolicy,
-};
+use crate::agent::risk::{split_command_chain, Disposition, RiskAssessor, RuleHit, SecurityPolicy};
 use crate::agent::task::AgentMode;
 use crate::agent::tools::sftp_probe::remote_file_exists;
 use crate::agent::tools::{
@@ -456,7 +454,7 @@ impl ToolDispatcher {
             effective_disposition,
             requires_default_approval,
             &self.agent_settings,
-            self.agent_settings.tool_approval_level(&tc.name).is_some(),
+            !declares_command && self.agent_settings.tool_approval_level(&tc.name).is_some(),
         );
 
         // 2. 模型审批（命令类工具；详见 `run_model_approval`）。
@@ -590,8 +588,12 @@ impl ToolDispatcher {
         // 「请求审批」不抬高档位（它只让 Agent / Plan 下多问一次，见
         // `needs_human_confirmation` 的 `tool_level_asks`）；「强制审批」「直接拒绝」
         // 要进档位，Auto 的强制审批开关与 Deny 的短路才认得到它。
-        if let Some(level) = self.agent_settings.tool_approval_level(&tc.name) {
-            effective_disposition = effective_disposition.max(level);
+        // 命令类工具（bash、插件 `kind=ssh`）不读这张表：它们的审批完全由命令规则与
+        // 命令确认方式决定，设置页里 bash 那一行是只读的、指向命令规则。
+        if !declares_command {
+            if let Some(level) = self.agent_settings.tool_approval_level(&tc.name) {
+                effective_disposition = effective_disposition.max(level);
+            }
         }
 
         // 直接拒绝：不执行、不弹窗，把原因回给模型（它得知道踩的是哪一步才改得回来）。
@@ -1310,6 +1312,9 @@ fn merge_approval_reasons(
     Some(list)
 }
 
+/// 命令确认方式这一层（风险规则命中的档位另算，见 `decide_command`）：
+/// 「每条都确认」全问；黑名单不在这里问 —— 它就是「只看风险规则」；白名单里的命令
+/// 不问、其余都问。
 fn command_list_requires_confirm(cmd: &str, settings: &AgentModeSettings) -> bool {
     let segments = match split_command_chain(cmd) {
         Ok(segs) => segs,
@@ -1324,22 +1329,15 @@ fn command_list_requires_confirm(cmd: &str, settings: &AgentModeSettings) -> boo
             .rsplit('/')
             .next()
             .unwrap_or("");
-        let in_list = settings.command_list.iter().any(|c| c == base);
         let needs_confirm = match settings.list_mode {
             CommandListMode::Allowlist => {
-                if in_list {
+                if settings.allow_commands.iter().any(|c| c == base) {
                     settings.confirm_each_command
                 } else {
                     true
                 }
             }
-            CommandListMode::Denylist => {
-                if in_list {
-                    true
-                } else {
-                    settings.confirm_each_command
-                }
-            }
+            CommandListMode::Denylist => settings.confirm_each_command,
         };
         if needs_confirm {
             return true;
@@ -1351,12 +1349,13 @@ fn command_list_requires_confirm(cmd: &str, settings: &AgentModeSettings) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::risk::{CustomRiskRule, RuleConfig};
     use std::collections::BTreeMap;
 
     fn default_settings() -> AgentModeSettings {
         AgentModeSettings {
             list_mode: CommandListMode::Denylist,
-            command_list: vec!["rm".into(), "mkfs".into(), "dd".into()],
+            allow_commands: vec![],
             confirm_each_command: false,
             plan_mode_requires_approval: false,
             enable_model_command_approval: false,
@@ -1565,7 +1564,11 @@ mod tests {
     #[test]
     fn auto_never_prompts_for_any_disposition() {
         let s = default_settings();
-        for disposition in [Disposition::Allow, Disposition::Approval, Disposition::ForceApproval] {
+        for disposition in [
+            Disposition::Allow,
+            Disposition::Approval,
+            Disposition::ForceApproval,
+        ] {
             for requires_default_approval in [false, true] {
                 assert!(
                     !needs_human_confirmation(
@@ -1799,7 +1802,10 @@ mod tests {
         assert_eq!(s.tool_approval_level("edit_file"), None, "测试夹具是空表");
 
         let d = AgentModeSettings::default();
-        assert_eq!(d.tool_approval_level("edit_file"), Some(Disposition::Approval));
+        assert_eq!(
+            d.tool_approval_level("edit_file"),
+            Some(Disposition::Approval)
+        );
         assert_eq!(
             d.tool_approval_level("local_write_file"),
             Some(Disposition::Approval),
@@ -1811,7 +1817,10 @@ mod tests {
             .insert("edit_file".into(), Disposition::Deny);
         s.tool_approval_levels
             .insert("write_file".into(), Disposition::Allow);
-        assert_eq!(s.tool_approval_level("local_edit_file"), Some(Disposition::Deny));
+        assert_eq!(
+            s.tool_approval_level("local_edit_file"),
+            Some(Disposition::Deny)
+        );
         assert_eq!(s.tool_approval_level("write_file"), None, "Allow 等于没写");
     }
 
@@ -1846,7 +1855,10 @@ mod tests {
         ));
         let d = decide_command("pkill -f myapp", &AgentMode::Agent, &s, Some(&policy));
         assert_eq!(d.disposition, Disposition::ForceApproval);
-        assert!(d.requires_confirmation, "调低后应进入人工审批，而不是直接拒绝");
+        assert!(
+            d.requires_confirmation,
+            "调低后应进入人工审批，而不是直接拒绝"
+        );
         assert!(d.hits.iter().any(|h| h.rule_id == "name_based_kill"));
     }
 
@@ -1961,7 +1973,8 @@ mod tests {
 
         // 开关打开后 Plan 才回到「走名单 + 人工审批」；开关关着时 Plan 折成 Auto，
         // 连系统级命令也不问。所以**同一个开关**同时决定这两件事。
-        let silent_system = decide_command("systemctl restart nginx", &AgentMode::Plan, &silent, None);
+        let silent_system =
+            decide_command("systemctl restart nginx", &AgentMode::Plan, &silent, None);
         assert_eq!(silent_system.disposition, Disposition::ForceApproval);
         assert!(
             !needs_human_confirmation(
@@ -1975,7 +1988,8 @@ mod tests {
             "开关关着时 Plan 折成 Auto，系统级命令也不问"
         );
 
-        let gated_system = decide_command("systemctl restart nginx", &AgentMode::Plan, &gated, None);
+        let gated_system =
+            decide_command("systemctl restart nginx", &AgentMode::Plan, &gated, None);
         assert_eq!(gated_system.disposition, Disposition::ForceApproval);
         assert!(gated_system.requires_confirmation, "强制审批档自己就要确认");
         assert!(needs_human_confirmation(
@@ -2019,25 +2033,36 @@ mod tests {
         }
     }
 
-    /// 名单决定 `Approval` / `Allow` 这一档：命中就审、不命中就放。
+    /// 黑名单 = 自定义规则决定 `Approval` / `Allow`：命中规则就审、没命中就放；
+    /// 白名单 = `allow_commands`：命中 → 放行，不命中 → 审批。
     #[test]
-    fn the_command_list_decides_between_approval_and_allow() {
+    fn rules_and_the_allow_list_decide_between_approval_and_allow() {
         let mut s = default_settings();
         s.confirm_each_command = false;
 
-        // 黑名单模式：撞上名单 → 审批；没撞上 → 放行。
+        // 黑名单模式：撞上自定义规则 → 审批；没撞上 → 放行。名单在这个模式下不起作用。
+        let policy = SecurityPolicy::default().with_rules(RuleConfig::new(
+            Default::default(),
+            vec![CustomRiskRule::approval_for("t".into(), "rm")],
+        ));
         assert_eq!(
-            decide_command("rm -rf /tmp/x", &AgentMode::Agent, &s, None).disposition,
+            decide_command("rm -rf /tmp/x", &AgentMode::Agent, &s, Some(&policy)).disposition,
             Disposition::Approval
         );
         assert_eq!(
-            decide_command("ls -la", &AgentMode::Agent, &s, None).disposition,
+            decide_command("ls -la", &AgentMode::Agent, &s, Some(&policy)).disposition,
             Disposition::Allow
+        );
+        s.allow_commands = vec!["rm".into()];
+        assert_eq!(
+            decide_command("rm -rf /tmp/x", &AgentMode::Agent, &s, Some(&policy)).disposition,
+            Disposition::Approval,
+            "黑名单模式不读白名单名单，名单里有 rm 也不能把规则的审批压掉"
         );
 
         // 白名单模式：命中 → 放行；不命中 → 审批。
         s.list_mode = CommandListMode::Allowlist;
-        s.command_list = vec!["ls".into()];
+        s.allow_commands = vec!["ls".into()];
         assert_eq!(
             decide_command("ls -la", &AgentMode::Agent, &s, None).disposition,
             Disposition::Allow
@@ -2131,12 +2156,13 @@ mod tests {
         }
     }
 
+    /// 黑名单模式这一层只看「每条都确认」；要问哪些命令由风险规则（含自定义规则）定。
     #[test]
-    fn denylist_in_list_always_confirms() {
-        let s = default_settings();
-        assert!(command_list_requires_confirm("rm -rf /tmp", &s));
-        assert!(command_list_requires_confirm("mkfs /dev/sda", &s));
-        assert!(command_list_requires_confirm("dd if=/dev/zero of=img", &s));
+    fn denylist_ignores_the_allow_list() {
+        let mut s = default_settings();
+        s.allow_commands = vec!["rm".into(), "mkfs".into()];
+        assert!(!command_list_requires_confirm("rm -rf /tmp", &s));
+        assert!(!command_list_requires_confirm("mkfs /dev/sda", &s));
     }
 
     #[test]
@@ -2153,7 +2179,7 @@ mod tests {
     fn allowlist_in_list_respects_confirm_flag() {
         let s = AgentModeSettings {
             list_mode: CommandListMode::Allowlist,
-            command_list: vec!["ls".into(), "cat".into()],
+            allow_commands: vec!["ls".into(), "cat".into()],
             confirm_each_command: false,
             plan_mode_requires_approval: false,
             enable_model_command_approval: false,
@@ -2181,7 +2207,7 @@ mod tests {
     fn allowlist_not_in_list_always_confirms() {
         let s = AgentModeSettings {
             list_mode: CommandListMode::Allowlist,
-            command_list: vec!["ls".into()],
+            allow_commands: vec!["ls".into()],
             confirm_each_command: false,
             plan_mode_requires_approval: false,
             enable_model_command_approval: false,
@@ -2203,8 +2229,10 @@ mod tests {
 
     #[test]
     fn strips_path_prefix_from_base_command() {
-        let s = default_settings();
-        assert!(command_list_requires_confirm("/bin/rm -rf /tmp", &s));
+        let mut s = default_settings();
+        s.list_mode = CommandListMode::Allowlist;
+        s.allow_commands = vec!["ls".into()];
+        assert!(!command_list_requires_confirm("/bin/ls -la", &s));
         assert!(command_list_requires_confirm("/usr/bin/mkfs -t ext4", &s));
     }
 
@@ -2219,7 +2247,7 @@ mod tests {
     fn confirm_each_command_true_overrides() {
         let s = AgentModeSettings {
             list_mode: CommandListMode::Denylist,
-            command_list: vec![],
+            allow_commands: vec![],
             confirm_each_command: true,
             plan_mode_requires_approval: false,
             enable_model_command_approval: false,
@@ -2241,18 +2269,22 @@ mod tests {
     }
 
     #[test]
-    fn detects_denylisted_cmd_after_newline() {
-        let s = default_settings();
-        // "ls\nrm -rf /etc" — rm is hidden behind a newline, must be caught
+    fn a_disallowed_cmd_hidden_after_newline_is_still_caught() {
+        let mut s = default_settings();
+        s.list_mode = CommandListMode::Allowlist;
+        s.allow_commands = vec!["ls".into(), "echo".into()];
+        // 全是白名单里的命令 → 不问
+        assert!(!command_list_requires_confirm("ls\necho hi", &s));
+        // "ls\nrm -rf /etc" — rm 藏在换行后面，必须被抓到
         assert!(command_list_requires_confirm("ls\nrm -rf /etc", &s));
         // CRLF variant
         assert!(command_list_requires_confirm("ls\r\nrm -rf /etc", &s));
-        // Multiple segments, denylisted cmd is the last one
+        // 多段，不在名单里的是最后一段
         assert!(command_list_requires_confirm(
             "ls\necho hi\nmkfs /dev/sda",
             &s
         ));
-        // Denylisted cmd after semicolon (already worked, regression test)
+        // 分号之后
         assert!(command_list_requires_confirm("ls; rm -rf /", &s));
     }
 

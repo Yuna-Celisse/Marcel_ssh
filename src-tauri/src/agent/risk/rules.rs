@@ -546,6 +546,10 @@ pub struct RiskRuleOverride {
     pub level: Option<Disposition>,
     /// 名单参数的覆盖：key → 完整条目表（整体替换默认，不是增量）。
     pub lists: HashMap<String, Vec<String>>,
+    /// 档位是「直接拒绝」时回给模型的话（替换这条规则自带的说明）。留空 = 用默认说明；
+    /// 档位不是「直接拒绝」时不读（没有拒绝就没有要回的话）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// 用户自定义的规则：命令名（可再限定参数关键字）→ 档位。
@@ -561,6 +565,56 @@ pub struct CustomRiskRule {
     #[serde(deserialize_with = "lenient_level_or_force")]
     pub level: Disposition,
     pub enabled: bool,
+    /// 档位是「直接拒绝」时回给模型的话（替换默认的「命中自定义规则「…」」）。留空 = 用默认。
+    /// 档位不是「直接拒绝」时不读。
+    pub message: String,
+}
+
+impl CustomRiskRule {
+    /// 命中时给模型 / 弹窗看的原因：直接拒绝且写了说明用说明，否则「命中自定义规则「名称」」。
+    fn verdict_reason(&self) -> String {
+        let message = self.message.trim();
+        if self.level == Disposition::Deny && !message.is_empty() {
+            message.to_string()
+        } else {
+            format!("命中自定义规则「{}」", self.display_name())
+        }
+    }
+
+    /// 「这个命令要问一次」的最简规则：不限参数、档位「请求审批」。默认规则与旧命令名单的
+    /// 迁移都用它。
+    pub fn approval_for(id: String, command: &str) -> Self {
+        Self {
+            id,
+            command: command.to_string(),
+            level: Disposition::Approval,
+            ..Self::default()
+        }
+    }
+
+    /// 给人看的名字：写了名称用名称，否则「命令 参数」（例如 `docker prune`）。
+    /// 设置页不再提供名称输入框，规则在命中提示、审批弹窗里就靠这个认。
+    pub fn display_name(&self) -> String {
+        let name = self.name.trim();
+        if !name.is_empty() {
+            return name.to_string();
+        }
+        let arg = self.arg_contains.trim();
+        if arg.is_empty() {
+            self.command.trim().to_string()
+        } else {
+            format!("{} {}", self.command.trim(), arg)
+        }
+    }
+}
+
+/// 出厂自带的自定义规则：原先「禁止的命令」名单里的那五个，现在以普通规则的身份摆在
+/// 自定义规则里，用户看得到、删得掉。
+pub fn default_custom_risk_rules() -> Vec<CustomRiskRule> {
+    ["rm", "mkfs", "dd", "shutdown", "reboot"]
+        .into_iter()
+        .map(|cmd| CustomRiskRule::approval_for(format!("default-{cmd}"), cmd))
+        .collect()
 }
 
 impl Default for CustomRiskRule {
@@ -572,6 +626,7 @@ impl Default for CustomRiskRule {
             arg_contains: String::new(),
             level: default_custom_level(),
             enabled: default_true(),
+            message: String::new(),
         }
     }
 }
@@ -624,7 +679,21 @@ impl RuleConfig {
         if level == Disposition::Allow {
             return Assessment::allow();
         }
+        // 直接拒绝的话是回给模型的，用户写了自己的说明就用它，不再用规则自带的那句。
+        let reason = match self.deny_message(id).filter(|_| level == Disposition::Deny) {
+            Some(message) => message.to_string(),
+            None => reason.into(),
+        };
         Assessment::at(level, reason).with_rule(id)
+    }
+
+    /// 用户给这条内置规则写的「拒绝说明」（空白视为没写）。
+    fn deny_message(&self, id: &str) -> Option<&str> {
+        self.overrides
+            .get(id)
+            .and_then(|o| o.message.as_deref())
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
     }
 
     /// 名单的当前条目（用户覆盖优先，否则默认）。
@@ -648,7 +717,7 @@ impl RuleConfig {
             self.custom
                 .iter()
                 .find(|c| c.id == id)
-                .map(|c| c.name.clone())
+                .map(CustomRiskRule::display_name)
         })
     }
 
@@ -668,12 +737,7 @@ impl RuleConfig {
                 name_hit && (needle.is_empty() || parsed.args.iter().any(|a| a.contains(needle)))
             })
             .map(|c| {
-                let label = if c.name.trim().is_empty() {
-                    c.command.as_str()
-                } else {
-                    c.name.as_str()
-                };
-                Assessment::at(c.level, format!("命中自定义规则「{}」", label)).with_rule(&c.id)
+                Assessment::at(c.level, c.verdict_reason()).with_rule(&c.id)
             })
             .collect()
     }

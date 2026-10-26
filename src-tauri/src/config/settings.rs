@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 use super::persist::JsonPersistable;
-use crate::agent::risk::{CustomRiskRule, Disposition, RiskRuleOverride};
+use crate::agent::risk::{
+    default_custom_risk_rules, CustomRiskRule, Disposition, RiskRuleOverride,
+};
 use crate::llm::provider::LlmConfig;
 use crate::llm::registry::LlmRegistry;
 
@@ -145,14 +147,19 @@ impl<'de> Deserialize<'de> for CommandApprovalEngine {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentModeSettings {
-    /// Whether `commandList` acts as allowlist or denylist.
+    /// 命令确认方式里「黑名单 / 白名单」二选一（「每条都确认」是下面的
+    /// `confirm_each_command`，两者独立存放）。
+    ///
+    /// 黑名单 = 只有风险规则（内置 + 自定义）命中的命令才问；白名单 = 只有
+    /// `allow_commands` 里的命令不问，其余都问。
     pub list_mode: CommandListMode,
-    /// Command patterns (matched against the base command, e.g. "rm", "sudo").
-    /// Each entry is a simple string match, not a regex.
-    pub command_list: Vec<String>,
-    /// When true (default), AGENT mode still asks the user to confirm any
-    /// command that passes the list filter. When false, listed commands run
-    /// silently — useful when the user has carefully curated the lists.
+    /// 白名单模式下「不问」的命令（基础命令名，如 "ls"，不含路径或参数，纯字符串匹配）。
+    /// 黑名单模式不读它。取代旧的 `commandList`：旧版黑白名单共用一份名单，切换模式时
+    /// 同一批条目的含义会翻转（黑名单里的 `rm` 到白名单就成了免审批）。旧配置由
+    /// [`AppSettings::migrate_command_list_from_legacy`] 折算。
+    pub allow_commands: Vec<String>,
+    /// When true (default), AGENT mode still asks the user to confirm every
+    /// command (the list mode is ignored). When false, the list mode decides.
     pub confirm_each_command: bool,
     /// 当 true 时，Plan 模式也走命令名单与「每条都手动确认」的人审（旧行为）。
     ///
@@ -281,13 +288,7 @@ impl Default for AgentModeSettings {
     fn default() -> Self {
         Self {
             list_mode: CommandListMode::Denylist,
-            command_list: vec![
-                "rm".into(),
-                "mkfs".into(),
-                "dd".into(),
-                "shutdown".into(),
-                "reboot".into(),
-            ],
+            allow_commands: vec![],
             confirm_each_command: default_true(),
             plan_mode_requires_approval: false,
             enable_model_command_approval: false,
@@ -874,8 +875,9 @@ pub struct AppSettings {
     /// 规则本身与默认值在 `agent::risk::rules`，那是唯一来源；缺字段 = 全部默认。
     #[serde(default)]
     pub risk_rule_overrides: HashMap<String, RiskRuleOverride>,
-    /// 用户自己加的命令风险规则（命令名 + 可选参数关键字 → 档位）。
-    #[serde(default)]
+    /// 用户自己加的命令风险规则（命令名 + 可选参数关键字 → 档位）。出厂带五条
+    /// （原「禁止的命令」名单），缺字段时同样是这五条。
+    #[serde(default = "default_custom_risk_rules")]
     pub custom_risk_rules: Vec<CustomRiskRule>,
     /// Command execution timeout in seconds for Agent tools.
     #[serde(default = "default_command_timeout")]
@@ -984,7 +986,7 @@ impl Default for AppSettings {
             ui_theme: UiThemeSettings::default(),
             custom_protected_paths: vec![],
             risk_rule_overrides: HashMap::new(),
-            custom_risk_rules: vec![],
+            custom_risk_rules: default_custom_risk_rules(),
             command_timeout_secs: default_command_timeout(),
             archive_retention_days: default_archive_retention_days(),
             has_completed_onboarding: false,
@@ -1035,6 +1037,54 @@ impl AppSettings {
 }
 
 impl AppSettings {
+    /// 旧的共用名单 `commandList` → 白名单名单 / 自定义规则。
+    ///
+    /// 只有配置里**没有** `allowCommands` 键才是旧文件（新版每次保存都会写出它）：
+    /// - 白名单模式：名单原样成为 `allow_commands`；
+    /// - 黑名单模式：名单里每个命令变成一条「请求审批」的自定义规则（与旧名单命中即问
+    ///   同效），`allow_commands` 保持空 —— 不把黑名单条目留给白名单当免审批名单。
+    ///   配置里没有 `customRiskRules` 键时先去掉出厂的那五条，以用户自己的名单为准。
+    pub fn migrate_command_list_from_legacy(&mut self, raw: &str) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) else {
+            return;
+        };
+        let Some(agent) = value.get("agentModeSettings") else {
+            return;
+        };
+        if agent.get("allowCommands").is_some() {
+            return;
+        }
+        let Some(list) = agent.get("commandList").and_then(|v| v.as_array()) else {
+            return;
+        };
+        let names: Vec<String> = list
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        if self.agent_mode_settings.list_mode == CommandListMode::Allowlist {
+            self.agent_mode_settings.allow_commands = names;
+            return;
+        }
+        if value.get("customRiskRules").is_none() {
+            self.custom_risk_rules.clear();
+        }
+        for name in names {
+            let has = self
+                .custom_risk_rules
+                .iter()
+                .any(|c| c.command == name && c.arg_contains.trim().is_empty());
+            if !has {
+                self.custom_risk_rules.push(CustomRiskRule::approval_for(
+                    format!("legacy-list-{name}"),
+                    &name,
+                ));
+            }
+        }
+    }
+
     /// 旧的「文件修改审批」开关 `confirmEditFile` → 按工具的审批档位表。
     ///
     /// 只有配置里**没有** `toolApprovalLevels` 键、且旧开关明确是关着的，才需要动手：
@@ -1079,6 +1129,7 @@ impl JsonPersistable for AppSettings {
             .map_err(|e| crate::error::AppError::Config(format!("解析配置文件失败: {}", e)))?;
         parsed.migrate_update_mode_from_legacy(&raw);
         parsed.migrate_tool_approval_from_legacy(&raw);
+        parsed.migrate_command_list_from_legacy(&raw);
         Ok(parsed)
     }
 }
@@ -1153,8 +1204,7 @@ mod tests {
     fn agent_mode_settings_default_is_denylist() {
         let s = AgentModeSettings::default();
         assert_eq!(s.list_mode, CommandListMode::Denylist);
-        assert!(!s.command_list.is_empty());
-        assert!(s.command_list.contains(&"rm".to_string()));
+        assert!(s.allow_commands.is_empty(), "白名单默认不放行任何命令");
     }
 
     /// 旧 settings.json（没有 Jev 那三个键）必须落回「会话模型引擎」，
@@ -1300,30 +1350,98 @@ mod tests {
         assert_eq!(parsed.agent_mode_settings.model_approval_prompt, "p");
     }
 
+    /// 出厂的「要问的命令」不再是看不见的名单，而是五条摆在自定义规则里的普通规则。
     #[test]
-    fn app_settings_default_has_command_list() {
+    fn app_settings_default_ships_the_old_denylist_as_custom_rules() {
         let s = AppSettings::default();
-        assert!(!s.agent_mode_settings.command_list.is_empty());
+        let cmds: Vec<&str> = s
+            .custom_risk_rules
+            .iter()
+            .map(|c| c.command.as_str())
+            .collect();
+        assert_eq!(cmds, ["rm", "mkfs", "dd", "shutdown", "reboot"]);
         assert!(s
-            .agent_mode_settings
-            .command_list
-            .contains(&"rm".to_string()));
+            .custom_risk_rules
+            .iter()
+            .all(|c| c.level == Disposition::Approval && c.enabled));
+    }
+
+    fn load_legacy(raw: &str) -> AppSettings {
+        let mut s: AppSettings = serde_json::from_str(raw).unwrap();
+        s.migrate_command_list_from_legacy(raw);
+        s
+    }
+
+    /// 旧黑名单（默认模式）：名单里每个命令变成一条「请求审批」的自定义规则，
+    /// 用户删过的命令不会被出厂规则偷偷加回来；白名单名单保持空。
+    #[test]
+    fn legacy_denylist_becomes_custom_rules() {
+        let s = load_legacy(
+            r#"{"agentModeSettings": {"listMode": "denylist", "commandList": ["rm", "kubectl"]}}"#,
+        );
+        let cmds: Vec<&str> = s
+            .custom_risk_rules
+            .iter()
+            .map(|c| c.command.as_str())
+            .collect();
+        assert_eq!(cmds, ["rm", "kubectl"]);
         assert!(s
-            .agent_mode_settings
-            .command_list
-            .contains(&"mkfs".to_string()));
-        assert!(s
-            .agent_mode_settings
-            .command_list
-            .contains(&"dd".to_string()));
-        assert!(s
-            .agent_mode_settings
-            .command_list
-            .contains(&"shutdown".to_string()));
-        assert!(s
-            .agent_mode_settings
-            .command_list
-            .contains(&"reboot".to_string()));
+            .custom_risk_rules
+            .iter()
+            .all(|c| c.level == Disposition::Approval && c.arg_contains.is_empty()));
+        assert!(s.agent_mode_settings.allow_commands.is_empty());
+    }
+
+    /// 已有自定义规则的配置：保留它们，只补上名单里还没有对应规则的命令。
+    #[test]
+    fn legacy_denylist_merges_with_existing_custom_rules() {
+        let s = load_legacy(
+            r#"{"customRiskRules": [{"id": "a", "command": "rm", "level": "ForceApproval"}],
+                "agentModeSettings": {"commandList": ["rm", "dd"]}}"#,
+        );
+        let got: Vec<(&str, Disposition)> = s
+            .custom_risk_rules
+            .iter()
+            .map(|c| (c.command.as_str(), c.level))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("rm", Disposition::ForceApproval),
+                ("dd", Disposition::Approval)
+            ]
+        );
+    }
+
+    /// 旧白名单：名单原样成为「不问」的命令，不产生任何自定义规则。
+    #[test]
+    fn legacy_allowlist_keeps_its_names() {
+        let s = load_legacy(
+            r#"{"customRiskRules": [], "agentModeSettings": {"listMode": "allowlist", "commandList": ["ls", "cat"]}}"#,
+        );
+        assert_eq!(s.agent_mode_settings.allow_commands, ["ls", "cat"]);
+        assert!(s.custom_risk_rules.is_empty());
+    }
+
+    /// 新格式（有 `allowCommands`）不再迁移：不然用户在白名单里加的命令切回黑名单后会
+    /// 被误当成旧名单、变成一批「请求审批」规则。
+    #[test]
+    fn new_format_is_not_migrated_again() {
+        let s = load_legacy(
+            r#"{"customRiskRules": [], "agentModeSettings": {"allowCommands": ["ls"], "commandList": ["rm"]}}"#,
+        );
+        assert!(s.custom_risk_rules.is_empty());
+        assert_eq!(s.agent_mode_settings.allow_commands, ["ls"]);
+    }
+
+    #[test]
+    fn custom_rule_display_name_falls_back_to_command_and_argument() {
+        let mut rule = CustomRiskRule::approval_for("x".into(), "docker");
+        assert_eq!(rule.display_name(), "docker");
+        rule.arg_contains = "prune".into();
+        assert_eq!(rule.display_name(), "docker prune");
+        rule.name = "清理镜像".into();
+        assert_eq!(rule.display_name(), "清理镜像");
     }
 
     #[test]

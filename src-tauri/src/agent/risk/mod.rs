@@ -22,8 +22,8 @@ mod windows;
 pub use disposition::{Assessment, Disposition, RuleHit};
 pub use policy::{RiskAssessor, SecurityPolicy};
 pub use rules::{
-    lenient_level_map, rule_def, CustomRiskRule, ListDef, RiskRuleOverride, RuleConfig, RuleDef,
-    RuleKind, RuleScope, RULES,
+    default_custom_risk_rules, lenient_level_map, rule_def, CustomRiskRule, ListDef,
+    RiskRuleOverride, RuleConfig, RuleDef, RuleKind, RuleScope, RULES,
 };
 
 /// 外部（tool_dispatcher / 工具实现）真正需要的那几个小工具。
