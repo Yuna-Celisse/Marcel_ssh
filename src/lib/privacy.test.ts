@@ -6,6 +6,7 @@ import {
   maskPort,
   formatAddress,
   formatConnLabel,
+  formatInteractionSessionLabel,
   formatNameWithAddress,
 } from '@/lib/privacy';
 
@@ -60,6 +61,20 @@ describe('formatConnLabel', () => {
     expect(formatConnLabel('root', '10.0.0.1', 22, true)).toBe(
       `root@${MASKED_HOST}:${MASKED_PORT}`,
     );
+  });
+});
+
+describe('formatInteractionSessionLabel', () => {
+  const target = { username: 'root', host: '10.0.0.1', port: 22 };
+
+  it('follows the privacy switch', () => {
+    expect(formatInteractionSessionLabel(target, false)).toBe('root@10.0.0.1:22');
+    expect(formatInteractionSessionLabel(target, true)).toBe(`root@${MASKED_HOST}:${MASKED_PORT}`);
+  });
+
+  it('falls back to a neutral label when there is no SSH target', () => {
+    expect(formatInteractionSessionLabel(undefined, false)).toBe('SSH 会话');
+    expect(formatInteractionSessionLabel(undefined, true)).toBe('SSH 会话');
   });
 });
 

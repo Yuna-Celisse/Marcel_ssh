@@ -60,6 +60,39 @@ pub struct QuestionDetail {
     pub questions: Vec<QuestionItem>,
 }
 
+/// 交互所在 SSH 会话的目标机器。
+///
+/// 以**结构化字段**下发而不是拼好的 `user@host:port` 字符串：隐私模式只脱敏屏幕
+/// 显示，开关在前端、可随时切换，所以由前端用 `formatConnLabel` 按当前开关渲染
+/// （切换时已弹出的面板也跟着变）。后端别再把地址拼进任何下发给前端的文案里。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTarget {
+    pub username: String,
+    pub host: String,
+    pub port: u16,
+}
+
+impl SessionTarget {
+    /// 给系统通知用的一行标签（通知不经前端渲染，得在这里按隐私开关定稿）。
+    /// 脱敏口径与前端 `lib/privacy.ts` 的 `formatConnLabel` 一致：用户名保留，
+    /// 主机 `***`、端口 `****`。
+    fn label(&self, privacy_mode: bool) -> String {
+        if privacy_mode {
+            format!("{}@***:****", self.username)
+        } else {
+            format!("{}@{}:{}", self.username, self.host, self.port)
+        }
+    }
+}
+
+/// 系统通知里的会话标签；没有 SSH 会话信息（本机交互等）时用兜底名。
+fn notification_session_label(target: Option<&SessionTarget>, privacy_mode: bool) -> String {
+    target
+        .map(|t| t.label(privacy_mode))
+        .unwrap_or_else(|| "SSH 会话".to_string())
+}
+
 /// 发送给前端的全局活动交互 Payload
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +104,9 @@ pub struct ActiveInteractionPayload {
     pub task_id: String,
     pub session_id: String,
     pub conversation_id: String,
-    pub session_name: String,
+    /// 没有 SSH 会话信息（本机交互、会话已断开）时缺省，前端显示「SSH 会话」。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_target: Option<SessionTarget>,
     pub conversation_title: String,
     pub queue_length: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,7 +163,7 @@ struct QueuedInteraction {
     task_id: String,
     session_id: String,
     conversation_id: String,
-    session_name: String,
+    session_target: Option<SessionTarget>,
     conversation_title: String,
     approval: Option<ApprovalDetail>,
     question: Option<QuestionDetail>,
@@ -144,7 +179,7 @@ impl QueuedInteraction {
             task_id: self.task_id.clone(),
             session_id: self.session_id.clone(),
             conversation_id: self.conversation_id.clone(),
-            session_name: self.session_name.clone(),
+            session_target: self.session_target.clone(),
             conversation_title: self.conversation_title.clone(),
             queue_length,
             approval: self.approval.clone(),
@@ -175,19 +210,22 @@ impl AgentInteractionManager {
         }
     }
 
-    /// 辅助方法：解析会话显示名与对话标题
+    /// 辅助方法：解析会话目标机器与对话标题
     async fn resolve_context_names(
         app: &AppHandle,
         session_id: &str,
         conversation_id: &str,
-    ) -> (String, String) {
+    ) -> (Option<SessionTarget>, String) {
         let state = app.state::<crate::AppState>();
-        let session_name = state
+        let session_target = state
             .ssh_manager
             .get_session_info(session_id)
             .await
-            .map(|info| format!("{}@{}:{}", info.username, info.host, info.port))
-            .unwrap_or_else(|| "SSH 会话".to_string());
+            .map(|info| SessionTarget {
+                username: info.username,
+                host: info.host,
+                port: info.port,
+            });
 
         let conversation_title = state
             .conversation_db
@@ -197,7 +235,7 @@ impl AgentInteractionManager {
             .map(|c| c.title)
             .unwrap_or_else(|| "Agent 会话".to_string());
 
-        (session_name, conversation_title)
+        (session_target, conversation_title)
     }
 
     /// 内部：通知前端当前队头（若有）
@@ -231,7 +269,7 @@ impl AgentInteractionManager {
         rule_ids: Vec<String>,
     ) -> ApprovalAnswer {
         let interaction_id = format!("approval:{}:{}", task_id, tool_call_id);
-        let (session_name, conversation_title) =
+        let (session_target, conversation_title) =
             Self::resolve_context_names(app, &session_id, &conversation_id).await;
 
         let (tx, rx) = oneshot::channel();
@@ -253,7 +291,7 @@ impl AgentInteractionManager {
                 task_id: task_id.clone(),
                 session_id: session_id.clone(),
                 conversation_id: conversation_id.clone(),
-                session_name: session_name.clone(),
+                session_target: session_target.clone(),
                 conversation_title: conversation_title.clone(),
                 approval: Some(approval_detail),
                 question: None,
@@ -267,11 +305,16 @@ impl AgentInteractionManager {
         // 发送系统通知
         {
             let state = app.state::<crate::AppState>();
-            let ns = state.settings.read().await.notification_settings.clone();
+            let (ns, privacy_mode) = {
+                let settings = state.settings.read().await;
+                (settings.notification_settings.clone(), settings.privacy_mode)
+            };
             let disposition_label = risk.label();
             let body = format!(
                 "[{}] 工具: {}\n处置: {}\n点击查看详情",
-                session_name, tool_name, disposition_label
+                notification_session_label(session_target.as_ref(), privacy_mode),
+                tool_name,
+                disposition_label
             );
             send_notification(
                 app,
@@ -309,7 +352,7 @@ impl AgentInteractionManager {
         questions: Vec<QuestionItem>,
     ) -> Option<Vec<serde_json::Value>> {
         let interaction_id = format!("question:{}:{}", task_id, question_id);
-        let (session_name, conversation_title) =
+        let (session_target, conversation_title) =
             Self::resolve_context_names(app, &session_id, &conversation_id).await;
 
         let (tx, rx) = oneshot::channel();
@@ -326,7 +369,7 @@ impl AgentInteractionManager {
                 task_id: task_id.clone(),
                 session_id: session_id.clone(),
                 conversation_id: conversation_id.clone(),
-                session_name: session_name.clone(),
+                session_target: session_target.clone(),
                 conversation_title: conversation_title.clone(),
                 approval: None,
                 question: Some(question_detail),
@@ -340,12 +383,17 @@ impl AgentInteractionManager {
         // 发送系统通知
         {
             let state = app.state::<crate::AppState>();
-            let ns = state.settings.read().await.notification_settings.clone();
+            let (ns, privacy_mode) = {
+                let settings = state.settings.read().await;
+                (settings.notification_settings.clone(), settings.privacy_mode)
+            };
             let title = format!("Agent 向您提问 ({} 题)", questions.len());
             let first_q = &questions[0];
             let body = format!(
                 "[{}] {}: {}",
-                session_name, first_q.header, first_q.question
+                notification_session_label(session_target.as_ref(), privacy_mode),
+                first_q.header,
+                first_q.question
             );
             send_notification(app, NotificationKind::AgentQuestion, &ns, &title, &body);
         }
@@ -532,6 +580,55 @@ mod tests {
     fn manager_initializes_empty() {
         let mgr = AgentInteractionManager::new();
         assert_eq!(mgr.inner.read().queue.len(), 0);
+    }
+
+    fn target() -> SessionTarget {
+        SessionTarget {
+            username: "root".into(),
+            host: "203.0.113.7".into(),
+            port: 2222,
+        }
+    }
+
+    #[test]
+    fn notification_label_masks_address_in_privacy_mode() {
+        let t = target();
+        assert_eq!(
+            notification_session_label(Some(&t), false),
+            "root@203.0.113.7:2222"
+        );
+        let masked = notification_session_label(Some(&t), true);
+        assert_eq!(masked, "root@***:****");
+        assert!(!masked.contains("203.0.113.7") && !masked.contains("2222"));
+    }
+
+    #[test]
+    fn notification_label_falls_back_without_session() {
+        assert_eq!(notification_session_label(None, true), "SSH 会话");
+        assert_eq!(notification_session_label(None, false), "SSH 会话");
+    }
+
+    /// 下发给前端的 payload 里不许出现拼好的地址字符串：地址只以结构化字段出现，
+    /// 由前端按隐私开关渲染。
+    #[test]
+    fn payload_carries_structured_target_not_a_joined_label() {
+        let q = QueuedInteraction {
+            interaction_id: "i".into(),
+            kind: InteractionKind::Question,
+            task_id: "t".into(),
+            session_id: "s".into(),
+            conversation_id: "c".into(),
+            session_target: Some(target()),
+            conversation_title: "title".into(),
+            approval: None,
+            question: None,
+            responder: None,
+        };
+        let json = serde_json::to_value(q.to_payload(1)).unwrap();
+        assert!(json.get("sessionName").is_none());
+        assert_eq!(json["sessionTarget"]["host"], "203.0.113.7");
+        assert_eq!(json["sessionTarget"]["port"], 2222);
+        assert!(!json.to_string().contains("root@203.0.113.7"));
     }
 }
 

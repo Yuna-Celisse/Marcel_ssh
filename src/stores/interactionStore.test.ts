@@ -24,7 +24,7 @@ describe('interactionStore', () => {
       taskId: 't1',
       sessionId: 's1',
       conversationId: 'conv1',
-      sessionName: 'Ubuntu Server',
+      sessionTarget: { username: 'ubuntu', host: '203.0.113.7', port: 22 },
       conversationTitle: 'Fix issue',
       queueLength: 2,
       approval: {

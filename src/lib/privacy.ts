@@ -47,6 +47,15 @@ export function formatConnLabel(
   return `${username}@${host}:${port}`;
 }
 
+/** 审批 / 提问交互所在会话的标签；没有 SSH 目标（本机交互、会话已断开）时显示「SSH 会话」。 */
+export function formatInteractionSessionLabel(
+  target: { username: string; host: string; port: number } | undefined,
+  privacyMode: boolean,
+): string {
+  if (!target) return 'SSH 会话';
+  return formatConnLabel(target.username, target.host, target.port, privacyMode);
+}
+
 /** `name (host:port)` 形式，用于历史/列表副标题。name 保留。 */
 export function formatNameWithAddress(
   name: string,

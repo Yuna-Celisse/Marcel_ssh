@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   answerQuestion: vi.fn(async () => {}),
   stopTask: vi.fn(async () => {}),
   fly: vi.fn(),
+  privacy: false,
+}));
+
+vi.mock('@/hooks/usePrivacyMode', () => ({
+  usePrivacyMode: () => mocks.privacy,
 }));
 
 // 只替换数据来源：本用例断言的是「跳转跳到哪条会话」，与被替换的 store 实现无关。
@@ -61,6 +66,7 @@ const SUB_CONV = 'conv-sub';
 const MAIN_CONV = 'conv-main';
 const PARENT_SESSION = 'session-real';
 const OTHER_SESSION = 'session-other';
+const REAL_HOST = '203.0.113.7';
 
 const PARENT_TASK: AgentTask = {
   id: 'task-parent',
@@ -95,7 +101,6 @@ function localApproval(
     taskId: 'sub-local',
     sessionId: LOCAL_SESSION_SENTINEL,
     conversationId: SUB_CONV,
-    sessionName: 'SSH 会话',
     conversationTitle: '盘点磁盘（子agent）',
     queueLength: 1,
     approval: {
@@ -120,7 +125,7 @@ function questionInteraction(
     taskId: 'task-remote',
     sessionId: 'session-remote',
     conversationId: 'conv-remote',
-    sessionName: 'jinye',
+    sessionTarget: { username: 'jinye', host: REAL_HOST, port: 2222 },
     conversationTitle: 'new.neopig.top 开 api 站',
     queueLength: 2,
     question: { questionId: 'q-1', questions },
@@ -137,6 +142,7 @@ beforeEach(() => {
   mocks.interaction = null;
   mocks.activeSessionId = null;
   mocks.activeConversationId = null;
+  mocks.privacy = false;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -188,6 +194,63 @@ function hasButton(label: string): boolean {
     (b) => b.textContent?.trim() === label,
   );
 }
+
+/**
+ * 隐私模式：提问 / 审批面板与收起后的胶囊都显示会话地址，必须跟着隐私开关走
+ * （以前后端把 `user@真实IP:端口` 拼成字符串直接下发，面板原样显示、脱敏不生效）。
+ */
+describe('隐私模式下的会话地址', () => {
+  const ASK = [{ header: '方案', question: '走哪条', multiple: false, options: [] }] as QuestionItem[];
+
+  /** 提问面板的收起按钮叫「最小化」（审批弹窗那个叫「收起」）。 */
+  function minimizeQuestion() {
+    const el = container.querySelector<HTMLButtonElement>('button[aria-label="最小化"]');
+    if (!el) throw new Error('找不到「最小化」按钮');
+    act(() => {
+      el.click();
+    });
+  }
+
+  it('关闭：提问面板与胶囊都显示真实地址', () => {
+    mocks.interaction = questionInteraction(ASK);
+    render();
+    expect(container.textContent).toContain(`jinye@${REAL_HOST}:2222`);
+
+    minimizeQuestion();
+    expect(container.textContent).toContain(`jinye@${REAL_HOST}:2222`);
+  });
+
+  it('开启：提问面板与胶囊都只剩脱敏地址，真实 IP / 端口不出现在 DOM 里', () => {
+    mocks.privacy = true;
+    mocks.interaction = questionInteraction(ASK);
+    render();
+    expect(container.textContent).toContain('jinye@***:****');
+    expect(container.textContent).not.toContain(REAL_HOST);
+    expect(container.textContent).not.toContain('2222');
+
+    minimizeQuestion();
+    expect(container.textContent).toContain('jinye@***:****');
+    expect(container.textContent).not.toContain(REAL_HOST);
+  });
+
+  it('面板开着时切换开关：已弹出的面板立即跟着变', () => {
+    mocks.interaction = questionInteraction(ASK);
+    render();
+    expect(container.textContent).toContain(REAL_HOST);
+
+    mocks.privacy = true;
+    render();
+    expect(container.textContent).not.toContain(REAL_HOST);
+    expect(container.textContent).toContain('jinye@***:****');
+  });
+
+  it('没有 SSH 目标（本机交互）：显示「SSH 会话」兜底', () => {
+    mocks.privacy = true;
+    mocks.interaction = localApproval();
+    render();
+    expect(container.textContent).toContain('SSH 会话');
+  });
+});
 
 /**
  * 本机（哨兵）交互的跳转落点：**只**从组件外部断言（渲染 → 收起 → 点「跳转」），

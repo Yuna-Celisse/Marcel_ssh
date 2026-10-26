@@ -4,6 +4,8 @@ import { DISPOSITION_LABELS } from '@/lib/constants';
 import Badge from '@/components/ui/Badge';
 import { Maximize2, Check, X, ShieldAlert, HelpCircle } from 'lucide-react';
 import { registerCapsuleTarget } from '@/stores/capsuleFlyAnimation';
+import { usePrivacyMode } from '@/hooks/usePrivacyMode';
+import { formatInteractionSessionLabel } from '@/lib/privacy';
 
 interface InteractionFloatingCapsuleProps {
   interaction: ActiveInteractionPayload;
@@ -23,6 +25,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
   isCurrentContext = true,
 }) => {
   const capsuleRef = useRef<HTMLDivElement>(null);
+  const privacyMode = usePrivacyMode();
 
   useEffect(() => {
     registerCapsuleTarget(capsuleRef.current);
@@ -75,7 +78,7 @@ export const InteractionFloatingCapsule: React.FC<InteractionFloatingCapsuleProp
           {/* Context Info (Session name & conversation title) */}
           <div className="flex items-center gap-1 text-[11px] text-zinc-400 truncate max-w-[240px]">
             <span className="text-zinc-300 truncate">
-              {interaction.sessionName || 'SSH 会话'}
+              {formatInteractionSessionLabel(interaction.sessionTarget, privacyMode)}
             </span>
             {interaction.conversationTitle && (
               <>

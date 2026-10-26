@@ -10,6 +10,8 @@ import QuestionPanel from '@/components/agent/QuestionPanel';
 import { InteractionFloatingCapsule } from './InteractionFloatingCapsule';
 import { flyToInteractionCapsule } from '@/stores/capsuleFlyAnimation';
 import { openRiskRule } from '@/lib/riskRuleNav';
+import { usePrivacyMode } from '@/hooks/usePrivacyMode';
+import { formatInteractionSessionLabel } from '@/lib/privacy';
 
 /**
  * 「跳转查看」该跳到哪条 SSH 会话。
@@ -49,6 +51,7 @@ export default function GlobalInteractionOverlay() {
   const reject = useInteractionStore((s) => s.reject);
   const answerQuestion = useInteractionStore((s) => s.answerQuestion);
   const stopTask = useTaskStore((s) => s.stopTask);
+  const privacyMode = usePrivacyMode();
 
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -175,7 +178,7 @@ export default function GlobalInteractionOverlay() {
         }}
         open={true}
         onClose={minimizeInteraction}
-        sessionName={current.sessionName}
+        sessionName={formatInteractionSessionLabel(current.sessionTarget, privacyMode)}
         conversationTitle={current.conversationTitle}
         isCurrentContext={isCurrentContext}
         onNavigateToContext={handleNavigate}
@@ -209,7 +212,7 @@ export default function GlobalInteractionOverlay() {
                 void answerQuestion(current.taskId, current.question.questionId, empty);
               }
             }}
-            sessionName={current.sessionName}
+            sessionName={formatInteractionSessionLabel(current.sessionTarget, privacyMode)}
             conversationTitle={current.conversationTitle}
             isCurrentContext={isCurrentContext}
             onNavigateToContext={handleNavigate}

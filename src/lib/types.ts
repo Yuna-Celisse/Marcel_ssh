@@ -1254,7 +1254,8 @@ export interface ActiveInteractionPayload {
   taskId: string;
   sessionId: string;
   conversationId: string;
-  sessionName: string;
+  /** 交互所在 SSH 会话的目标机器；本机交互 / 会话已断开时缺省。显示一律经 `formatInteractionSessionLabel`（隐私模式）。 */
+  sessionTarget?: { username: string; host: string; port: number };
   conversationTitle: string;
   queueLength: number;
   approval?: {

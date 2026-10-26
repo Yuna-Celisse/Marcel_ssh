@@ -9,6 +9,8 @@ import MobileApprovalSheet from '@/mobile/MobileApprovalSheet';
 import MobileQuestionSheet from '@/mobile/MobileQuestionSheet';
 import { InteractionFloatingCapsule } from '@/components/agent/InteractionFloatingCapsule';
 import { openRiskRule } from '@/lib/riskRuleNav';
+import { usePrivacyMode } from '@/hooks/usePrivacyMode';
+import { formatInteractionSessionLabel } from '@/lib/privacy';
 
 /**
  * 「跳转」该跳到哪条 SSH 会话。
@@ -48,6 +50,7 @@ export default function MobileGlobalInteractionOverlay() {
   const reject = useInteractionStore((s) => s.reject);
   const answerQuestion = useInteractionStore((s) => s.answerQuestion);
   const stopTask = useTaskStore((s) => s.stopTask);
+  const privacyMode = usePrivacyMode();
 
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -157,7 +160,7 @@ export default function MobileGlobalInteractionOverlay() {
           await reject(current.taskId, current.approval.toolCallId, reason);
           await stopTask(current.taskId);
         }}
-        sessionName={current.sessionName}
+        sessionName={formatInteractionSessionLabel(current.sessionTarget, privacyMode)}
         conversationTitle={current.conversationTitle}
         isCurrentContext={isCurrentContext}
         onNavigateToContext={handleNavigate}
@@ -187,7 +190,7 @@ export default function MobileGlobalInteractionOverlay() {
               void answerQuestion(current.taskId, current.question.questionId, empty);
             }
           }}
-          sessionName={current.sessionName}
+          sessionName={formatInteractionSessionLabel(current.sessionTarget, privacyMode)}
           conversationTitle={current.conversationTitle}
           isCurrentContext={isCurrentContext}
           onNavigateToContext={handleNavigate}
