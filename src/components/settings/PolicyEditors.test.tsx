@@ -256,6 +256,8 @@ describe('ProtectedPathsEditor', () => {
     )!;
     await typeInto(input, '/boot');
     await act(async () => {
+    reason: '',
+    reasonVars: [],
       buttonByText('添加').click();
     });
     expect(read().overrides).toEqual({});
@@ -333,7 +335,11 @@ describe('CustomRiskRulesEditor', () => {
       ]);
       return (
         <>
-          <CustomRiskRulesEditor rules={rules} onChange={setRules} />
+          <CustomRiskRulesEditor
+            rules={rules}
+            onChange={setRules}
+            reasonTemplate={reasonTemplate}
+          />
           <output>{JSON.stringify(rules)}</output>
         </>
       );
@@ -351,20 +357,52 @@ describe('CustomRiskRulesEditor', () => {
       expect(box()).toBeNull();
     });
 
-    it('shows the message box at 直接拒绝 and saves what is typed', async () => {
-      await render(<WithRule level="Deny" />);
-      await openRule();
-      expect(box()).not.toBeNull();
-      const area = box()!;
-      await act(async () => {
+    const typeIn = async (area: HTMLTextAreaElement, text: string) =>
+      act(async () => {
         const setter = Object.getOwnPropertyDescriptor(
           HTMLTextAreaElement.prototype,
           'value',
         )!.set!;
-        setter.call(area, '生产库禁止清理');
+        setter.call(area, text);
         area.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      expect(read()[0].message).toBe('生产库禁止清理');
+
+    it('starts from the default wording the Agent would get, not an empty box', async () => {
+      await render(<WithRule level="Deny" />);
+      await openRule();
+      expect(box()!.value).toBe('命中自定义规则「{规则}」');
+      // 没动过 = 什么都不存，仍走默认。
+      expect(read()[0].message).toBe('');
+      // 能用的占位列在框下面。
+      expect(host!.textContent).toContain('{规则}');
+    });
+
+    it('edits on top of the default, stores only a real change, and can go back', async () => {
+      await render(<WithRule level="Deny" />);
+      await openRule();
+      await typeIn(box()!, '命中自定义规则「{规则}」，生产库禁止清理');
+      expect(read()[0].message).toBe('命中自定义规则「{规则}」，生产库禁止清理');
+      await act(async () => {
+        buttonByText('恢复默认').click();
+      });
+      expect(read()[0].message).toBe('');
+      expect(box()!.value).toBe('命中自定义规则「{规则}」');
+      // 改回和默认一字不差，也不算改动。
+      await typeIn(box()!, '别的话');
+      await typeIn(box()!, '命中自定义规则「{规则}」');
+      expect(read()[0].message).toBe('');
+    });
+
+    it('a placeholder button inserts at the cursor', async () => {
+      await render(<WithRule level="Deny" />);
+      await openRule();
+      const area = box()!;
+      await typeIn(area, '禁止：');
+      area.setSelectionRange(3, 3);
+      await act(async () => {
+        buttonByText('{规则}').click();
+      });
+      expect(read()[0].message).toBe('禁止：{规则}');
     });
   });
 
@@ -414,6 +452,10 @@ describe('CustomRiskRulesEditor chips', () => {
     await render(<Harness initial={five} />);
     for (const c of ['rm', 'mkfs', 'dd', 'shutdown', 'reboot']) {
       expect(chip(`d-${c}`).textContent).toBe(c);
+    const reasonTemplate = {
+      reason: '命中自定义规则「{规则}」',
+      reasonVars: [{ name: '规则', hint: '这条规则的名字' }],
+    };
     }
     expect(host!.querySelector('input')).toBeNull();
   });

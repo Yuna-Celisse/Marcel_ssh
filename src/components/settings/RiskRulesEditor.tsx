@@ -304,7 +304,9 @@ function RuleRow({
           )}
           {!isExemption && level === 'Deny' && (
             <DenyMessageField
-              value={override?.message ?? ''}
+              stored={override?.message ?? ''}
+              template={rule.reason}
+              vars={rule.reasonVars}
               onChange={(m) => emit((o) => setRuleMessage(o, rule, m))}
               ariaLabel={`${rule.title}：拒绝说明`}
               compact={compact}

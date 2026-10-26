@@ -277,6 +277,7 @@ export function AgentPolicySection() {
             <CustomRiskRulesEditor
               rules={customRules}
               onChange={(next) => update({ customRiskRules: next })}
+              reasonTemplate={catalog?.customRule}
             />
           </div>
         </SettingItem>

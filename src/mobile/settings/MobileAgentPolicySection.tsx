@@ -208,6 +208,7 @@ export function MobileAgentPolicySection() {
           <CustomRiskRulesEditor
             rules={customRules}
             onChange={(next) => update({ customRiskRules: next })}
+            reasonTemplate={catalog?.customRule}
             compact
           />
         </div>

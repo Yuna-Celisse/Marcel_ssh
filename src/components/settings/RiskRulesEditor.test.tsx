@@ -18,6 +18,8 @@ const catalog: RiskRuleCatalog = {
       description: 'pkill 误伤面不可控',
       examples: ['pkill -f myapp'],
       defaultLevel: 'Deny',
+      reason: '`{命令}` 按名字批量杀进程，误伤面不可控',
+      reasonVars: [{ name: '命令', hint: '命中的命令名' }],
       lists: [
         {
           key: 'name_based_kill_commands',
@@ -35,6 +37,8 @@ const catalog: RiskRuleCatalog = {
       description: 'cat /etc/hosts 不算写',
       examples: ['cat /etc/hosts'],
       defaultLevel: 'Allow',
+      reason: '',
+      reasonVars: [],
       lists: [],
     },
     {
@@ -45,6 +49,8 @@ const catalog: RiskRuleCatalog = {
       description: '落在受保护路径下的写入',
       examples: [],
       defaultLevel: 'ForceApproval',
+      reason: '',
+      reasonVars: [],
       lists: [
         {
           key: 'protected_paths',
@@ -55,6 +61,7 @@ const catalog: RiskRuleCatalog = {
       ],
     },
   ],
+  customRule: { reason: '命中自定义规则「{规则}」', reasonVars: [] },
 };
 
 vi.mock('@/lib/tauri', () => ({
@@ -308,20 +315,41 @@ describe('refusal message on built-in rules', () => {
       ruleRow(id).querySelector<HTMLButtonElement>('button[aria-expanded]')!.click();
     });
 
-  it('shows the box for a rule at 直接拒绝, and writes it as a difference', async () => {
-    await mount();
-    await expand('name_based_kill');
-    const area = messageBox()!;
-    expect(area).not.toBeNull();
-    await act(async () => {
+  const typeIn = async (area: HTMLTextAreaElement, text: string) =>
+    act(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
         'value',
       )!.set!;
-      setter.call(area, '请指定进程号再杀');
+      setter.call(area, text);
       area.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    expect(last()).toEqual({ name_based_kill: { message: '请指定进程号再杀' } });
+
+  it('shows the default wording for a rule at 直接拒绝 and edits on top of it', async () => {
+    await mount();
+    await expand('name_based_kill');
+    const area = messageBox()!;
+    expect(area).not.toBeNull();
+    expect(area.value).toBe('`{命令}` 按名字批量杀进程，误伤面不可控');
+    expect(changes).toHaveLength(0);
+    await typeIn(area, '`{命令}` 按名字批量杀进程，请指定进程号再杀');
+    expect(last()).toEqual({
+      name_based_kill: { message: '`{命令}` 按名字批量杀进程，请指定进程号再杀' },
+    });
+    // 改回默认原话就不算改动，覆盖项整条消失。
+    await typeIn(area, '`{命令}` 按名字批量杀进程，误伤面不可控');
+    expect(last()).toEqual({});
+  });
+
+  it('restores the default wording with one click', async () => {
+    await mount({ name_based_kill: { message: '我的话' } });
+    await expand('name_based_kill');
+    expect(messageBox()!.value).toBe('我的话');
+    await act(async () => {
+      buttonByText('恢复默认').click();
+    });
+    expect(last()).toEqual({});
+    expect(messageBox()!.value).toBe('`{命令}` 按名字批量杀进程，误伤面不可控');
   });
 
   it('has no box for a rule below 直接拒绝, nor for an exemption', async () => {

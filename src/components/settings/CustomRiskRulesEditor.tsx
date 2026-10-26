@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { CustomRiskRule } from '@/lib/types';
+import type { CustomRiskRule, CustomRuleReason } from '@/lib/types';
 import {
   CUSTOM_RULE_LEVELS,
   RULE_LEVEL_DOT,
@@ -38,10 +38,13 @@ export function CustomRiskRulesEditor({
   rules,
   onChange,
   compact,
+  reasonTemplate,
 }: {
   rules: CustomRiskRule[];
   onChange: (next: CustomRiskRule[]) => void;
   compact?: boolean;
+  /** 后端给的默认说明（「拒绝说明」框预填它）；目录还没加载出来时为空。 */
+  reasonTemplate?: CustomRuleReason | null;
 }) {
   // 正在编辑的那一条（同一时间只开一条）。
   const [editing, setEditing] = useState<string | null>(null);
@@ -155,6 +158,7 @@ export function CustomRiskRulesEditor({
           key={editingRule.id}
           rule={editingRule}
           compact={compact}
+          reasonTemplate={reasonTemplate}
           onPatch={(next) => patch(editingRule.id, next)}
           onRemove={() => removeRule(editingRule.id)}
         />
@@ -167,11 +171,13 @@ export function CustomRiskRulesEditor({
 function RuleEditor({
   rule,
   compact,
+  reasonTemplate,
   onPatch,
   onRemove,
 }: {
   rule: CustomRiskRule;
   compact?: boolean;
+  reasonTemplate?: CustomRuleReason | null;
   onPatch: (next: Partial<CustomRiskRule>) => void;
   onRemove: () => void;
 }) {
@@ -247,7 +253,9 @@ function RuleEditor({
       </div>
       {rule.level === 'Deny' && (
         <DenyMessageField
-          value={rule.message ?? ''}
+          stored={rule.message ?? ''}
+          template={reasonTemplate?.reason ?? ''}
+          vars={reasonTemplate?.reasonVars ?? []}
           onChange={(message) => onPatch({ message })}
           ariaLabel={`${rule.command || '新规则'}：拒绝说明`}
           compact={compact}

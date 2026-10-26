@@ -1451,6 +1451,12 @@ export interface CommandCheckResult {
   hits: CommandRuleHit[];
 }
 
+/** 说明模板里的一个占位：`{name}` 在命中时换成实际值。 */
+export interface ReasonVar {
+  name: string;
+  hint: string;
+}
+
 /** 用户对一条内置风险规则的改动，三项都可缺省（缺省 = 用默认）。 */
 export interface RiskRuleOverride {
   /** false = 关闭这条规则（豁免则是不再豁免）。 */
@@ -1458,7 +1464,7 @@ export interface RiskRuleOverride {
   level?: Disposition;
   /** 名单参数：key → 完整条目表（整体替换默认，不是增量）。 */
   lists?: Record<string, string[]>;
-  /** 档位是「直接拒绝」时回给 Agent 的话（替换规则自带的说明）；留空 = 默认。 */
+  /** 档位是「直接拒绝」时回给 Agent 的话（替换默认说明，可带 `{命令}` 这类占位）；留空 = 默认。 */
   message?: string;
 }
 
@@ -1472,7 +1478,7 @@ export interface CustomRiskRule {
   argContains: string;
   level: Disposition;
   enabled: boolean;
-  /** 档位是「直接拒绝」时回给 Agent 的话；留空 = 默认的「命中自定义规则…」。 */
+  /** 档位是「直接拒绝」时回给 Agent 的话（可带占位）；留空 = 默认的「命中自定义规则…」。 */
   message: string;
 }
 
@@ -1495,11 +1501,21 @@ export interface RiskRuleInfo {
   examples: string[];
   defaultLevel: Disposition;
   lists: RiskListInfo[];
+  /** 命中时回给 Agent 的默认说明（模板，`{名}` 是占位）；「拒绝说明」框预填它。豁免为空。 */
+  reason: string;
+  reasonVars: ReasonVar[];
+}
+
+/** 自定义规则的默认说明（模板 + 占位）。 */
+export interface CustomRuleReason {
+  reason: string;
+  reasonVars: ReasonVar[];
 }
 
 /** 后端规则目录：说明与默认值的唯一来源（前端不抄一份）。 */
 export interface RiskRuleCatalog {
   rules: RiskRuleInfo[];
+  customRule: CustomRuleReason;
 }
 
 /** 「测试命令」带上的设置草稿：还没保存的规则也要能测出结果。 */

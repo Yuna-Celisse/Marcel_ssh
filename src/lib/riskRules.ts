@@ -170,8 +170,9 @@ function tidy(
   const next: RiskRuleOverride = { ...o };
   if (next.level === rule.defaultLevel) delete next.level;
   if (next.enabled === true) delete next.enabled;
-  // 不 trim 存进去的文本：用户正在输入时末尾的空格不能被吃掉；只有纯空白才算「没写」。
-  if (isBlank(next.message)) delete next.message;
+  // 不 trim 存进去的文本：用户正在输入时末尾的空格不能被吃掉；只有纯空白、
+  // 或与默认原话一字不差才算「没改」。
+  if (isBlank(next.message) || next.message === rule.reason) delete next.message;
   if (next.lists) {
     const lists: Record<string, string[]> = {};
     for (const [key, items] of Object.entries(next.lists)) {

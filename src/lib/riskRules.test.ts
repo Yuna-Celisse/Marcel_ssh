@@ -30,6 +30,8 @@ const kill: RiskRuleInfo = {
   description: 'pkill / killall 误伤面不可控',
   examples: ['pkill -f myapp'],
   defaultLevel: 'Deny',
+  reason: '`{命令}` 按名字批量杀进程，误伤面不可控',
+  reasonVars: [{ name: '命令', hint: '命中的命令名' }],
   lists: [{ key: 'name_based_kill_commands', label: '命令名', hint: '', defaults: ['pkill', 'killall', 'zapall'] }],
 };
 
@@ -41,11 +43,14 @@ const exempt: RiskRuleInfo = {
   description: 'cat /etc/hosts 不算写',
   examples: ['cat /etc/hosts'],
   defaultLevel: 'Allow',
+  reason: '',
+  reasonVars: [],
   lists: [],
 };
 
 const catalog: RiskRuleCatalog = {
   rules: [kill, exempt],
+  customRule: { reason: '命中自定义规则「{规则}」', reasonVars: [] },
 };
 
 describe('effectiveLevel', () => {
@@ -234,6 +239,10 @@ describe('setRuleMessage', () => {
       name_based_kill: { message: '改用 systemctl 重启指定服务' },
     });
     expect(setRuleMessage(written, kill, '   ')).toEqual({});
+  });
+
+  it('the default wording itself is not a modification', () => {
+    expect(setRuleMessage({}, kill, kill.reason)).toEqual({});
   });
 
   it('keeps what is typed as typed (no trimming while the user is still typing)', () => {
