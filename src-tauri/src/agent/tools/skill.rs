@@ -218,8 +218,8 @@ mod tests {
 
     #[test]
     fn builtin_skill_gets_platform_section() {
-        let mut skill = Skill::new("Agent 模式与审批指导", "教学", "正文内容");
-        skill.id = "builtin.agent-modes".into();
+        let mut skill = Skill::new("可视化", "创作", "正文内容");
+        skill.id = crate::skills::builtin::VISUALIZE_SKILL_ID.into();
         let tool = SkillTool::new(&skill);
         assert!(
             tool.prompt.contains("用户当前平台"),
@@ -250,7 +250,7 @@ mod tests {
             "桌面端不应拿到手机规则"
         );
         assert!(
-            !builtin_skill_additions("builtin.agent-modes", true).contains(marker),
+            !builtin_skill_additions("builtin.some-other", true).contains(marker),
             "其它内置 skill 不应拿到手机规则"
         );
     }

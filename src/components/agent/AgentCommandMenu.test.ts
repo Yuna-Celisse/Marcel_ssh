@@ -127,9 +127,9 @@ describe('buildAgentCommandEntries', () => {
   it('never shows builtin skills even with empty query', () => {
     const builtin: Skill = {
       ...makeSkill(),
-      id: 'builtin.agent-modes',
-      name: 'Agent 模式与审批指导',
-      description: '教学用',
+      id: 'builtin.visualize',
+      name: '交互可视化',
+      description: '审批示意用',
     };
     const entries = buildAgentCommandEntries({
       modeSubmenu: false,
@@ -140,7 +140,7 @@ describe('buildAgentCommandEntries', () => {
     const skillIds = entries
       .filter((e) => e.kind === 'skill')
       .map((e) => (e.kind === 'skill' ? e.skill.id : ''));
-    expect(skillIds).not.toContain('builtin.agent-modes');
+    expect(skillIds).not.toContain('builtin.visualize');
     expect(skillIds).toEqual(['s-1', 's-2']);
 
     // 即使搜索词命中内置 skill 名称，也不出现

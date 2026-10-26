@@ -9,7 +9,7 @@ use crate::skills::store::{Skill, SkillStore};
 /// - 内置 skill 使用**固定确定性 id**，保证应用升级前后仍是同一条记录；
 /// - 内置 skill **不可编辑、不可删除**，只能启用/禁用——内容始终以当前
 ///   二进制内嵌的版本为准，应用升级后启动时无条件覆盖，确保用户总能
-///   吃到最新教学内容（enabled 状态保留）；
+///   吃到最新内容（enabled 状态保留）；
 /// - `skill_update` / `skill_delete` command 都必须遵守上述规则
 ///   （见 `commands/skill.rs`）。
 pub const BUILTIN_SKILL_PREFIX: &str = "builtin.";
@@ -28,24 +28,32 @@ struct BuiltinSkillDef {
     content: &'static str,
 }
 
-const BUILTIN_SKILLS: &[BuiltinSkillDef] = &[
-    BuiltinSkillDef {
-        id: "builtin.agent-modes",
-        content: include_str!("../../builtin_skills/agent-modes.md"),
-    },
-    BuiltinSkillDef {
-        id: "builtin.model-setup",
-        content: include_str!("../../builtin_skills/model-setup.md"),
-    },
-    BuiltinSkillDef {
-        id: "builtin.extensions",
-        content: include_str!("../../builtin_skills/extensions.md"),
-    },
-    BuiltinSkillDef {
-        id: VISUALIZE_SKILL_ID,
-        content: include_str!("../../builtin_skills/visualize.md"),
-    },
+const BUILTIN_SKILLS: &[BuiltinSkillDef] = &[BuiltinSkillDef {
+    id: VISUALIZE_SKILL_ID,
+    content: include_str!("../../builtin_skills/visualize.md"),
+}];
+
+/// 已下线的内置 skill id（界面操作指导类：Agent 模式 / 模型配置 / 扩展功能）。
+///
+/// 内置 skill 对用户**不可删除**，旧版本启动时写进 `skills.json` 的记录不会
+/// 自己消失，所以下线一条内置 skill 必须把它的 id 登记在这里，启动时由
+/// [`retire_builtin_skills`] 清掉；否则老用户的列表里会留着一条删不掉、
+/// 内容再也不更新的残骸，还会继续注册成 `skill_*` 工具。
+const RETIRED_BUILTIN_SKILL_IDS: &[&str] = &[
+    "builtin.agent-modes",
+    "builtin.model-setup",
+    "builtin.extensions",
 ];
+
+/// 启动时调用：把已下线的内置 skill 从 store 里摘掉，返回被摘掉的条数
+/// （调用方据此决定是否持久化）。
+pub fn retire_builtin_skills(store: &mut SkillStore) -> usize {
+    let before = store.skills.len();
+    store
+        .skills
+        .retain(|s| !RETIRED_BUILTIN_SKILL_IDS.contains(&s.id.as_str()));
+    before - store.skills.len()
+}
 
 /// 启动时调用：把内置 skill 注入/更新到 store。
 ///
@@ -185,6 +193,31 @@ mod tests {
                 "visualize skill 只允许一个完整示例（锚点 {once} 应恰好一次）；多出来的都会变成模板"
             );
         }
+    }
+
+    #[test]
+    fn retired_ids_are_not_registered_and_are_removed_from_store() {
+        for id in RETIRED_BUILTIN_SKILL_IDS {
+            assert!(
+                is_builtin_skill_id(id) && BUILTIN_SKILLS.iter().all(|d| d.id != *id),
+                "下线的内置 skill 不能同时还在注册表里: {id}"
+            );
+        }
+        let mut store = SkillStore::new();
+        ensure_builtin_skills(&mut store);
+        for id in RETIRED_BUILTIN_SKILL_IDS {
+            let mut stale = Skill::new("旧内置", "desc", "prompt");
+            stale.id = (*id).to_string();
+            store.add(stale);
+        }
+        let user = Skill::new("我的 skill", "desc", "prompt");
+        let user_id = user.id.clone();
+        store.add(user);
+
+        assert_eq!(retire_builtin_skills(&mut store), RETIRED_BUILTIN_SKILL_IDS.len());
+        assert!(store.get(VISUALIZE_SKILL_ID).is_some(), "在册内置 skill 不能被误删");
+        assert!(store.get(&user_id).is_some(), "用户 skill 不能被误删");
+        assert_eq!(retire_builtin_skills(&mut store), 0, "第二次不应再有变更");
     }
 
     #[test]

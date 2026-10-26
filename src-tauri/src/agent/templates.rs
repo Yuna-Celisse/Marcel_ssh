@@ -21,7 +21,7 @@
 //! | 记忆复盘 | `templates/memory/复盘.hbs`（含 `记忆准则`） | 后台复盘开启且一段对话告一段落 | 复盘专用 LLM 调用（`memory::reflect`） |
 //! | 记忆整理助手 | `templates/memory/整理助手.hbs`（含 `记忆准则`） | 记忆管理页对话框 | 整理助手专用 LLM 调用（`memory::assistant`） |
 //! | 压缩前言 / 压缩指令 | `templates/context/压缩前言.hbs`、`压缩指令.hbs` | 每次上下文压缩 | 摘要专用 LLM 调用（带常规请求同一份 tools schema） |
-//! | 技能平台说明 | `templates/skill/平台说明.hbs` | 调用内置教学 skill | skill 工具结果 |
+//! | 技能平台说明 | `templates/skill/平台说明.hbs` | 调用内置 skill | skill 工具结果 |
 //! | 可视化手机端规则 | `templates/skill/可视化_移动端.hbs` | 手机端调用 `builtin.visualize` | skill 工具结果 |
 //! | 命令审批 | `templates/approval/审批.hbs` | 启用模型审批且用户未自定义 | 审批专用 LLM 调用（chat 引擎） |
 //! | 审批（Plan 追加） | `templates/approval/审批规划.hbs` | 同上 + Plan 模式 | 审批专用 LLM 调用（**两个引擎共用**） |

@@ -493,8 +493,8 @@ impl AppState {
             }
         };
 
-        // 内置教学 skill：注入缺失项 / 覆盖旧版内容（enabled 状态保留）。
-        // 内容以二进制内嵌版本为准，保证应用升级后用户吃到最新教学内容。
+        // 内置 skill：注入缺失项 / 覆盖旧版内容（enabled 状态保留），并摘掉已下线的
+        // 旧内置项。内容以二进制内嵌版本为准，保证应用升级后用户吃到最新内容。
         //
         // 加载失败时**不落盘**（内存里照常注入，UI/工具不受影响）：空 store
         // 落盘会把刚隔离出来的原文件替换成「只剩内置项」，而持久化的内容里
@@ -504,18 +504,24 @@ impl AppState {
         let skill_store = {
             let mut store = skill_store;
             let changed = crate::skills::builtin::ensure_builtin_skills(&mut store);
-            if !changed.is_empty() {
+            let retired = crate::skills::builtin::retire_builtin_skills(&mut store);
+            if !changed.is_empty() || retired > 0 {
                 if skills_load_failed {
                     log::warn!(
-                        "内置 skill 已注入 {} 项，但 skills.json 本次加载失败，暂不落盘（原文件保持原样）",
-                        changed.len()
+                        "内置 skill 已注入 {} 项、下线 {} 项，但 skills.json 本次加载失败，暂不落盘（原文件保持原样）",
+                        changed.len(),
+                        retired
                     );
                 } else {
                     let path = SkillStore::default_file(&config_dir);
                     if let Err(e) = store.save_to_path(&path) {
-                        log::warn!("内置 skill 注入后持久化失败: {}", e);
+                        log::warn!("内置 skill 同步后持久化失败: {}", e);
                     }
-                    log::info!("内置 skill 已注入/更新 {} 项", changed.len());
+                    log::info!(
+                        "内置 skill 已注入/更新 {} 项，下线 {} 项",
+                        changed.len(),
+                        retired
+                    );
                 }
             }
             store

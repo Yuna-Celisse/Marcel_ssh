@@ -1,7 +1,7 @@
 import type { Skill } from '@/lib/types';
 
 /**
- * 内置教学 skill 识别。
+ * 内置 skill 识别。
  *
  * 与后端 `src-tauri/src/skills/builtin.rs` 的 BUILTIN_SKILL_PREFIX 保持一致：
  * 内置 skill 使用固定确定性 id（builtin.xxx），不可编辑、不可删除，
@@ -14,11 +14,7 @@ export function isBuiltinSkill(skill: Pick<Skill, 'id'>): boolean {
 }
 
 /** 内置 skill 的固定展示顺序；未知内置 id 排在其后（稳定保持相对顺序） */
-const BUILTIN_ORDER = [
-  'builtin.agent-modes',
-  'builtin.model-setup',
-  'builtin.extensions',
-];
+const BUILTIN_ORDER = ['builtin.visualize'];
 
 /**
  * 展示排序：内置 skill 固定置顶（按 BUILTIN_ORDER），不被用户 skill 挤下去；

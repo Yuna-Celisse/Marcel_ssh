@@ -73,7 +73,7 @@ export function buildAgentCommandEntries(opts: {
       hint: '复制到新会话继续，原会话不变',
     });
   }
-  // 内置教学 skill 供 AI 调用，不进 `/` 插入面板；用户 skill 按手动排序展示
+  // 内置 skill 供 AI 调用，不进 `/` 插入面板；用户 skill 按手动排序展示
   const skillEntries: MenuEntry[] = sortSkillsForDisplay(skills)
     .filter((s) => !isBuiltinSkill(s))
     .filter((s) => !excludeSkillIds?.includes(s.id))
