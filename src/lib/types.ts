@@ -615,7 +615,7 @@ export interface ToolCallInfo {
   result?: string;
   disposition: Disposition;
   approved?: boolean;
-  /** Reasons from the model approval step, shown when the model routed to human. */
+  /** 要人点头的原因：模型审批给的理由与静态规则命中的理由合并后的列表（弹窗标「原因」）。 */
   reasons?: string[];
   /** 这次调用命中的风险规则 id（审批弹窗据此展示规则名并给出调整入口）。 */
   ruleIds?: string[];

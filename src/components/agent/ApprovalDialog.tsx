@@ -162,7 +162,7 @@ export default function ApprovalDialog({
           视口，超出部分**没有任何滚动条能到达** —— 批准 / 拒绝按钮被顶到屏幕外，
           而 Enter 恰好 = 批准、Esc 只是收起：按钮点不到的时候，键盘上那个「批准」
           还活着，用户可能在没看清内容的情况下把危险操作批下去。会长的不止一处：
-          `description`（模型自述，无上限）、`reasons`（模型提示列表，条数无上限）、
+          `description`（模型自述，无上限）、`reasons`（原因列表，条数无上限）、
           参数 JSON 与 extras 都是模型给的，任一超长都撑得破。
           底部那条必须 sticky：它是唯一能给出答案的地方，任何长度的正文都不该把
           它推走（背景色与面板同色，滚动时盖住穿过的正文）。 */}
@@ -275,7 +275,7 @@ export default function ApprovalDialog({
 
           {toolCall.reasons && toolCall.reasons.length > 0 && (
             <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 px-3 py-2">
-              <div className="text-xs font-medium text-amber-300 mb-1">模型提示</div>
+              <div className="text-xs font-medium text-amber-300 mb-1">原因</div>
               <ul className="text-xs text-amber-200/90 space-y-0.5 list-disc list-inside">
                 {toolCall.reasons.map((r, i) => (
                   <li key={i}>{r}</li>

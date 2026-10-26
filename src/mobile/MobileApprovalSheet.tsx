@@ -243,7 +243,7 @@ export default function MobileApprovalSheet({
         {toolCall.reasons && toolCall.reasons.length > 0 && (
           <div className="rounded-lg border border-amber-700/60 bg-amber-950/40 px-3 py-2">
             <div className="mb-1 text-xs font-medium text-amber-300">
-              模型提示
+              原因
             </div>
             <ul className="list-inside list-disc space-y-0.5 text-xs text-amber-200/90">
               {toolCall.reasons.map((r, i) => (
