@@ -740,7 +740,27 @@ fn append_load_warning(slot: &mut Option<String>, msg: String) {
 pub fn run() {
     diag_log::init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // 单实例：配置目录（会话库、设置、known_hosts、插件注册表）与无感更新的
+    // 「退出即装」都假定只有一个进程在用，多开会互相覆盖。第二次启动只把已运行
+    // 实例的主窗口拉回前台，自己退出。必须最先注册（官方要求，否则第二个实例
+    // 可能已经开始读写配置）。仅桌面发布版：开发版不拦，免得本机装着发布版时
+    // `tauri dev` 一启动就退出；MCP Server 模式在 `main()` 里先于 `run()` 分流，
+    // 不受影响。
+    #[cfg(all(desktop, not(debug_assertions)))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            // 主窗口启动时是隐藏的，前端就绪（`app_ready`）才显示；那之前不要抢着
+            // show，否则会闪一下白屏。
+            if window.is_visible().unwrap_or(false) {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+    }));
+
+    builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
