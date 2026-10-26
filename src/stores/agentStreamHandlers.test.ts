@@ -86,6 +86,8 @@ describe('agentStreamHandlers', () => {
         flushRafId: null,
         compactionMessageId: null,
         compactionTrigger: null,
+        pendingCompactionText: null,
+        compactionRafId: null,
       });
       const state = getStreamState(taskId);
       expect(state.assistantMessageId).toBe('msg-1');
@@ -1089,6 +1091,8 @@ describe('agentStreamHandlers', () => {
         type: 'compactionProgress',
         text: '## Primary Request\n- build a terminal',
       });
+      // 合帧：进度攒到下一帧才提交
+      rafCalls.forEach((cb) => cb());
 
       expect(handler._messages[convId]).toHaveLength(1);
       const live = handler._messages[convId][0];
@@ -1107,6 +1111,75 @@ describe('agentStreamHandlers', () => {
         text: 'orphan',
       });
       expect(handler._messages[convId]).toHaveLength(0);
+    });
+
+    it('coalesces many progress events within a frame into a single store commit', () => {
+      const handler = mockHandler({ [convId]: [] });
+      handleCompactionStart(handler, taskId, convId, {
+        type: 'compactionStart',
+        trigger: 'pressure',
+      });
+      const original = handler.updateMessages;
+      const commits = vi.fn(original);
+      handler.updateMessages = commits;
+
+      for (let i = 1; i <= 200; i++) {
+        handleCompactionProgress(handler, taskId, convId, {
+          type: 'compactionProgress',
+          text: `summary ${i}`,
+        });
+      }
+      // 帧还没到：一次都没碰 store，且只排了一个 rAF
+      expect(commits).not.toHaveBeenCalled();
+      expect(rafCalls).toHaveLength(1);
+
+      rafCalls.forEach((cb) => cb());
+      expect(commits).toHaveBeenCalledTimes(1);
+      expect(handler._messages[convId][0].compaction?.summary).toBe('summary 200');
+      expect(getStreamState(taskId).compactionRafId).toBeNull();
+      expect(getStreamState(taskId).pendingCompactionText).toBeNull();
+    });
+
+    it('drops un-flushed progress when the card is finalized, so a late frame cannot revive it', () => {
+      const handler = mockHandler({ [convId]: [] });
+      handleCompactionStart(handler, taskId, convId, {
+        type: 'compactionStart',
+        trigger: 'manual',
+      });
+      handleCompactionProgress(handler, taskId, convId, {
+        type: 'compactionProgress',
+        text: 'half a summary',
+      });
+      handleCompactionDone(handler, taskId, convId, {
+        type: 'compactionDone',
+        summary: 'final summary',
+        shadowedMessages: 4,
+        shadowedTokens: 1200,
+        tailDbId: null,
+      });
+      // 定稿后迟到的那一帧（真实 rAF 已被取消；这里模拟最坏情况它仍被调用）
+      rafCalls.forEach((cb) => cb());
+
+      const cards = handler._messages[convId].filter((m) => m.compaction);
+      expect(cards).toHaveLength(1);
+      expect(cards[0].compaction?.status).toBe('done');
+      expect(cards[0].compaction?.summary).toBe('final summary');
+      expect(cancelAnimationFrame).toHaveBeenCalled();
+    });
+
+    it('cleanup cancels the pending progress frame', () => {
+      const handler = mockHandler({ [convId]: [] });
+      handleCompactionStart(handler, taskId, convId, {
+        type: 'compactionStart',
+        trigger: 'pressure',
+      });
+      handleCompactionProgress(handler, taskId, convId, {
+        type: 'compactionProgress',
+        text: 'partial',
+      });
+      cleanupStreamState(taskId);
+      expect(cancelAnimationFrame).toHaveBeenCalled();
+      expect(getStreamState(taskId).pendingCompactionText).toBeNull();
     });
 
     it('turns the card into a plain notice when summarization was attempted but failed', () => {

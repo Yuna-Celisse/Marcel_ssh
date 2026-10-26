@@ -30,6 +30,10 @@ pub mod pruner;
 pub mod region;
 pub mod summarizer;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use tokio::sync::watch;
 
 use crate::llm::manager::LlmManager;
@@ -170,6 +174,60 @@ fn record_event(
 ) {
     on_event(ev.clone());
     events.push(ev);
+}
+
+/// 摘要实时进度的最小推送间隔。
+///
+/// 进度事件带的是**累计全文**，逐 token 推送 = 每个事件都把迄今全部摘要再序列化、
+/// 过一遍 IPC、让前端整份对话重渲染一次；压缩又恰好发生在会话最大的时候，
+/// 前端处理不过来时事件在队列里堆积、内存上涨。100ms 对「逐字长出来」的观感
+/// 没有影响（约 10 次/秒），数据量却从 O(n²) 降到 O(n)。
+const PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(100);
+
+/// 摘要进度节流器：距上次放行不足 `min_interval` 的更新直接丢（累计全文，丢中间
+/// 帧不丢信息；最终文本由 `Done` 事件完整携带，不靠最后一帧进度）。
+///
+/// 空文本是「重试清屏」信号（`summarize_with_llm` 重试时发），恒放行并重置计时，
+/// 否则前端会残留上一轮的旧摘要。`now` 由调用方传入以便测试不依赖真实时钟。
+struct ProgressThrottle {
+    min_interval: Duration,
+    last_sent: Mutex<Option<Instant>>,
+    received: AtomicUsize,
+    sent: AtomicUsize,
+}
+
+impl ProgressThrottle {
+    fn new(min_interval: Duration) -> Self {
+        Self {
+            min_interval,
+            last_sent: Mutex::new(None),
+            received: AtomicUsize::new(0),
+            sent: AtomicUsize::new(0),
+        }
+    }
+
+    fn admit(&self, text: &str, now: Instant) -> bool {
+        self.received.fetch_add(1, Ordering::Relaxed);
+        let mut last = self.last_sent.lock().unwrap();
+        let due = match *last {
+            Some(t) => now.saturating_duration_since(t) >= self.min_interval,
+            None => true,
+        };
+        let pass = text.is_empty() || due;
+        if pass {
+            *last = if text.is_empty() { None } else { Some(now) };
+            self.sent.fetch_add(1, Ordering::Relaxed);
+        }
+        pass
+    }
+
+    /// `(收到, 放行)`：压缩收尾日志用，事后能看出节流起了多大作用。
+    fn counts(&self) -> (usize, usize) {
+        (
+            self.received.load(Ordering::Relaxed),
+            self.sent.load(Ordering::Relaxed),
+        )
+    }
 }
 
 /// 被压区间的估算 token 数。
@@ -775,8 +833,20 @@ async fn compact_region(
     let known_only = trigger == "pressure";
     let mut current = *range;
     let mut fallback_used = false;
+    // 整次压缩共用一个节流器（含降级重试），收尾日志才能给出完整的收发计数。
+    let throttle = ProgressThrottle::new(PROGRESS_MIN_INTERVAL);
+    let started = Instant::now();
     let summary_text = loop {
         let region_tokens = region_shadowed_tokens(msgs, &current);
+        // 崩溃/卡死后的追查线索：压缩恰是内存与主线程压力的峰值点，开始/收尾两条
+        // 日志夹住它，日志里只有「开始」没有「收尾」就说明崩在摘要阶段。
+        log::info!(
+            "compaction[{trigger}] 开始摘要：区间 {}..={}（{} 条，约 {region_tokens} tokens），消息流共 {} 条",
+            current.start,
+            current.end,
+            current.end - current.start + 1,
+            msgs.len()
+        );
         let input = summarizer::SummarizationInput {
             system: None,
             tools,
@@ -786,9 +856,11 @@ async fn compact_region(
         // 摘要文本增量 → Progress 事件实时转发（前端实时显示生成中的摘要）。
         // 回调借用 on_event 引用，生命周期限定在本次压缩事务内。
         let progress = |text: &str| {
-            on_event(CompactionEvent::Progress {
-                text: text.to_string(),
-            });
+            if throttle.admit(text, Instant::now()) {
+                on_event(CompactionEvent::Progress {
+                    text: text.to_string(),
+                });
+            }
         };
 
         let result = tokio::select! {
@@ -832,6 +904,13 @@ async fn compact_region(
             }
         }
     };
+
+    let (progress_received, progress_sent) = throttle.counts();
+    log::info!(
+        "compaction[{trigger}] 摘要完成：{} 字符，耗时 {} ms，进度事件 {progress_sent}/{progress_received}（推送/收到）",
+        summary_text.chars().count(),
+        started.elapsed().as_millis()
+    );
 
     // 影子定价按**最终**区间算（降级后区间可能比调用方给的更短）
     let shadowed_tokens = region_shadowed_tokens(msgs, &current);
@@ -1089,6 +1168,41 @@ mod tests {
             shrink_to_known_tail(&msgs2, &cuts2, &range2, true),
             Some(region::RangeSelection { start: 0, end: 0 })
         );
+    }
+
+    #[test]
+    fn progress_throttle_drops_updates_inside_the_interval() {
+        let t = ProgressThrottle::new(Duration::from_millis(100));
+        let t0 = Instant::now();
+        assert!(t.admit("a", t0), "第一条恒放行");
+        assert!(!t.admit("ab", t0 + Duration::from_millis(30)));
+        assert!(!t.admit("abc", t0 + Duration::from_millis(99)));
+        assert!(t.admit("abcd", t0 + Duration::from_millis(100)), "到点放行");
+        assert!(!t.admit("abcde", t0 + Duration::from_millis(150)));
+        assert_eq!(t.counts(), (5, 2));
+    }
+
+    /// 重试清屏信号（空文本）不能被节流吞掉，否则前端残留上一轮的旧摘要；
+    /// 清屏后计时重置，新一轮的第一条进度立即放行。
+    #[test]
+    fn progress_throttle_always_passes_reset_and_restarts_the_clock() {
+        let t = ProgressThrottle::new(Duration::from_millis(100));
+        let t0 = Instant::now();
+        assert!(t.admit("old summary", t0));
+        assert!(t.admit("", t0 + Duration::from_millis(1)), "清屏恒放行");
+        assert!(
+            t.admit("new", t0 + Duration::from_millis(2)),
+            "清屏后第一条进度立即放行"
+        );
+    }
+
+    /// 乱序/时钟回拨时 `saturating_duration_since` 不 panic，按「没到点」处理。
+    #[test]
+    fn progress_throttle_tolerates_a_clock_going_backwards() {
+        let t = ProgressThrottle::new(Duration::from_millis(100));
+        let t0 = Instant::now() + Duration::from_secs(1);
+        assert!(t.admit("a", t0));
+        assert!(!t.admit("b", t0 - Duration::from_millis(500)));
     }
 
     /// 大量同长度消息（char_len 字符），用于预算收缩的确定性用例。

@@ -358,6 +358,10 @@ interface TaskStreamState {
   /** 本次压缩的触发来源（pressure / context-overflow / manual）：
    *  Done 事件据此走手动队尾语义或自动 id 定位。 */
   compactionTrigger: string | null;
+  /** 摘要实时文本的合帧缓冲（累计全文，只留最新一份）。压缩恰恰发生在会话
+   *  最大的时候，逐事件提交 = 每个 token 拷贝一遍整份对话并重渲染。 */
+  pendingCompactionText: string | null;
+  compactionRafId: number | null;
 }
 
 const taskStreamState: Map<string, TaskStreamState> = new Map();
@@ -388,11 +392,17 @@ export function getStreamState(taskId: string): TaskStreamState {
     flushRafId: null,
     compactionMessageId: null,
     compactionTrigger: null,
+    pendingCompactionText: null,
+    compactionRafId: null,
   };
 }
 
 export function cleanupStreamState(taskId: string) {
   const state = taskStreamState.get(taskId);
+  // 压缩进度缓冲不补最后一笔：收尾 = Done/Skipped/取消，卡片内容由那些事件定稿。
+  if (state?.compactionRafId != null) {
+    cancelAnimationFrame(state.compactionRafId);
+  }
   // 收尾前的最后一笔：把还没进 store 的 delta 同步提交。
   // 收尾之后不会再有事件来触发 rAF flush，下面直接丢掉缓冲 —— 不补这一笔，
   // 用户会看到刚停下的那个回合在最后一句中途截断（DB 与重新加载都是完整的，
@@ -926,8 +936,29 @@ export function handleCompactionProgress(
   ev: { type: 'compactionProgress'; text: string },
 ) {
   const state = getStreamState(taskId);
+  if (!state.compactionMessageId) return; // 没有进行中的压缩卡片（正常情况 start 必先于 progress）
+  // 合帧：text 是累计全文，帧内后到的覆盖先到的，一帧只提交一次（普通回复的
+  // delta 同理，见 scheduleFlush）。不合帧时每个 token 都会拷贝整份对话数组
+  // 并触发重渲染，大会话里压缩期间主线程被打满、事件在 IPC 队列里越堆越多。
+  state.pendingCompactionText = ev.text;
+  setStreamState(taskId, state);
+  if (state.compactionRafId != null) return;
+  state.compactionRafId = requestAnimationFrame(() => {
+    flushCompactionProgress(handler, taskId, conversationId);
+  });
+}
+
+function flushCompactionProgress(
+  handler: StreamHandler,
+  taskId: string,
+  conversationId: string,
+) {
+  const state = getStreamState(taskId);
+  const text = state.pendingCompactionText;
   const id = state.compactionMessageId;
-  if (!id) return; // 没有进行中的压缩卡片（正常情况 start 必先于 progress）
+  state.pendingCompactionText = null;
+  state.compactionRafId = null;
+  if (text === null || !id) return;
   handler.updateMessages(conversationId, (convMsgs) => {
     const idx = convMsgs.findIndex((m) => m.id === id);
     if (idx === -1) return convMsgs;
@@ -936,16 +967,25 @@ export function handleCompactionProgress(
       ...newMsgs[idx],
       // content 同步为实时文本：让 AgentPanel 的 lastMessageSize 变化，
       // 外层列表跟随卡片增长滚动到底（与 assistant 流式同一机制）
-      content: ev.text,
+      content: text,
       compaction: {
         ...(newMsgs[idx].compaction ?? {}),
         status: 'running',
         // text 为累计全文，直接替换（后端重试时会从头重发，替换可自愈）
-        summary: ev.text,
+        summary: text,
       },
     };
     return newMsgs;
   });
+}
+
+/** Done / Skipped 定稿卡片前丢掉还没提交的进度：否则迟到的一帧会把定稿卡片写回「进行中」。 */
+function dropPendingCompactionProgress(state: TaskStreamState) {
+  state.pendingCompactionText = null;
+  if (state.compactionRafId != null) {
+    cancelAnimationFrame(state.compactionRafId);
+    state.compactionRafId = null;
+  }
 }
 
 export function handleCompactionDone(
@@ -968,6 +1008,7 @@ export function handleCompactionDone(
   // 完成后释放占位 id：本次完成卡独立存在，不占用"进行中"槽位。
   state.compactionMessageId = null;
   state.compactionTrigger = null;
+  dropPendingCompactionProgress(state);
   setStreamState(taskId, state);
 
   const header = `【上下文已压缩】已整理 ${ev.shadowedMessages} 条历史消息（约 ${ev.shadowedTokens} tokens）`;
@@ -1031,6 +1072,7 @@ export function handleCompactionSkipped(
   const id = state.compactionMessageId;
   if (!id) return; // 孤儿 skip（无进行中卡片）直接忽略
   state.compactionMessageId = null;
+  dropPendingCompactionProgress(state);
   setStreamState(taskId, state);
   handler.updateMessages(conversationId, (convMsgs) => {
     const idx = convMsgs.findIndex((m) => m.id === id);
