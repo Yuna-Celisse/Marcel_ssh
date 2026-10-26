@@ -8,8 +8,6 @@ pub mod child_resources;
 pub mod command_exec;
 pub mod commands;
 pub mod config;
-// 诊断日志落盘 + panic 钩子 + 「上次是否正常退出」标记：崩溃后有处可查。
-pub mod diag_log;
 // 分段并发下载器（HTTP Range）：GitHub 这类线路按单连接限速，安装包下载
 // 靠把一条流拆成多条连接才能跑满带宽（见模块内实测数据）。
 pub mod download;
@@ -738,7 +736,7 @@ fn append_load_warning(slot: &mut Option<String>, msg: String) {
 /// keeps calling `run()` directly.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    diag_log::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let builder = tauri::Builder::default();
 
@@ -791,7 +789,6 @@ pub fn run() {
                 .app_config_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
 
-            diag_log::attach_file(&config_dir);
             log::info!("App config directory: {}", config_dir.display());
             // AppState::new is async — create a short-lived runtime to drive
             // the parallel initialization. Independent stores load via
@@ -1184,12 +1181,6 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("Fatal: failed to start Tauri application")
         .run(|app, event| {
-            // 正常退出：撤掉「运行中」标记（下次启动据此判断上次是不是崩了）。
-            if let tauri::RunEvent::Exit = event {
-                if let Some(state) = app.try_state::<AppState>() {
-                    diag_log::mark_clean_exit(&state.config_dir);
-                }
-            }
             // 应用完全退出且有待装更新包时，延迟静默运行 NSIS 安装器
             // （/S 静默 /UPDATE 更新模式 /R 装完自动重启应用）。用户正常
             // 关闭应用即完成无感升级；「立即安装」也走这一路径。
