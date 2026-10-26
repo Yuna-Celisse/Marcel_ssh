@@ -7,6 +7,7 @@ import {
 } from '@/lib/constants';
 import { PROTECTED_PATHS_RULE, modifiedRuleCount } from '@/lib/riskRules';
 import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
+import { useApprovableTools } from '@/hooks/useApprovableTools';
 import { useCommandCheck } from '@/hooks/useCommandCheck';
 import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
 import { CommandCheckResultCard } from '@/components/settings/CommandCheckResultCard';
@@ -83,6 +84,7 @@ export function MobileAgentPolicySection() {
   const customRules = settings.customRiskRules ?? [];
   const customPaths = settings.customProtectedPaths ?? [];
   const { catalog } = useRiskRuleCatalog();
+  const approvableTools = useApprovableTools();
   const openPage = useRiskRuleFocusStore((s) => s.openPage);
   const focusRule = useRiskRuleFocusStore((s) => s.focus);
   const modifiedCount = modifiedRuleCount(riskOverrides);
@@ -438,6 +440,7 @@ export function MobileAgentPolicySection() {
             levels={agent.toolApprovalLevels ?? {}}
             onChange={(next) => updateAgent({ toolApprovalLevels: next })}
             onOpenCommandRules={scrollToCustomRules}
+            available={approvableTools}
             compact
           />
         </div>

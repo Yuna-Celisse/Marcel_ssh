@@ -1397,6 +1397,26 @@ fn builtin_tool_specs() -> Vec<BuiltinToolSpec> {
     specs
 }
 
+/// 设置页「需要审批的工具」里可以点名的内置工具（审批档位表的键，已去重）。
+///
+/// 清单直接取自内置工具声明表，新增工具自动出现在设置页，不用在前端再抄一份名单
+/// （前端那份抄过，漏了十几个）。两类不在其中：命令类工具（`bash` / `local_bash`）
+/// 的审批完全由命令规则决定、不读档位表；本机工具（`local_*`）与远端同名工具共用
+/// 同一个键（`tool_approval_key`），所以只出现一次。
+pub fn approvable_tool_names() -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for spec in builtin_tool_specs() {
+        if spec.semantics.command_arg.is_some() {
+            continue;
+        }
+        let key = crate::config::settings::tool_approval_key(spec.name);
+        if !names.iter().any(|n| n == key) {
+            names.push(key.to_string());
+        }
+    }
+    names
+}
+
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
@@ -1592,6 +1612,38 @@ pub(crate) const HOST_MATCH_RULE: &str = "IMPORTANT: must match the machine name
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approvable_tool_names_cover_every_non_command_builtin() {
+        let names = approvable_tool_names();
+        // 没有重复，也没有 `local_` 前缀（本机工具并入远端同名那一条）。
+        let mut sorted = names.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "重复的键: {names:?}");
+        assert!(
+            names.iter().all(|n| !n.starts_with("local_")),
+            "键里不该有 local_ 前缀: {names:?}"
+        );
+        // 命令类工具不读档位表，不能被点名。
+        assert!(!names.iter().any(|n| n == "bash"), "{names:?}");
+        // 声明表里每个非命令类内置工具的键都在清单里。
+        for spec in builtin_tool_specs() {
+            if spec.semantics.command_arg.is_some() {
+                continue;
+            }
+            let key = crate::config::settings::tool_approval_key(spec.name);
+            assert!(
+                names.iter().any(|n| n == key),
+                "{} 没出现在可点名清单里",
+                spec.name
+            );
+        }
+        // 以前前端只抄了其中一部分，这几个是被漏掉的典型。
+        for expected in ["subagent", "system_info", "job_kill", "memory", "render_html"] {
+            assert!(names.iter().any(|n| n == expected), "缺 {expected}");
+        }
+    }
 
     /// host 规则只允许出现在两处：系统提示词的多机段（完整说明）与本文件的
     /// `HOST_MATCH_RULE`（工具侧短提示）。

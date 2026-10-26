@@ -6,6 +6,7 @@ import {
 } from '@/lib/constants';
 import { PROTECTED_PATHS_RULE, modifiedRuleCount } from '@/lib/riskRules';
 import { useRiskRuleCatalog } from '@/hooks/useRiskRuleCatalog';
+import { useApprovableTools } from '@/hooks/useApprovableTools';
 import { useCommandCheck } from '@/hooks/useCommandCheck';
 import { flashCustomRule, scrollToCustomRules } from '@/lib/riskRuleNav';
 import { useRiskRuleFocusStore } from '@/stores/riskRuleFocusStore';
@@ -128,6 +129,7 @@ export function AgentPolicySection() {
   const customRules = settings.customRiskRules ?? [];
   const customPaths = settings.customProtectedPaths ?? [];
   const { catalog } = useRiskRuleCatalog();
+  const approvableTools = useApprovableTools();
   const openPage = useRiskRuleFocusStore((s) => s.openPage);
   const focusRule = useRiskRuleFocusStore((s) => s.focus);
   const modifiedCount = modifiedRuleCount(riskOverrides);
@@ -358,6 +360,7 @@ export function AgentPolicySection() {
               levels={agent.toolApprovalLevels ?? {}}
               onChange={(next) => updateAgent({ toolApprovalLevels: next })}
               onOpenCommandRules={scrollToCustomRules}
+              available={approvableTools}
             />
           </div>
         </SettingItem>

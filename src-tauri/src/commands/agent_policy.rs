@@ -178,6 +178,13 @@ pub struct RiskRuleCatalog {
     pub custom_rule: CustomRuleReason,
 }
 
+/// 「需要审批的工具」里可以点名的内置工具名（取自工具声明表，新增工具自动出现）。
+/// 显示名与分组是呈现问题，由前端按名字配；这里只负责「有哪些」。
+#[tauri::command]
+pub async fn agent_list_approvable_tools() -> Vec<String> {
+    crate::agent::tools::approvable_tool_names()
+}
+
 /// 全部内置命令风险规则（说明、默认档位、可编辑名单的默认值）。
 ///
 /// 只给静态目录；用户的改动在 `settings.riskRuleOverrides` / `customRiskRules` 里，

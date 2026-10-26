@@ -517,6 +517,11 @@ export async function agentListRiskRules(): Promise<RiskRuleCatalog> {
   return invoke<RiskRuleCatalog>("agent_list_risk_rules");
 }
 
+/** 「需要审批的工具」里可以点名的内置工具名（取自后端工具声明表，新增工具自动出现）。 */
+export async function agentListApprovableTools(): Promise<string[]> {
+  return invoke<string[]>("agent_list_approvable_tools");
+}
+
 /** 内置的命令审批系统提示词（设置页默认值展示 / 「恢复默认」用，不在前端自带副本）。 */
 export async function agentDefaultApprovalPrompt(): Promise<string> {
   return invoke<string>("agent_default_approval_prompt");
